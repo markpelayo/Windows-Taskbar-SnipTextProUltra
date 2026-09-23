@@ -5,12 +5,19 @@
 // for weeks and verbose growth is otherwise unbounded.
 //
 // Log at %LOCALAPPDATA%\SnipText\Logs\SnipText.log
+//
+// The namespace is `logging`, not the obvious `log`, because `::log` is the
+// C math function and <math.h> arrives transitively through the Windows
+// headers in every translation unit. MSVC rejects the collision outright:
+//   error C2757: 'log': a symbol with this name already exists and therefore
+//   this name cannot be used as a namespace name
+// Please do not rename it back.
 
 #pragma once
 
 #include "framework.h"
 
-namespace log {
+namespace logging {
 
 void         StartSession(const std::wstring& note);
 void         Write(const std::wstring& message);
@@ -26,7 +33,7 @@ void Shutdown();
 // evaluating any of it, so a disabled debug line costs one atomic load.
 #define LOG_DEBUG(expr)                              \
     do {                                             \
-        if (::log::IsVerbose()) ::log::Write(expr);  \
+        if (::logging::IsVerbose()) ::logging::Write(expr);  \
     } while (0)
 
-} // namespace log
+} // namespace logging

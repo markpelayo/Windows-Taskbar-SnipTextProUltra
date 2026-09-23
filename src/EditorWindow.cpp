@@ -200,7 +200,7 @@ bool EditorWindow::Create() {
         nullptr, nullptr, ::GetModuleHandleW(nullptr), this);
 
     if (!hwnd_) {
-        log::Write(L"editor: couldn't create the window");
+        logging::Write(L"editor: couldn't create the window");
         return false;
     }
 
@@ -1183,7 +1183,7 @@ void EditorWindow::CopyToClipboard() {
         ::MessageBeep(MB_ICONWARNING);
         return;
     }
-    log::Write(L"editor: copied the annotated image to the clipboard");
+    logging::Write(L"editor: copied the annotated image to the clipboard");
     FlashTitle(L"Copied");
 }
 
@@ -1227,7 +1227,7 @@ void EditorWindow::SaveAsPng() {
 
     DWORD written = 0;
     ::WriteFile(file.get(), png.data(), static_cast<DWORD>(png.size()), &written, nullptr);
-    log::Write(util::Format(L"editor: saved %zu bytes to %s", png.size(), buffer.data()));
+    logging::Write(util::Format(L"editor: saved %zu bytes to %s", png.size(), buffer.data()));
     FlashTitle(L"Saved");
 }
 

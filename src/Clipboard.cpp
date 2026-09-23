@@ -36,7 +36,7 @@ std::wstring ReadBack(HWND owner) {
 
 bool CopyText(HWND owner, const std::wstring& text) {
     if (text.empty()) {
-        log::Write(L"clipboard: refused to write empty text");
+        logging::Write(L"clipboard: refused to write empty text");
         return false;
     }
 
@@ -67,7 +67,7 @@ bool CopyText(HWND owner, const std::wstring& text) {
 
     if (!readBack.empty() && readBack != text) {
         // A warning only. Something raced us, but the write itself landed.
-        log::Write(L"clipboard: WARNING read-back differs from what was written");
+        logging::Write(L"clipboard: WARNING read-back differs from what was written");
     }
 
     return accepted && !readBack.empty();

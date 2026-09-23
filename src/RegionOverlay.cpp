@@ -125,7 +125,7 @@ RegionOverlay::Selection RegionOverlay::Run(Style style) {
     // its own output and the screen cannot change mid-selection.
     frozen_ = capture::GrabVirtualDesktop(&desktopBounds_);
     if (!frozen_) {
-        log::Write(L"overlay: couldn't capture the desktop");
+        logging::Write(L"overlay: couldn't capture the desktop");
         return Selection{};
     }
 
@@ -140,7 +140,7 @@ RegionOverlay::Selection RegionOverlay::Run(Style style) {
         description.hbrBackground = nullptr;   // we paint every pixel ourselves
         description.lpszClassName = kWindowClass;
         if (!::RegisterClassExW(&description)) {
-            log::Write(L"overlay: couldn't register the window class");
+            logging::Write(L"overlay: couldn't register the window class");
             return Selection{};
         }
         registered = true;
@@ -177,7 +177,7 @@ RegionOverlay::Selection RegionOverlay::Run(Style style) {
 
     if (!hwnd_) {
         g_isShowing = false;
-        log::Write(L"overlay: couldn't create the window");
+        logging::Write(L"overlay: couldn't create the window");
         return Selection{};
     }
 

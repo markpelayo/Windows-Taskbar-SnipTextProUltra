@@ -4,7 +4,7 @@
 #include <knownfolders.h>
 #include <atomic>
 
-namespace log {
+namespace logging {
 namespace {
 
 constexpr long long kMaxLogBytes      = 512000;
@@ -84,4 +84,4 @@ void Shutdown() {
     LockGuard guard(WriterLock());
 }
 
-} // namespace log
+} // namespace logging

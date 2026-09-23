@@ -15,7 +15,7 @@ std::unique_ptr<Bitmap> GrabRect(const RECT& bounds) {
 
     auto image = Bitmap::Create(width, height);
     if (!image) {
-        log::Write(util::Format(L"capture: couldn't allocate a %dx%d image", width, height));
+        logging::Write(util::Format(L"capture: couldn't allocate a %dx%d image", width, height));
         return nullptr;
     }
 
@@ -29,7 +29,7 @@ std::unique_ptr<Bitmap> GrabRect(const RECT& bounds) {
     // window over the region leaves a hole in the capture.
     if (!::BitBlt(target, 0, 0, width, height, screen.get(), bounds.left, bounds.top,
                   SRCCOPY | CAPTUREBLT)) {
-        log::Write(L"capture: BitBlt failed");
+        logging::Write(L"capture: BitBlt failed");
         return nullptr;
     }
 

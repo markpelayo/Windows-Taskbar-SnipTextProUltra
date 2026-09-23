@@ -198,11 +198,11 @@ bool App::Run() {
         return true;
     }
 
-    log::SetVerbose(settings::GetBool(settings::key::kDebugMode, false));
-    log::StartSession(L"SnipText launched, log at " + log::FilePath());
+    logging::SetVerbose(settings::GetBool(settings::key::kDebugMode, false));
+    logging::StartSession(L"SnipText launched, log at " + logging::FilePath());
 
     if (!gdip::Startup()) {
-        log::Write(L"launch: GDI+ failed to start");
+        logging::Write(L"launch: GDI+ failed to start");
         return false;
     }
     if (!CreateHiddenWindow()) {
@@ -221,7 +221,7 @@ bool App::Run() {
     // boot, never to a launch the user asked for.
     const int delay = settings::GetInt(settings::key::kStartupDelay, 0);
     if (delay > 0 && LaunchedAtLogin()) {
-        log::Write(util::Format(L"startup: login launch, holding setup for %ds", delay));
+        logging::Write(util::Format(L"startup: login launch, holding setup for %ds", delay));
         ::SetTimer(hwnd_, kSetupTimer, static_cast<UINT>(delay) * 1000, nullptr);
     } else {
         SetUpAfterStartupDelay();
@@ -239,7 +239,7 @@ bool App::Run() {
     ScreenRecorder::Shared().Shutdown();
     toast::Destroy();
     gdip::Shutdown();
-    log::Shutdown();
+    logging::Shutdown();
     return true;
 }
 
@@ -260,7 +260,7 @@ bool App::CreateHiddenWindow() {
                               0, 0, 0, 0, nullptr, nullptr,
                               ::GetModuleHandleW(nullptr), this);
     if (!hwnd_) {
-        log::Write(L"launch: couldn't create the main window");
+        logging::Write(L"launch: couldn't create the main window");
         return false;
     }
     return true;
@@ -295,16 +295,16 @@ void App::RegisterHotkeys() {
             // launch; the menu item still works. Surfacing a dialog at
             // startup for something the user can neither see nor fix would be
             // worse than a log line.
-            log::Write(util::Format(L"hotkey: Win+Alt+%c is already taken — most likely by "
-                                    L"the shell's Jump List shortcut. Use the menu item instead.",
-                                    static_cast<wchar_t>(binding.key)));
+            logging::Write(util::Format(L"hotkey: Win+Alt+%c is already taken — most likely by "
+                           L"the shell's Jump List shortcut. Use the menu item instead.",
+                           static_cast<wchar_t>(binding.key)));
         }
     }
 }
 
 bool App::LaunchedAtLogin() {
     if (!settings::IsRunAtStartupEnabled()) {
-        log::Write(L"startup: not registered to run at startup, launching now");
+        logging::Write(L"startup: not registered to run at startup, launching now");
         return false;
     }
     // Startup entries fire moments after the desktop appears, so a launch
@@ -313,8 +313,8 @@ bool App::LaunchedAtLogin() {
     // invisible, while a wrong one looks like a broken app.
     const ULONGLONG uptimeMs = ::GetTickCount64();
     const bool isLogin = uptimeMs < 120000;
-    log::Write(util::Format(L"startup: uptime %llus — treating as a %s launch",
-                            uptimeMs / 1000, isLogin ? L"login" : L"manual"));
+    logging::Write(util::Format(L"startup: uptime %llus — treating as a %s launch",
+                   uptimeMs / 1000, isLogin ? L"login" : L"manual"));
     return isLogin;
 }
 
@@ -708,7 +708,7 @@ void App::OnCommand(int command) {
     case ID_SET_AUTOSAVE: {
         const bool on = !settings::GetBool(settings::key::kSaveCaptures, false);
         settings::SetBool(settings::key::kSaveCaptures, on);
-        log::Write(on ? L"save images on" : L"save images off");
+        logging::Write(on ? L"save images on" : L"save images off");
         return;
     }
 
@@ -717,15 +717,15 @@ void App::OnCommand(int command) {
     case ID_FOLDER_VIDEO_CHOOSE: ChooseFolder(MediaFolder::Videos()); return;
     case ID_FOLDER_SHOT_RESET:
         MediaFolder::Screenshots().SetDirectory(L"");
-        log::Write(L"screenshots: folder reset to " + MediaFolder::Screenshots().Directory());
+        logging::Write(L"screenshots: folder reset to " + MediaFolder::Screenshots().Directory());
         return;
     case ID_FOLDER_TEXT_RESET:
         MediaFolder::TextImages().SetDirectory(L"");
-        log::Write(L"text images: folder reset to " + MediaFolder::TextImages().Directory());
+        logging::Write(L"text images: folder reset to " + MediaFolder::TextImages().Directory());
         return;
     case ID_FOLDER_VIDEO_RESET:
         MediaFolder::Videos().SetDirectory(L"");
-        log::Write(L"videos: folder reset to " + MediaFolder::Videos().Directory());
+        logging::Write(L"videos: folder reset to " + MediaFolder::Videos().Directory());
         return;
 
     case ID_VID_CURSOR: video::SetCapturesCursor(!video::CapturesCursor()); return;
@@ -783,8 +783,8 @@ void App::Screenshot(capture::Mode mode) {
         if (!png.empty()) MediaFolder::Screenshots().SaveBytes(png.data(), png.size());
     }
 
-    log::Write(util::Format(L"screenshot: editor opened %dx%d (%s)",
-                            image->Width(), image->Height(), capture::ModeLabel(mode)));
+    logging::Write(util::Format(L"screenshot: editor opened %dx%d (%s)",
+                   image->Width(), image->Height(), capture::ModeLabel(mode)));
     OpenEditor(std::move(image));
 }
 
@@ -859,13 +859,13 @@ void App::OnOcrFinished(OcrOutcome* raw) {
     if (!outcome) return;
 
     if (!outcome->failure.empty()) {
-        log::Write(L"pipeline: failure — " + outcome->failure);
+        logging::Write(L"pipeline: failure — " + outcome->failure);
         ReportFailure(outcome->failure);
         return;
     }
 
     if (outcome->text.empty()) {
-        log::Write(L"capture produced no readable text");
+        logging::Write(L"capture produced no readable text");
         toast::Show(L"no text found");
         return;
     }
@@ -880,9 +880,9 @@ void App::OnOcrFinished(OcrOutcome* raw) {
 
     toast::Show(copied ? util::Format(L"%zu chars copied", outcome->text.size())
                        : std::wstring(L"copy failed"));
-    log::Write(util::Format(L"copied %zu chars from %zu lines (%s)",
-                            outcome->text.size(), outcome->lineCount,
-                            capture::ModeLabel(outcome->mode)));
+    logging::Write(util::Format(L"copied %zu chars from %zu lines (%s)",
+                   outcome->text.size(), outcome->lineCount,
+                   capture::ModeLabel(outcome->mode)));
 }
 
 // --- recording -------------------------------------------------------------
@@ -1025,7 +1025,7 @@ void App::ChooseFolder(MediaFolder& folder) {
     if (!resolved) return;
 
     folder.SetDirectory(path);
-    log::Write(folder.Label() + L": folder set to " + path);
+    logging::Write(folder.Label() + L": folder set to " + path);
 }
 
 void App::ApplyStartup(bool enabled, int delaySeconds) {
@@ -1034,11 +1034,11 @@ void App::ApplyStartup(bool enabled, int delaySeconds) {
     settings::SetInt(settings::key::kStartupDelay, delaySeconds);
 
     if (!settings::SetRunAtStartup(enabled)) {
-        log::Write(enabled ? L"startup: register failed" : L"startup: unregister failed");
+        logging::Write(enabled ? L"startup: register failed" : L"startup: unregister failed");
         ::MessageBeep(MB_ICONWARNING);
         return;
     }
-    log::Write(util::Format(L"startup: enabled=%d delay=%ds", enabled ? 1 : 0, delaySeconds));
+    logging::Write(util::Format(L"startup: enabled=%d delay=%ds", enabled ? 1 : 0, delaySeconds));
 }
 
 void App::Sanitize() {
@@ -1102,15 +1102,15 @@ void App::Sanitize() {
                                MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2);
     }
     if (answer != IDOK) {
-        log::Write(L"sanitize: cancelled");
+        logging::Write(L"sanitize: cancelled");
         return;
     }
 
     if (!files.empty()) {
         if (media::RecycleFiles(files)) {
-            log::Write(util::Format(L"sanitize: moved %zu file(s) to the Recycle Bin", files.size()));
+            logging::Write(util::Format(L"sanitize: moved %zu file(s) to the Recycle Bin", files.size()));
         } else {
-            log::Write(L"sanitize: some files couldn't be moved to the Recycle Bin");
+            logging::Write(L"sanitize: some files couldn't be moved to the Recycle Bin");
         }
     }
 
@@ -1133,7 +1133,7 @@ void App::Sanitize() {
     settings::SetRunAtStartup(false);
     lastText_.clear();   // the last OCR result is captured content too
 
-    log::Write(L"sanitize: settings restored to defaults");
+    logging::Write(L"sanitize: settings restored to defaults");
     toast::Show(L"reset");
 }
 

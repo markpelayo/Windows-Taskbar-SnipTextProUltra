@@ -137,7 +137,7 @@ bool OpenAudio(const std::wstring& deviceId, AudioStream& stream) {
 
     ComPtr<IMMDevice> device;
     if (FAILED(enumerator->GetDevice(deviceId.c_str(), &device)) || !device) {
-        log::Write(L"recorder: the selected microphone is gone, recording silently");
+        logging::Write(L"recorder: the selected microphone is gone, recording silently");
         return false;
     }
 
@@ -168,9 +168,9 @@ bool OpenAudio(const std::wstring& deviceId, AudioStream& stream) {
     const bool usableChannels = stream.channels == 1 || stream.channels == 2;
     const bool usableDepth    = stream.isFloat || format->wBitsPerSample == 16;
     if (!usableRate || !usableChannels || !usableDepth) {
-        log::Write(util::Format(L"recorder: microphone format %u Hz / %u ch is unsupported, "
-                                L"recording silently",
-                                stream.sampleRate, stream.channels));
+        logging::Write(util::Format(L"recorder: microphone format %u Hz / %u ch is unsupported, "
+                       L"recording silently",
+                       stream.sampleRate, stream.channels));
         return false;
     }
 
@@ -257,12 +257,12 @@ bool ScreenRecorder::Initialise() {
     window_ = ::CreateWindowExW(0, kWindowClass, L"", 0, 0, 0, 0, 0,
                                 HWND_MESSAGE, nullptr, ::GetModuleHandleW(nullptr), this);
     if (!window_) {
-        log::Write(L"recorder: couldn't create the message window");
+        logging::Write(L"recorder: couldn't create the message window");
         return false;
     }
 
     if (FAILED(::MFStartup(MF_VERSION, MFSTARTUP_LITE))) {
-        log::Write(L"recorder: Media Foundation failed to start");
+        logging::Write(L"recorder: Media Foundation failed to start");
         return false;
     }
     mfStarted_ = true;
@@ -361,10 +361,10 @@ std::wstring ScreenRecorder::Start(const RECT& region) {
     startWatchdogGeneration_ = generation_;
     ::SetTimer(window_, kStartWatchdogTimer, kWatchdogMs, nullptr);
 
-    log::Write(util::Format(L"recorder: started %dx%d @%dfps %s → %s",
-                            outWidth, outHeight, frameRate,
-                            video::QualityShortTitle(video::CurrentQuality()),
-                            util::LastPathComponent(path).c_str()));
+    logging::Write(util::Format(L"recorder: started %dx%d @%dfps %s → %s",
+                   outWidth, outHeight, frameRate,
+                   video::QualityShortTitle(video::CurrentQuality()),
+                   util::LastPathComponent(path).c_str()));
 
     if (onStateChange_) onStateChange_();
     return std::wstring();
@@ -379,7 +379,7 @@ void ScreenRecorder::Stop() {
     if (!isRecording_ || isStopping_) return;
 
     isStopping_ = true;
-    log::Write(L"recorder: stopping after " + ElapsedText());
+    logging::Write(L"recorder: stopping after " + ElapsedText());
 
     if (stopRequest_) ::SetEvent(stopRequest_.get());
     stopWatchdogGeneration_ = generation_;
@@ -389,7 +389,7 @@ void ScreenRecorder::Stop() {
 void ScreenRecorder::FinishBeforeQuit() {
     if (!isRecording_) return;
 
-    log::Write(L"quit: finishing the in-progress recording first");
+    logging::Write(L"quit: finishing the in-progress recording first");
     Stop();
 
     // Pump messages rather than blocking: the worker's completion arrives as
@@ -473,23 +473,23 @@ void ScreenRecorder::OnWorkerFinished(unsigned long long generation) {
     if (onStateChange_) onStateChange_();
 
     if (!failure.empty()) {
-        log::Write(L"recorder: FAILED — " + failure);
+        logging::Write(L"recorder: FAILED — " + failure);
         if (onFinish_) onFinish_(std::wstring(), failure);
     } else if (!path.empty()) {
-        log::Write(L"recorder: saved " + util::LastPathComponent(path));
+        logging::Write(L"recorder: saved " + util::LastPathComponent(path));
         if (onFinish_) onFinish_(path, std::wstring());
     }
 }
 
 void ScreenRecorder::OnStartWatchdog(unsigned long long generation) {
     if (!isRecording_ || generation != generation_ || hasStarted_) return;
-    log::Write(L"recorder: never started, giving up");
+    logging::Write(L"recorder: never started, giving up");
     Abandon(L"The recording never started. Nothing was written.");
 }
 
 void ScreenRecorder::OnStopWatchdog(unsigned long long generation) {
     if (!isRecording_ || generation != generation_) return;
-    log::Write(L"recorder: stop never completed");
+    logging::Write(L"recorder: stop never completed");
     Abandon(L"The recording didn't finish cleanly. Any file that was written is in "
             + MediaFolder::Videos().DisplayPath() + L".");
 }
@@ -528,7 +528,7 @@ void ScreenRecorder::JoinWorker() {
         // the same handle value, and the abandoned worker would then be
         // sharing an event with a live recording. Leaking two handles from a
         // path that should never be taken is the cheaper mistake.
-        log::Write(L"recorder: worker didn't finish in time, releasing it");
+        logging::Write(L"recorder: worker didn't finish in time, releasing it");
         workerThread_.release();
         stopRequest_.release();
         return;
@@ -663,9 +663,9 @@ DWORD WINAPI ScreenRecorder::WorkerEntry(void* parameter) {
             if (SUCCEEDED(writer->AddStream(outputType.Get(), &audioStream)) &&
                 SUCCEEDED(writer->SetInputMediaType(audioStream, inputType.Get(), nullptr))) {
                 hasAudio = true;
-                log::Write(L"recorder: recording audio from the selected microphone");
+                logging::Write(L"recorder: recording audio from the selected microphone");
             } else {
-                log::Write(L"recorder: the AAC encoder refused the microphone, recording silently");
+                logging::Write(L"recorder: the AAC encoder refused the microphone, recording silently");
             }
         }
 

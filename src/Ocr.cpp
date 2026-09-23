@@ -333,7 +333,7 @@ Result Recognize(const Bitmap& image) {
 
     ComPtr<ABIO::IOcrResult> recognized;
     if (FAILED(AwaitOcrResult(operation.Get(), recognized.GetAddressOf())) || !recognized) {
-        log::Write(L"ocr: request FAILED");
+        logging::Write(L"ocr: request FAILED");
         return result;   // empty lines, no failure message — treated as "no text"
     }
 

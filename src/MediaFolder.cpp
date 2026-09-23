@@ -67,7 +67,7 @@ void MediaFolder::SetDirectory(const std::wstring& path) {
 bool MediaFolder::EnsureDirectoryExists() const {
     const std::wstring path = Directory();
     if (util::EnsureDirectory(path)) return true;
-    log::Write(label_ + L": couldn't create " + path);
+    logging::Write(label_ + L": couldn't create " + path);
     return false;
 }
 
@@ -126,7 +126,7 @@ std::wstring MediaFolder::SaveBytes(const void* data, size_t size) const {
     ScopedFile file(::CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,
                                   CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
     if (!file) {
-        log::Write(label_ + L": save FAILED — couldn't create " + util::LastPathComponent(path));
+        logging::Write(label_ + L": save FAILED — couldn't create " + util::LastPathComponent(path));
         return std::wstring();
     }
 
@@ -136,7 +136,7 @@ std::wstring MediaFolder::SaveBytes(const void* data, size_t size) const {
         DWORD chunk   = static_cast<DWORD>((std::min)(remaining, static_cast<size_t>(1u << 20)));
         DWORD written = 0;
         if (!::WriteFile(file.get(), cursor, chunk, &written, nullptr) || written == 0) {
-            log::Write(label_ + L": save FAILED — write error on " + util::LastPathComponent(path));
+            logging::Write(label_ + L": save FAILED — write error on " + util::LastPathComponent(path));
             return std::wstring();
         }
         cursor    += written;

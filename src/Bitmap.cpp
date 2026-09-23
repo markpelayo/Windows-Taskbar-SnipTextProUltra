@@ -190,7 +190,7 @@ std::vector<BYTE> Bitmap::EncodePng() const {
 
     CLSID encoder{};
     if (!PngEncoderClsid(&encoder)) {
-        log::Write(L"image: no PNG encoder available");
+        logging::Write(L"image: no PNG encoder available");
         return out;
     }
 

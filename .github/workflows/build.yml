@@ -1,0 +1,32 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -A x64 -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      # The normaliser is the one piece whose regressions are silent: wrong
+      # output still looks like plausible text.
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SnipText
+          path: build/Release/SnipText.exe
+          if-no-files-found: error

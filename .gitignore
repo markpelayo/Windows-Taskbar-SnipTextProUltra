@@ -1,0 +1,17 @@
+build/
+out/
+.vs/
+*.user
+*.suo
+*.obj
+*.pdb
+*.ilk
+*.exe
+*.res
+*.idb
+CMakeFiles/
+CMakeCache.txt
+
+# Working notes from the port: a line-by-line reading of the macOS sources.
+# Useful while the port is still being verified, not part of the project.
+_spec/

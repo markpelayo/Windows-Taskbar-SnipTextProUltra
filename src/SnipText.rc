@@ -1,0 +1,40 @@
+#include <windows.h>
+#include "resource.h"
+
+IDI_SNIPTEXT ICON "..\\assets\\SnipText.ico"
+
+// The manifest is embedded rather than shipped alongside, so the executable
+// stays a single self-contained file. It declares three things:
+//   * comctl32 version 6, for the modern trackbar and task dialog
+//   * Per-Monitor-V2 DPI awareness, so every coordinate is a real pixel
+//   * Windows 10/11 compatibility, so the OS does not apply shims
+1 RT_MANIFEST "SnipText.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     1,0,0,0
+PRODUCTVERSION  1,0,0,0
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName",      "Mark Pelayo"
+            VALUE "FileDescription",  "SnipText Pro Ultra"
+            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "InternalName",     "SnipText"
+            VALUE "LegalCopyright",   "MIT licence"
+            VALUE "OriginalFilename", "SnipText.exe"
+            VALUE "ProductName",      "SnipText Pro Ultra"
+            VALUE "ProductVersion",   "1.0.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

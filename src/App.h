@@ -41,6 +41,11 @@ private:
 
     struct OcrOutcome;
 
+    // TEMPORARY, part of the 1.x shakedown — see the note in Log.h. Records
+    // the Windows build, the display layout and whether OCR is available, so
+    // a log someone sends back is self-contained.
+    static void WriteStartupDiagnostics();
+
     bool CreateHiddenWindow();
     void RegisterHotkeys();
     void SetUpAfterStartupDelay();

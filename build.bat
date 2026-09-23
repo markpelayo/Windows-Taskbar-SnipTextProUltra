@@ -48,6 +48,9 @@ rem /W4 /WX - a warning in a program meant to run for weeks is usually a bug
 rem        that has not happened yet
 rem /GR- - no RTTI; nothing here uses dynamic_cast or typeid
 rem /O2 /GL /LTCG - optimise across translation units
+rem /MANIFEST:NO (on the link line) - the manifest is embedded by
+rem        SnipText.rc; letting the linker generate a second one makes
+rem        CVTRES fail with CVT1100, duplicate resource
 set CFLAGS=/nologo /std:c++17 /EHsc /GR- /W4 /WX /permissive- /utf-8 /O2 /GL /MT ^
     /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /DNOMINMAX /I"%ROOT%src"
 
@@ -83,7 +86,7 @@ cl.exe %CFLAGS% /Fo"%OUT%\\" /Fe"%OUT%\SnipText.exe" ^
     "%ROOT%src\Toast.cpp" ^
     "%ROOT%src\Util.cpp" ^
     "%ROOT%src\VideoSettings.cpp" ^
-    /link /LTCG /SUBSYSTEM:WINDOWS "%OUT%\SnipText.res" %LIBS%
+    /link /LTCG /SUBSYSTEM:WINDOWS /MANIFEST:NO "%OUT%\SnipText.res" %LIBS%
 if errorlevel 1 exit /b 1
 
 echo Built %OUT%\SnipText.exe

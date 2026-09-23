@@ -47,7 +47,15 @@ if(MSVC)
     # /W4 with warnings-as-errors: a warning in a program that is meant to
     # run for weeks is usually a bug that has not happened yet.
     target_compile_options(SnipText PRIVATE /W4 /WX /permissive- /utf-8 /EHsc /GR-)
-    target_link_options(SnipText PRIVATE /SUBSYSTEM:WINDOWS)
+
+    # /MANIFEST:NO is required, not optional. SnipText.rc embeds the manifest
+    # as resource 1 so that build.bat and CMake produce an identical binary
+    # from one source of truth. The linker also generates a manifest of its
+    # own by default, and two RT_MANIFEST resources with id 1 make CVTRES
+    # fail outright:
+    #   CVT1100: duplicate resource. type:MANIFEST, name:1, language:0x0409
+    #   LNK1123: failure during conversion to COFF
+    target_link_options(SnipText PRIVATE /SUBSYSTEM:WINDOWS /MANIFEST:NO)
 endif()
 
 target_link_libraries(SnipText PRIVATE

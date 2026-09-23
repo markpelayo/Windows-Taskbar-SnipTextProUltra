@@ -11,8 +11,8 @@ IDI_SNIPTEXT ICON "..\\assets\\SnipText.ico"
 1 RT_MANIFEST "SnipText.manifest"
 
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION     1,0,0,0
-PRODUCTVERSION  1,0,0,0
+FILEVERSION     SNIPTEXT_VERSION_COMMA
+PRODUCTVERSION  SNIPTEXT_VERSION_COMMA
 FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
 FILEFLAGS       0
 FILEOS          VOS_NT_WINDOWS32
@@ -25,12 +25,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "Mark Pelayo"
             VALUE "FileDescription",  "SnipText Pro Ultra"
-            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "FileVersion",      SNIPTEXT_VERSION_STRING
             VALUE "InternalName",     "SnipText"
             VALUE "LegalCopyright",   "MIT licence"
             VALUE "OriginalFilename", "SnipText.exe"
             VALUE "ProductName",      "SnipText Pro Ultra"
-            VALUE "ProductVersion",   "1.0.0.0"
+            VALUE "ProductVersion",   SNIPTEXT_VERSION_STRING
         END
     END
     BLOCK "VarFileInfo"

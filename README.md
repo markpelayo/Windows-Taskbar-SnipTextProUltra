@@ -296,19 +296,41 @@ docs/RELEASING.md     how a version is cut
 
 ## Troubleshooting
 
-Every capture writes a plain-text trace:
+### The log
 
 ```
 notepad "%LOCALAPPDATA%\SnipText\Logs\SnipText.log"
 ```
 
-One line per capture normally. For a full per-stage trace:
+**While this is still a 1.x shakedown build, verbose logging is on by default**, so the log carries a full per-stage trace of every capture rather than one line each. It self-rotates at 512 KB, so it cannot grow without bound.
+
+Every launch starts with an environment block, which is what makes a log someone sends back self-contained:
 
 ```
-reg add "HKCU\Software\markpelayo\SnipText" /v debugMode /t REG_DWORD /d 1 /f
+[2026-09-24 14:06:58.031] ———— SnipText launched, log at C:\Users\…\SnipText.log
+[2026-09-24 14:06:58.034] env: SnipText 1.0.0 (x64, built Sep 24 2026 11:02:17)
+[2026-09-24 14:06:58.036] env: Windows 11 10.0 build 26100
+[2026-09-24 14:06:58.041] env: display 0 [primary] 3840x2160 at (0,0), 192 dpi (200%)
+[2026-09-24 14:06:58.042] env: display 1           1920x1080 at (3840,0), 96 dpi (100%)
+[2026-09-24 14:06:58.043] env: virtual desktop 5760x2160 at (0,0), DPI awareness PerMonitorV2 (correct)
+[2026-09-24 14:06:58.088] env: OCR engine available
+[2026-09-24 14:06:58.089] env: screenshots  -> C:\Users\…\Pictures\SnipText_Screenshot_Images
 ```
 
-then quit and relaunch. Set it back to `0` to go quiet again.
+**If you are reporting a bug, paste that block.** It answers the three questions that otherwise take a round trip: which Windows build, what the display layout is, and whether an OCR language is installed at all.
+
+To go quiet on one machine without rebuilding:
+
+```
+reg add "HKCU\Software\markpelayo\SnipText" /v debugMode /t REG_DWORD /d 0 /f
+```
+
+then quit and relaunch. Set it to `1` to force it back on.
+
+> **Reverting this later.** Verbose-by-default and the environment block are
+> temporary. Flip `kVerboseByDefault` to `false` in `src/Log.h` and delete the
+> `WriteStartupDiagnostics()` call in `App::Run()`. Nothing else depends on
+> either.
 
 **A hotkey does nothing.** Something else owns that combination. The log names it at startup; the menu item still works.
 

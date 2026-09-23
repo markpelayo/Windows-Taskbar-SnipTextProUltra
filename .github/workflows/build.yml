@@ -17,8 +17,19 @@ jobs:
       - name: Configure
         run: cmake -B build -A x64 -DCMAKE_BUILD_TYPE=Release
 
+      # /fileLogger writes msbuild.log next to the project. While this is a
+      # shakedown build, a failing run is something to hand to someone else,
+      # and copying it out of the web view by hand loses the detail.
       - name: Build
-        run: cmake --build build --config Release
+        run: cmake --build build --config Release -- /fileLogger /fileLoggerParameters:LogFile=build\msbuild.log;Verbosity=normal
+
+      - name: Upload the build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build/msbuild.log
+          if-no-files-found: ignore
 
       # The normaliser is the one piece whose regressions are silent: wrong
       # output still looks like plausible text.

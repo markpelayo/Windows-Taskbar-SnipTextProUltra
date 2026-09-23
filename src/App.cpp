@@ -198,8 +198,12 @@ bool App::Run() {
         return true;
     }
 
-    logging::SetVerbose(settings::GetBool(settings::key::kDebugMode, false));
+    // Defaults to on during the 1.x shakedown; see the note in Log.h. A
+    // machine that has explicitly set debugMode still wins either way.
+    logging::SetVerbose(settings::GetBool(settings::key::kDebugMode,
+                                          logging::kVerboseByDefault));
     logging::StartSession(L"SnipText launched, log at " + logging::FilePath());
+    WriteStartupDiagnostics();
 
     if (!gdip::Startup()) {
         logging::Write(L"launch: GDI+ failed to start");
@@ -241,6 +245,106 @@ bool App::Run() {
     gdip::Shutdown();
     logging::Shutdown();
     return true;
+}
+
+// TEMPORARY, part of the 1.x shakedown — see the note in Log.h.
+//
+// Everything here is the context a bug report needs and nobody remembers to
+// include: which Windows build, how many monitors and at what scaling, and
+// whether an OCR language is installed at all. Written once per launch.
+void App::WriteStartupDiagnostics() {
+    // --- build ---
+    logging::Write(util::Format(L"env: SnipText %s (%s, built %S %S)",
+                                SNIPTEXT_VERSION_WIDE,
+#ifdef _WIN64
+                                L"x64",
+#else
+                                L"x86",
+#endif
+                                __DATE__, __TIME__));
+
+    // --- Windows version ---
+    // Through RtlGetVersion, not GetVersionEx: the documented API lies to
+    // applications whose manifest does not list the running OS, and reports
+    // Windows 8 forever. OSVERSIONINFOEXW is layout-compatible with the
+    // RTL_OSVERSIONINFOEXW that RtlGetVersion actually takes, and is declared
+    // in winnt.h rather than the internal headers.
+    OSVERSIONINFOEXW version{};
+    version.dwOSVersionInfoSize = sizeof(version);
+    bool gotVersion = false;
+    if (HMODULE ntdll = ::GetModuleHandleW(L"ntdll.dll")) {
+        using RtlGetVersionFn = LONG(WINAPI*)(OSVERSIONINFOEXW*);
+        auto rtlGetVersion = reinterpret_cast<RtlGetVersionFn>(
+            reinterpret_cast<void*>(::GetProcAddress(ntdll, "RtlGetVersion")));
+        gotVersion = rtlGetVersion != nullptr && rtlGetVersion(&version) == 0;
+    }
+    if (gotVersion) {
+        // Windows 11 still reports major version 10; the build number is the
+        // only thing that actually distinguishes it.
+        const wchar_t* name = (version.dwBuildNumber >= 22000) ? L"Windows 11"
+                            : (version.dwMajorVersion >= 10)   ? L"Windows 10"
+                                                               : L"Windows (pre-10)";
+        logging::Write(util::Format(L"env: %s %lu.%lu build %lu",
+                                    name, version.dwMajorVersion, version.dwMinorVersion,
+                                    version.dwBuildNumber));
+    } else {
+        logging::Write(L"env: couldn't read the Windows version");
+    }
+
+    // --- displays ---
+    // The one thing most likely to be different on the machine where a
+    // capture lands in the wrong place.
+    int monitorIndex = 0;
+    ::EnumDisplayMonitors(
+        nullptr, nullptr,
+        [](HMONITOR monitor, HDC, LPRECT, LPARAM parameter) -> BOOL {
+            int* index = reinterpret_cast<int*>(parameter);
+            MONITORINFOEXW info{};
+            info.cbSize = sizeof(info);
+            if (!::GetMonitorInfoW(monitor, &info)) return TRUE;
+
+            UINT dpiX = 96, dpiY = 96;
+            ::GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY);
+            // Only the horizontal figure is reported; the two are equal on
+            // every shipping display, and GetDpiForMonitor will not accept a
+            // null for the second.
+            (void)dpiY;
+
+            logging::Write(util::Format(
+                L"env: display %d %s %ldx%ld at (%ld,%ld), %u dpi (%d%%)",
+                (*index)++,
+                (info.dwFlags & MONITORINFOF_PRIMARY) ? L"[primary]" : L"         ",
+                info.rcMonitor.right - info.rcMonitor.left,
+                info.rcMonitor.bottom - info.rcMonitor.top,
+                info.rcMonitor.left, info.rcMonitor.top,
+                dpiX, static_cast<int>(dpiX * 100 / 96)));
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&monitorIndex));
+
+    logging::Write(util::Format(L"env: virtual desktop %dx%d at (%d,%d), DPI awareness %s",
+                                ::GetSystemMetrics(SM_CXVIRTUALSCREEN),
+                                ::GetSystemMetrics(SM_CYVIRTUALSCREEN),
+                                ::GetSystemMetrics(SM_XVIRTUALSCREEN),
+                                ::GetSystemMetrics(SM_YVIRTUALSCREEN),
+                                ::AreDpiAwarenessContextsEqual(
+                                    ::GetThreadDpiAwarenessContext(),
+                                    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
+                                    ? L"PerMonitorV2 (correct)"
+                                    : L"NOT PerMonitorV2 — captures will be misplaced"));
+
+    // --- OCR ---
+    // Answered once here so "Screenshot to Text did nothing" is diagnosable
+    // from the log alone. The result is cached, so the first real capture
+    // pays nothing for it.
+    logging::Write(ocr::IsAvailable()
+                       ? L"env: OCR engine available"
+                       : L"env: NO OCR language installed — Screenshot to Text will fail");
+
+    // --- where things are ---
+    logging::Write(L"env: screenshots  -> " + MediaFolder::Screenshots().Directory());
+    logging::Write(L"env: text images  -> " + MediaFolder::TextImages().Directory());
+    logging::Write(L"env: videos       -> " + MediaFolder::Videos().Directory());
 }
 
 bool App::CreateHiddenWindow() {

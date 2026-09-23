@@ -6,7 +6,30 @@ adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **The build.** Two errors that only a real compiler could find:
+  - `namespace log` collided with `::log`, the C math function, which arrives
+    transitively through the Windows headers. MSVC rejects that outright
+    (C2757), so the namespace is now `logging`.
+  - `SnipText.rc` embeds the manifest as resource 1 *and* the linker was
+    generating one of its own, which made CVTRES fail with `CVT1100:
+    duplicate resource`. Both build paths now pass `/MANIFEST:NO`.
+
+### Added, temporarily
+
+These exist for the 1.x shakedown and come out once the app is polished. Both
+are marked in the source and in
+[the README](README.md#the-log); reverting is two edits.
+
+- **Verbose logging is on by default.** A machine that has explicitly set
+  `debugMode` still wins either way.
+- **A startup environment block in the log** — app version and build stamp,
+  Windows build number via `RtlGetVersion`, every monitor's bounds and
+  scaling, the virtual-desktop rectangle, the process's DPI awareness, whether
+  an OCR language is installed, and the three output folder paths. It is the
+  context a bug report needs and nobody remembers to include.
+- **The CI build log is uploaded as an artifact**, pass or fail.
 
 ## [1.0.0] — 2026-09-24
 

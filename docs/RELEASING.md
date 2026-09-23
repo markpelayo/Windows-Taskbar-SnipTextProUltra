@@ -6,15 +6,30 @@ some prose.
 
 ## Versioning
 
-[Semantic Versioning](https://semver.org). The version lives in exactly one
-place — the `VERSION` file — and is mirrored into:
+[Semantic Versioning](https://semver.org). The version is written in three
+places and nothing enforces that they agree:
 
-- `src/SnipText.rc` (`FILEVERSION`, `PRODUCTVERSION` and the string block)
-- `src/SnipText.manifest` (`assemblyIdentity version`)
-
-Keep all three in step. Nothing enforces it.
+1. `VERSION` — the canonical file.
+2. `src/resource.h` — the `SNIPTEXT_VERSION_*` macros. `SnipText.rc` and the
+   startup log line both read these, so the file properties and the log can
+   never disagree with each other.
+3. `src/SnipText.manifest` — `assemblyIdentity version`, which has to be a
+   literal.
 
 Tags are `vMAJOR.MINOR.PATCH`.
+
+## Before 1.1: back out the shakedown switches
+
+Two things are on for the 1.x shakedown and should come out once the app has
+actually been run on hardware for a while:
+
+- `kVerboseByDefault` in `src/Log.h` → `false`.
+- The `WriteStartupDiagnostics()` call in `App::Run()` → delete it, and the
+  function with it.
+
+Both are commented as temporary at their definitions. Nothing else depends on
+either. Update [the README's troubleshooting section](../README.md#the-log)
+in the same commit — it currently tells people verbose is the default.
 
 ## Steps
 

@@ -23,6 +23,25 @@ void         StartSession(const std::wstring& note);
 void         Write(const std::wstring& message);
 std::wstring FilePath();
 
+// ---------------------------------------------------------------------------
+// TEMPORARY — the 1.x shakedown switch.
+//
+// This build has never run on real hardware, so the log is the only thing
+// that can explain a misbehaviour to someone who wasn't sitting in front of
+// it. Verbose logging is therefore ON by default, and a startup banner
+// records the machine's Windows build, display layout and OCR availability.
+//
+// Neither is free: verbose mode writes several lines per capture, and the
+// banner costs a few milliseconds at launch.
+//
+// To turn it off on one machine without rebuilding:
+//   reg add "HKCU\Software\markpelayo\SnipText" /v debugMode /t REG_DWORD /d 0 /f
+//
+// TO REVERT once the app is polished: set this to false, and delete the
+// WriteStartupDiagnostics() call in App::Run(). Nothing else depends on it.
+// ---------------------------------------------------------------------------
+inline constexpr bool kVerboseByDefault = true;
+
 bool IsVerbose();
 void SetVerbose(bool verbose);
 

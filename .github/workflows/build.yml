@@ -20,8 +20,13 @@ jobs:
       # /fileLogger writes msbuild.log next to the project. While this is a
       # shakedown build, a failing run is something to hand to someone else,
       # and copying it out of the web view by hand loses the detail.
+      #
+      # The single quotes are load-bearing: this step runs under PowerShell,
+      # where a bare semicolon separates statements, so an unquoted
+      # /fileLoggerParameters:...;Verbosity=normal is parsed as two commands
+      # and PowerShell tries to run "Verbosity=normal" as a program.
       - name: Build
-        run: cmake --build build --config Release -- /fileLogger /fileLoggerParameters:LogFile=build\msbuild.log;Verbosity=normal
+        run: cmake --build build --config Release -- /fileLogger '/fileLoggerParameters:LogFile=build\msbuild.log;Verbosity=normal'
 
       - name: Upload the build log
         if: always()

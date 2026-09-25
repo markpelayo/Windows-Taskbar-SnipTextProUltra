@@ -6,12 +6,17 @@
 // Explorer icon, and it is also what the taskbar uses for a pinned shortcut.
 #define IDI_SNIPTEXT 1
 
+// The Tesseract trained model, embedded so the program stays one file with
+// nothing to install beside it and no network. Present only in builds
+// compiled with SNIPTEXT_WITH_TESSERACT.
+#define IDR_TESSDATA_ENG 100
+
 // The version, in the two forms the toolchain needs. Included by both
 // SnipText.rc and App.cpp, so the file properties, the startup log line and
 // the resource block can never disagree with each other.
 //
 // Still has to be kept in step by hand with VERSION and with
 // SnipText.manifest — see docs/RELEASING.md.
-#define SNIPTEXT_VERSION_COMMA  1,4,0,0
-#define SNIPTEXT_VERSION_STRING "1.4.0.0"
-#define SNIPTEXT_VERSION_WIDE   L"1.4.0"
+#define SNIPTEXT_VERSION_COMMA  1,5,0,0
+#define SNIPTEXT_VERSION_STRING "1.5.0.0"
+#define SNIPTEXT_VERSION_WIDE   L"1.5.0"

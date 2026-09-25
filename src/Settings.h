@@ -23,6 +23,8 @@ namespace key {
 // opposite, and reading it under the new meaning would silently flip the
 // behaviour for anyone upgrading.
 inline constexpr const wchar_t* kJoinWrappedLines = L"joinWrappedLines";
+// "auto" (default), "windows" or "tesseract".
+inline constexpr const wchar_t* kOcrEngine        = L"ocrEngine";
 inline constexpr const wchar_t* kShutterSound     = L"shutterSound";
 // Absent or empty means the built-in shutter; otherwise a path to a .wav.
 inline constexpr const wchar_t* kShutterSoundPath = L"shutterSoundPath";

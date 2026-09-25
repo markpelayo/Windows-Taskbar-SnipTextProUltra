@@ -31,12 +31,48 @@ set(SOURCES
     src/RegionOverlay.cpp
     src/ScreenRecorder.cpp
     src/Settings.cpp
+    src/TesseractOcr.cpp
     src/TextNormalizer.cpp
     src/Toast.cpp
     src/Util.cpp
     src/VideoSettings.cpp
     src/SnipText.rc
 )
+
+# --- the optional second OCR engine ----------------------------------------
+#
+# Windows.Media.Ocr is a language recogniser: it scores what it reads against
+# a lexicon, discards regions with no dictionary word in them, and rewrites
+# low-confidence characters into whatever makes a word. Neither behaviour can
+# be switched off, which makes it wrong for serial numbers, hashes and symbol
+# strings.
+#
+# Tesseract can have its dictionaries disabled, so it reports what it saw.
+# It is statically linked and its model is embedded, so the executable stays
+# a single self-contained file with no network and nothing to install.
+#
+# Off by default so that a plain `cmake -B build` still works with nothing
+# but the Windows SDK, exactly as build.bat does.
+option(SNIPTEXT_WITH_TESSERACT "Embed Tesseract as a fallback OCR engine" OFF)
+
+if(SNIPTEXT_WITH_TESSERACT)
+    find_package(Tesseract CONFIG REQUIRED)
+    find_package(Leptonica CONFIG REQUIRED)
+
+    # Fetched at configure time rather than committed: 4 MB of binary that is
+    # the same for everyone does not belong in the history.
+    set(TESSDATA_FILE "${CMAKE_CURRENT_SOURCE_DIR}/assets/eng.traineddata")
+    if(NOT EXISTS "${TESSDATA_FILE}")
+        message(STATUS "Fetching the Tesseract trained model...")
+        execute_process(
+            COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+                    -File "${CMAKE_CURRENT_SOURCE_DIR}/scripts/fetch-tessdata.ps1"
+            RESULT_VARIABLE TESSDATA_RESULT)
+        if(NOT TESSDATA_RESULT EQUAL 0)
+            message(FATAL_ERROR "Could not fetch eng.traineddata. Run scripts/fetch-tessdata.ps1 by hand, or configure with -DSNIPTEXT_WITH_TESSERACT=OFF.")
+        endif()
+    endif()
+endif()
 
 add_executable(SnipText WIN32 ${SOURCES})
 
@@ -49,6 +85,15 @@ target_include_directories(SnipText PRIVATE src)
 target_compile_definitions(SnipText PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
 )
+
+if(SNIPTEXT_WITH_TESSERACT)
+    # This reaches the resource compiler as well as the C++ one — CMake
+    # expands a target's COMPILE_DEFINITIONS into the RC command line, which
+    # is how UNICODE already gets there — and that is what makes SnipText.rc
+    # embed the model.
+    target_compile_definitions(SnipText PRIVATE SNIPTEXT_WITH_TESSERACT)
+    target_link_libraries(SnipText PRIVATE Tesseract::libtesseract leptonica)
+endif()
 
 if(MSVC)
     # /W4 with warnings-as-errors: a warning in a program that is meant to

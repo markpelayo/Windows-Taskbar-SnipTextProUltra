@@ -84,6 +84,7 @@ cl.exe %CFLAGS% /Fo"%OUT%\\" /Fe"%OUT%\SnipTextProUltra.exe" ^
     "%ROOT%src\RegionOverlay.cpp" ^
     "%ROOT%src\ScreenRecorder.cpp" ^
     "%ROOT%src\Settings.cpp" ^
+    "%ROOT%src\TesseractOcr.cpp" ^
     "%ROOT%src\TextNormalizer.cpp" ^
     "%ROOT%src\Toast.cpp" ^
     "%ROOT%src\Util.cpp" ^

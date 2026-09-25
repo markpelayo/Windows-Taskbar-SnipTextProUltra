@@ -8,6 +8,41 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.5.0] — 2026-09-26
+
+### Added
+
+- **A second OCR engine, for text that isn't words.** Windows.Media.Ocr is a
+  *language* recogniser: it scores what it reads against a lexicon, discards
+  regions containing no dictionary word, and rewrites low-confidence
+  characters into whatever makes a word. Neither behaviour can be switched
+  off. That is why `@#4!TW$RH^%&CFG?:` came back as nothing, and why a serial
+  number sometimes came back with the wrong digit — the engine was not
+  misreading it, it was correcting it.
+
+  Tesseract has explicit switches for both, so with its dictionaries disabled
+  it reports what it actually saw. It is statically linked and its trained
+  model is embedded as a resource, so the executable is still **one
+  self-contained file** with nothing to install and no network access.
+
+- **Text Recognition** in Settings, with three choices:
+  - **Auto** (default) — Windows first, because it is fast and right nearly
+    always; the fallback runs only when Windows came back with almost
+    nothing, which is exactly the case it fails on.
+  - **Windows only** — fastest, previous behaviour.
+  - **Fallback only** — for captures that are mostly codes and symbols.
+
+  Nothing is loaded at startup and the fallback engine is created per capture
+  and destroyed with it, so **idle memory is unchanged**: the program still
+  holds nothing but a message loop, its hotkeys and a tray icon.
+
+### Notes
+
+- The executable grows from about 1 MB to roughly 15 MB — the static engine
+  plus the 4 MB model. `build.bat` still produces the small, dependency-free
+  build with Windows OCR alone; the fallback is a CMake option
+  (`-DSNIPTEXT_WITH_TESSERACT=ON`) and is what the released binary uses.
+
 ## [1.4.0] — 2026-09-26
 
 ### Changed
@@ -221,7 +256,8 @@ The short version: the app model, the confirmation surface, the recording
 indicator, the hotkeys, the container format, the OCR engine and the editor's
 Y axis all changed because the platform is different. Nothing else did.
 
-[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.5.0
 [1.4.0]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.4.0
 [1.3.1]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.3.1
 [1.1.0]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.1.0

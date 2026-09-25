@@ -86,6 +86,26 @@ ctest --test-dir build -C Release
 
 Building from source is the recommended route. It is the only way to be certain the binary matches the code you can read here, and it sidesteps the SmartScreen warning that an unsigned download will always produce.
 
+### Building with the second OCR engine
+
+The default build uses only `Windows.Media.Ocr` and needs nothing but the Windows SDK. Released binaries additionally embed Tesseract, which is what lets the app read serial numbers, hashes and symbol strings — see [Screenshot to Text](#screenshot-to-text).
+
+```
+vcpkg install --triplet x64-windows-static
+cmake -B build -A x64 -DSNIPTEXT_WITH_TESSERACT=ON ^
+      -DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake ^
+      -DVCPKG_TARGET_TRIPLET=x64-windows-static
+cmake --build build --config Release
+```
+
+The trained model (~4 MB) is fetched at configure time by `scripts/fetch-tessdata.ps1` and compiled in as a resource, so the finished executable is still one file. Its SHA-256 must be pinned in that script before CI will build a release. To work the hash out from macOS or Linux, where `pwsh` is usually absent:
+
+```
+./scripts/tessdata-hash.sh
+```
+
+That downloads the model to a temporary file, prints the line to paste, and deletes it again.
+
 ### Uninstalling
 
 ```

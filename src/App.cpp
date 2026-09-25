@@ -11,6 +11,7 @@
 #include "RegionOverlay.h"
 #include "ScreenRecorder.h"
 #include "Settings.h"
+#include "TesseractOcr.h"
 #include "TextNormalizer.h"
 #include "Toast.h"
 #include "Util.h"
@@ -46,6 +47,7 @@ enum : int {
     ID_STARTUP_OFF = 1060, ID_STARTUP_ON,
     ID_SHORTCUT_RESET = 1070,
     ID_SHUTTER_OFF = 1074, ID_SHUTTER_BUILTIN, ID_SHUTTER_CUSTOM, ID_SHUTTER_PREVIEW,
+    ID_ENGINE_AUTO = 1090, ID_ENGINE_WINDOWS, ID_ENGINE_TESSERACT,
     ID_SHORTCUT_BASE  = 1080,   // + index into hotkeys::kAllActions
     ID_FPS_BASE      = 1100,   // + index into kFrameRateChoices
     ID_QUALITY_BASE  = 1110,   // + index
@@ -126,6 +128,13 @@ void AppendTitleRow(HMENU menu) {
     const std::wstring title = L"SnipTextProUltra  ·  v" SNIPTEXT_VERSION_WIDE
                                L"  ·  by markpelayo";
     ::AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(ID_ABOUT), title.c_str());
+}
+
+ocr::Engine CurrentEngine() {
+    const std::wstring stored = settings::GetString(settings::key::kOcrEngine, L"auto");
+    if (stored == L"windows")   return ocr::Engine::WindowsOnly;
+    if (stored == L"tesseract") return ocr::Engine::TesseractOnly;
+    return ocr::Engine::Auto;
 }
 
 // The shortcut column, read live rather than hard-coded, so rebinding one
@@ -224,6 +233,7 @@ struct App::OcrOutcome {
     std::unique_ptr<Bitmap> image;
     capture::Mode           mode = capture::Mode::Region;
     bool                    keepLineBreaks = false;
+    ocr::Engine             engine = ocr::Engine::Auto;
     std::wstring            text;
     size_t                  lineCount = 0;
     std::wstring            failure;
@@ -646,6 +656,26 @@ HMENU App::BuildMenu() {
 
     AppendCommand(menu, ID_SET_JOINWRAPPED, L"Join Wrapped Lines", true,
                   settings::GetBool(settings::key::kJoinWrappedLines, true));
+
+    // Only worth showing when there is a choice to make. A build without the
+    // fallback engine has one recogniser, and a row that offers one option is
+    // noise.
+    if (tesseract_ocr::IsCompiledIn()) {
+        const ocr::Engine engine = CurrentEngine();
+        HMENU engines = ::CreatePopupMenu();
+        if (engines) {
+            AppendCommand(engines, ID_ENGINE_AUTO,
+                          L"Auto \u2014 Windows, then the fallback", true,
+                          engine == ocr::Engine::Auto);
+            AppendCommand(engines, ID_ENGINE_WINDOWS,
+                          L"Windows only \u2014 fastest", true,
+                          engine == ocr::Engine::WindowsOnly);
+            AppendCommand(engines, ID_ENGINE_TESSERACT,
+                          L"Fallback only \u2014 reads symbols and codes", true,
+                          engine == ocr::Engine::TesseractOnly);
+        }
+        AppendSubmenu(menu, engines, L"Text Recognition");
+    }
     {
         const bool shutterOn = settings::GetBool(settings::key::kShutterSound, true);
         const std::wstring customPath = settings::GetString(settings::key::kShutterSoundPath);
@@ -797,6 +827,7 @@ HMENU App::BuildMenu() {
         &&  editor_settings::IsDefault()
         &&  hotkeys::IsDefault()
         &&  settings::GetString(settings::key::kShutterSoundPath).empty()
+        &&  settings::GetString(settings::key::kOcrEngine).empty()
         &&  lastText_.empty();
     const int totalFiles = screenshotCount + textImageCount + videoCount;
     AppendCommand(menu, ID_SANITIZE, L"Sanitize and Restore Default…",
@@ -950,6 +981,16 @@ void App::OnCommand(int command) {
         settings::SetBool(settings::key::kJoinWrappedLines,
                           !settings::GetBool(settings::key::kJoinWrappedLines, true));
         return;
+    case ID_ENGINE_AUTO:
+        settings::Remove(settings::key::kOcrEngine);   // absent means the default
+        return;
+    case ID_ENGINE_WINDOWS:
+        settings::SetString(settings::key::kOcrEngine, L"windows");
+        return;
+    case ID_ENGINE_TESSERACT:
+        settings::SetString(settings::key::kOcrEngine, L"tesseract");
+        return;
+
     case ID_SHUTTER_OFF:
         settings::SetBool(settings::key::kShutterSound, false);
         return;
@@ -959,6 +1000,7 @@ void App::OnCommand(int command) {
         // Clearing the path is what selects the built-in sound; the custom
         // file itself is left alone on disk.
         settings::Remove(settings::key::kShutterSoundPath);
+    settings::Remove(settings::key::kOcrEngine);
         capture::PreviewShutter();
         return;
 
@@ -1101,6 +1143,9 @@ void App::ScreenshotToText(capture::Mode mode) {
     outcome->image          = std::move(image);
     outcome->mode           = mode;
     outcome->keepLineBreaks = keepLineBreaks;
+    // Resolved here rather than on the worker: the setting lives in the
+    // registry, and reading it from two threads is needless.
+    outcome->engine         = CurrentEngine();
 
     ScopedHandle thread(::CreateThread(nullptr, 0, &App::OcrThread, outcome, 0, nullptr));
     if (!thread) {
@@ -1115,7 +1160,7 @@ void App::ScreenshotToText(capture::Mode mode) {
 DWORD WINAPI App::OcrThread(void* parameter) {
     auto* outcome = static_cast<OcrOutcome*>(parameter);
 
-    ocr::Result recognised = ocr::Recognize(*outcome->image);
+    ocr::Result recognised = ocr::Recognize(*outcome->image, outcome->engine);
     outcome->failure   = recognised.failure;
     outcome->lineCount = recognised.lines.size();
     outcome->text      = text::Normalize(recognised.lines, outcome->keepLineBreaks);
@@ -1461,6 +1506,7 @@ void App::Sanitize() {
     settings::Remove(settings::key::kJoinWrappedLines);
     settings::Remove(settings::key::kShutterSound);
     settings::Remove(settings::key::kShutterSoundPath);
+    settings::Remove(settings::key::kOcrEngine);
     settings::Remove(settings::key::kSaveCaptures);
     settings::Remove(settings::key::kStartupDelay);
     video::RestoreDefaults();

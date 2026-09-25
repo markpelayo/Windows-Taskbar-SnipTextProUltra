@@ -18,6 +18,15 @@
 
 namespace ocr {
 
+// Which recogniser to use.
+//
+// Auto is the default and the one worth understanding: Windows OCR runs
+// first because it is fast and right nearly always, and Tesseract runs only
+// when that came back nearly empty. That is precisely the case Windows fails
+// on — a string with no dictionary word in it, which its lexicon discards
+// after reading it perfectly well.
+enum class Engine { Auto, WindowsOnly, TesseractOnly };
+
 struct Result {
     std::vector<OcrLine> lines;
     bool                 engineAvailable = true;
@@ -29,7 +38,10 @@ struct Result {
 //
 // Safe to call from a worker thread — it initialises the apartment it needs
 // and tears it down again.
-Result Recognize(const Bitmap& image);
+Result Recognize(const Bitmap& image, Engine engine = Engine::Auto);
+
+// Which engine actually produced the last result, for the log and the menu.
+const wchar_t* EngineName(Engine engine);
 
 // True when at least one OCR language is installed. Checked once and cached;
 // the answer only changes when the user installs a language pack, which

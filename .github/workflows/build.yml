@@ -40,8 +40,35 @@ jobs:
             exit 1
           }
 
+      # Tesseract and Leptonica, static. Cached because a cold build of both
+      # takes the better part of twenty minutes and they change roughly never.
+      # vcpkg.json at the repo root puts vcpkg in manifest mode, so the
+      # dependencies are installed by the CMake toolchain at configure time
+      # and land in build/vcpkg_installed — not in C:/vcpkg/installed. The
+      # binary cache is what actually saves the twenty-minute cold build of
+      # Tesseract.
+      - name: Cache vcpkg
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/vcpkg_installed
+            ~/AppData/Local/vcpkg/archives
+          key: vcpkg-x64-static-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-x64-static-
+
+      # The trained model the executable embeds. Fetched rather than
+      # committed: 4 MB of binary that never changes does not belong in the
+      # history. The shipped exe still carries it internally and still never
+      # touches the network.
+      - name: Fetch the trained model
+        run: pwsh scripts/fetch-tessdata.ps1 -RequirePinned
+
       - name: Configure
-        run: cmake -B build -A x64 -DCMAKE_BUILD_TYPE=Release
+        run: >
+          cmake -B build -A x64 -DCMAKE_BUILD_TYPE=Release
+          -DSNIPTEXT_WITH_TESSERACT=ON
+          -DVCPKG_TARGET_TRIPLET=x64-windows-static
+          -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
 
       # /fileLogger writes msbuild.log next to the project. While this is a
       # shakedown build, a failing run is something to hand to someone else,
@@ -61,6 +88,15 @@ jobs:
           name: build-log
           path: build/msbuild.log
           if-no-files-found: ignore
+
+      # The default configuration builds with nothing but the Windows SDK and
+      # is what build.bat produces. Without this, a break in the
+      # no-Tesseract path — a missing source file, say — is invisible until
+      # somebody tries it.
+      - name: Build the dependency-free configuration
+        run: |
+          cmake -B build-plain -A x64 -DSNIPTEXT_BUILD_TESTS=OFF
+          cmake --build build-plain --config Release
 
       # The normaliser is the one piece whose regressions are silent: wrong
       # output still looks like plausible text.

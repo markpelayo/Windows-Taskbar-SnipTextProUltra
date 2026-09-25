@@ -1,6 +1,7 @@
 #include "Ocr.h"
 
 #include "Log.h"
+#include "TesseractOcr.h"
 #include "Util.h"
 
 #include <roapi.h>
@@ -334,7 +335,8 @@ bool IsAvailable() {
     return available;
 }
 
-Result Recognize(const Bitmap& image) {
+// The Windows.Media.Ocr path. Internal: callers go through Recognize.
+Result RecognizeWithWindows(const Bitmap& image) {
     Result result;
     if (!image.IsValid()) {
         result.failure = L"There was nothing to read.";
@@ -593,6 +595,67 @@ Result Recognize(const Bitmap& image) {
     LOG_DEBUG(util::Format(L"ocr: %zu observations", observations.size()));
     BucketIntoRows(observations, result.lines);
     LOG_DEBUG(util::Format(L"ocr: %zu visual lines after row bucketing", result.lines.size()));
+    return result;
+}
+
+const wchar_t* EngineName(Engine engine) {
+    switch (engine) {
+    case Engine::WindowsOnly:   return L"Windows";
+    case Engine::TesseractOnly: return L"Tesseract";
+    default:                    return L"Auto";
+    }
+}
+
+Result Recognize(const Bitmap& image, Engine engine) {
+    // Forced to the fallback engine.
+    if (engine == Engine::TesseractOnly) {
+        if (!tesseract_ocr::IsAvailable()) {
+            Result result;
+            result.engineAvailable = false;
+            result.failure = tesseract_ocr::IsCompiledIn()
+                ? L"The bundled text-recognition model is missing from this build."
+                : L"This build was compiled without the fallback recogniser.";
+            return result;
+        }
+        tesseract_ocr::Result raw = tesseract_ocr::Recognize(image);
+        Result result;
+        result.failure = raw.failure;
+        BucketIntoRows(raw.lines, result.lines);
+        LOG_DEBUG(util::Format(L"ocr: Tesseract produced %zu lines", result.lines.size()));
+        return result;
+    }
+
+    Result windows = RecognizeWithWindows(image);
+    if (engine == Engine::WindowsOnly) return windows;
+
+    // --- Auto ------------------------------------------------------------
+    // Windows OCR has already run, because it is fast and right nearly
+    // always. Tesseract is worth its ~100 ms start-up only when that came
+    // back with almost nothing — which is exactly the shape of the failure
+    // it exists to fix: a lexicon discarding text it read perfectly.
+    size_t characters = 0;
+    for (const OcrLine& line : windows.lines) characters += line.text.size();
+
+    constexpr size_t kLooksEmpty = 40;
+    if (characters >= kLooksEmpty || !tesseract_ocr::IsAvailable()) return windows;
+
+    LOG_DEBUG(util::Format(L"ocr: Windows read only %zu chars, trying Tesseract",
+                           characters));
+    tesseract_ocr::Result raw = tesseract_ocr::Recognize(image);
+
+    size_t fallbackCharacters = 0;
+    for (const OcrLine& line : raw.lines) fallbackCharacters += line.text.size();
+
+    if (fallbackCharacters <= characters) {
+        LOG_DEBUG(util::Format(L"ocr: Tesseract read %zu chars, keeping the Windows result",
+                               fallbackCharacters));
+        return windows;
+    }
+
+    Result result;
+    BucketIntoRows(raw.lines, result.lines);
+    logging::Write(util::Format(L"ocr: Tesseract read %zu chars where Windows read %zu",
+                                fallbackCharacters, characters));
     return result;
 }
 

@@ -10,6 +10,13 @@ IDI_SNIPTEXT ICON "..\\assets\\SnipText.ico"
 //   * Windows 10/11 compatibility, so the OS does not apply shims
 1 RT_MANIFEST "SnipText.manifest"
 
+// Fetched at build time rather than committed: a 4 MB binary blob does not
+// belong in the history, and it is the same file for everyone. See
+// scripts/fetch-tessdata.* and the CMake target that calls it.
+#ifdef SNIPTEXT_WITH_TESSERACT
+IDR_TESSDATA_ENG RCDATA "..\\assets\\eng.traineddata"
+#endif
+
 VS_VERSION_INFO VERSIONINFO
 FILEVERSION     SNIPTEXT_VERSION_COMMA
 PRODUCTVERSION  SNIPTEXT_VERSION_COMMA

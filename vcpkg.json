@@ -1,0 +1,16 @@
+{
+  "$comment": [
+    "Only used when configuring with -DSNIPTEXT_WITH_TESSERACT=ON.",
+    "A default build needs nothing but the Windows SDK, and vcpkg is not",
+    "consulted at all.",
+    "",
+    "Both are built as static libraries (x64-windows-static) so the shipped",
+    "executable stays one self-contained file with no DLLs beside it."
+  ],
+  "name": "sniptextproultra",
+  "version-string": "1.5.0",
+  "dependencies": [
+    "tesseract",
+    "leptonica"
+  ]
+}

@@ -162,7 +162,7 @@ SnipTextProUltra  ·  v1.3.0  ·  by markpelayo
   Screen Record Full Screen       Ctrl+Shift+6
 ──────────────────────
   Change Keyboard Shortcut ▸
-  Join Wrapped Lines     ✓
+  Text Layout            ▸
   Shutter Sound          ✓ ▸
   Auto-Save Images
   Save Locations         ▸
@@ -201,20 +201,24 @@ The first row names the program, its version and its author, so a screenshot of 
 
 Text lands on the clipboard; `Ctrl+V` wherever you want it. Confirmation is the shutter sound plus a small message above the taskbar with a character count. No notification banner, which also means no notification permission prompt.
 
-### Join Wrapped Lines
+### Text Layout
 
-OCR reports what it sees **on screen**, not what the text means. A paragraph that wraps over three lines arrives as three separate lines. This setting decides whether to put it back together.
+OCR reports what it sees **on screen**, not what the text means. A paragraph that wraps over three lines arrives as three separate lines, and the space between two blocks arrives as nothing at all. This setting decides whether to put the structure back.
 
 | | |
 |---|---|
-| **✓ on** (default) | Wrapped prose is rejoined into paragraphs. Right for docs, emails, error dialogs. |
-| **☐ off** | Every line exactly as the engine saw it. Four lines on screen, four lines of text. Right for code, logs, IDs, table cells. |
+| **Rebuild Paragraphs** (default) | Lines that wrapped are rejoined, and a blank line goes in wherever the original had a bigger gap. Right for docs, emails, articles, error dialogs. |
+| **Keep Every Line Separate** | Every line exactly as the engine saw it, nothing joined and nothing inserted. Right for code, logs, IDs, chat lists, table cells. |
 
-The important nuance, and the reason this used to be called *Keep Line Breaks*: **on** does not mean "join everything". It only joins lines that actually **wrapped**. A column of work-order numbers stays a column, because each of those lines stopped well short of the right margin and therefore did not wrap.
+Two rows rather than a checkbox, and that is the third name this setting has had. *Keep Line Breaks* described the state you were switching **away** from. *Join Wrapped Lines* named only half of what the other state does — and on a capture with nothing wrapped in it, a chat list or a table where every line is already truncated with an ellipsis, that half does nothing, so the only visible effect was blank lines the name never mentioned. A checkbox can only ever name one of its two states; naming both costs one row and ends the guessing.
 
-That decision is made from **geometry, not punctuation**. A line is treated as a continuation only if all four hold: the previous line ran to the right margin, the vertical gap is normal leading, the current line is not indented, and it does not start a list item. See [the architecture notes](docs/ARCHITECTURE.md#text-normalisation) for why the obvious approach doesn't work, and `tests/TextNormalizerTests.cpp` for the cases that shaped it.
+**Rebuild** does not mean "join everything". It only joins lines that actually **wrapped**, and that decision comes from **geometry, not punctuation**: a line is a continuation only if all four hold — the previous line ran to the right margin, the vertical gap is normal leading, the current line is not indented, and it does not start a list item. A column of work-order numbers stays a column, because each of those lines stopped well short of the right margin.
 
-**off** is the predictable one — verbatim, always. Reach for it when a capture comes back joined in a way you did not want.
+The blank lines come from the same measurements: a gap wider than 1.6× the median line height is treated as a block break rather than a line break.
+
+See [the architecture notes](docs/ARCHITECTURE.md#text-normalisation) for why the obvious approach doesn't work, and `tests/TextNormalizerTests.cpp` for the cases that shaped it.
+
+**Keep Every Line Separate** is the predictable one — verbatim, always. Reach for it when a capture comes back joined, or spaced out, in a way you did not want.
 
 ---
 
@@ -357,7 +361,7 @@ Nobody has profiled it, either. The figures under [Resource usage](#resource-usa
 
 - **Full-screen capture is one monitor** — the one under the pointer. Capturing several at once would write files that need stitching.
 - **OCR language follows Windows.** It uses your installed display languages; there is no per-capture language picker.
-- **Table columns merge.** Blocks on the same visual row join with a space. Switching *Join Wrapped Lines* off at least preserves the rows.
+- **Table columns merge.** Blocks on the same visual row join with a space. Switching *Text Layout* to *Keep Every Line Separate* at least preserves the rows.
 - **No webcam recording.** Compositing a webcam in needs a different encoding pipeline, not a flag.
 - **No system audio recording.** Microphone input works; loopback capture of what the machine is playing is a separate WASAPI path that is not wired up.
 - **No auto-paste.** Clipboard-only by design.

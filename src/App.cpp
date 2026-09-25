@@ -38,10 +38,13 @@ enum : int {
     ID_SHOT_REGION = 1001, ID_SHOT_FULL, ID_SHOT_SHOW,
     ID_TEXT_REGION, ID_TEXT_FULL, ID_TEXT_COPYLAST, ID_TEXT_SHOW,
     ID_REC_REGION, ID_REC_FULL, ID_REC_STOP, ID_REC_SHOW,
-    ID_SET_JOINWRAPPED, ID_SET_AUTOSAVE,
+    // ID_SET_JOINWRAPPED was here; Text Layout replaced the checkbox with the
+    // two rows below. The slot is kept so ID_SET_AUTOSAVE keeps its number.
+    ID_SET_LAYOUT_RETIRED, ID_SET_AUTOSAVE,
     ID_FOLDER_SHOT_CHOOSE = 1020, ID_FOLDER_SHOT_RESET,
     ID_FOLDER_TEXT_CHOOSE, ID_FOLDER_TEXT_RESET,
     ID_FOLDER_VIDEO_CHOOSE, ID_FOLDER_VIDEO_RESET,
+    ID_LAYOUT_REBUILD = 1030, ID_LAYOUT_LINES,
     ID_VID_CURSOR = 1040, ID_VID_CLICKS, ID_VID_HEVC,
     ID_SANITIZE = 1050, ID_QUIT, ID_ABOUT,
     ID_STARTUP_OFF = 1060, ID_STARTUP_ON,
@@ -659,8 +662,30 @@ HMENU App::BuildMenu() {
         AppendSubmenu(menu, shortcuts, L"Change Keyboard Shortcut");
     }
 
-    AppendCommand(menu, ID_SET_JOINWRAPPED, L"Join Wrapped Lines", true,
-                  settings::GetBool(settings::key::kJoinWrappedLines, true));
+    // A submenu rather than a checkbox, and the third name this setting has
+    // had. "Keep Line Breaks" was wrong because it described the unchecked
+    // state; "Join Wrapped Lines" was wrong because it described only half of
+    // what the checked state does, and on a screenshot with no wrapped lines
+    // in it — a chat list, a table, anything already truncated with an
+    // ellipsis — that half does nothing at all, so the only visible effect was
+    // the blank lines between blocks, which the name never mentioned.
+    //
+    // The pattern in both failures is the checkbox: it can only name one
+    // state, so the other one is always inferred, and a wrong inference is
+    // invisible until someone compares two captures side by side. Naming both
+    // states costs one row and ends the guessing.
+    {
+        const bool rebuild = settings::GetBool(settings::key::kJoinWrappedLines, true);
+        HMENU layout = ::CreatePopupMenu();
+        if (layout) {
+            AppendCommand(layout, ID_LAYOUT_REBUILD, L"Rebuild Paragraphs", true, rebuild);
+            AppendCommand(layout, ID_LAYOUT_LINES, L"Keep Every Line Separate", true, !rebuild);
+            AppendSeparator(layout);
+            AppendHeader(layout, L"Rebuild rejoins sentences that wrapped,");
+            AppendHeader(layout, L"and puts a blank line between blocks.");
+        }
+        AppendSubmenu(menu, layout, L"Text Layout");
+    }
 
     // Only worth showing when there is a choice to make. A build without the
     // fallback engine has one recogniser, and a row that offers one option is
@@ -1032,9 +1057,18 @@ void App::OnCommand(int command) {
     case ID_REC_STOP:     ScreenRecorder::Shared().Stop(); return;
     case ID_REC_SHOW:     MediaFolder::Videos().Reveal(); return;
 
-    case ID_SET_JOINWRAPPED:
-        settings::SetBool(settings::key::kJoinWrappedLines,
-                          !settings::GetBool(settings::key::kJoinWrappedLines, true));
+    // Set, not toggled. Two rows each naming a state means clicking the one
+    // that is already ticked has to be a no-op — with a toggle it would turn
+    // the setting off, which is the opposite of what the row says.
+    //
+    // Rebuild is the default, so choosing it *removes* the value rather than
+    // writing true: absent and default have to stay the same thing, or
+    // Sanitize stops being able to tell whether anything was ever changed.
+    case ID_LAYOUT_REBUILD:
+        settings::Remove(settings::key::kJoinWrappedLines);
+        return;
+    case ID_LAYOUT_LINES:
+        settings::SetBool(settings::key::kJoinWrappedLines, false);
         return;
     case ID_ENGINE_AUTO:
         settings::Remove(settings::key::kOcrEngine);   // absent means the default
@@ -1179,10 +1213,14 @@ void App::ScreenshotToText(capture::Mode mode) {
     // The normaliser's flag is still "keep the breaks", which is the inverse
     // of the setting. Inverted once, here, so nothing downstream has to hold
     // both senses in its head.
-    const bool joinWrapped    = settings::GetBool(settings::key::kJoinWrappedLines, true);
-    const bool keepLineBreaks = !joinWrapped;
-    LOG_DEBUG(util::Format(L"pipeline: start mode=%s joinWrappedLines=%d",
-                           capture::ModeLabel(mode), joinWrapped ? 1 : 0));
+    // The registry key still reads joinWrappedLines. Renaming it would make
+    // every existing install silently revert to the default, and the key is
+    // not the part anyone sees.
+    const bool rebuildParagraphs = settings::GetBool(settings::key::kJoinWrappedLines, true);
+    const bool keepLineBreaks    = !rebuildParagraphs;
+    LOG_DEBUG(util::Format(L"pipeline: start mode=%s layout=%s",
+                           capture::ModeLabel(mode),
+                           rebuildParagraphs ? L"rebuild" : L"lines"));
 
     std::unique_ptr<Bitmap> image = AcquireImage(mode);
     if (!image) {
@@ -1510,7 +1548,7 @@ void App::Sanitize() {
     message += L"These settings return to their defaults:\r\n"
                L"    • the three folder locations\r\n"
                L"    • all six keyboard shortcuts\r\n"
-               L"    • Join Wrapped Lines, Shutter Sound, Auto-Save Images\r\n"
+               L"    • Text Layout, Shutter Sound, Auto-Save Images\r\n"
                L"    • all Screen Recording Settings\r\n"
                L"    • the annotation tool, colour and stroke width\r\n"
                L"    • Run at Startup (switched off)";

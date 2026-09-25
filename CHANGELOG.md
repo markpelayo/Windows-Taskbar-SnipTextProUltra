@@ -70,6 +70,26 @@ adheres to [Semantic Versioning](https://semver.org).
 - **Show Saved Files** and **Screen Recording Settings** swapped places, so
   the settings row sits immediately above *Sanitize and Restore Default*.
 
+- **Join Wrapped Lines is now a Text Layout submenu** with both states named:
+  *Rebuild Paragraphs* (default) and *Keep Every Line Separate*.
+
+  This is the third name this setting has had, and the previous two failed the
+  same way. *Keep Line Breaks* described the state you were switching away
+  from. *Join Wrapped Lines* described only half of what the other state does:
+  the geometry pass both rejoins wrapped lines **and** inserts a blank line
+  where the original had a bigger gap. On a capture with nothing wrapped in it
+  — a chat list, a table, anything already truncated with an ellipsis — the
+  joining half does nothing at all, so the only visible effect was blank lines
+  that the name never mentioned.
+
+  The common factor is the checkbox. It can only name one of its two states,
+  so the other is always inferred, and a wrong inference stays invisible until
+  someone compares two captures side by side. Naming both states costs one
+  row.
+
+  The registry key is unchanged (`joinWrappedLines`), so nobody's setting
+  resets on upgrade.
+
 - **CI runs the fast build on every push and the slow one only on tags.**
   Every commit used to wait about twenty minutes for a full static Tesseract
   build via vcpkg before anything was checked. The dependency-free build and

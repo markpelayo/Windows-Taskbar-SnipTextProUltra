@@ -142,7 +142,7 @@ SnipTextProUltra  ·  v1.3.0  ·  by markpelayo
   Record Full Screen              Ctrl+Shift+6
 ──────────────────────
   Shortcuts              ▸
-  Keep Line Breaks
+  Join Wrapped Lines     ✓
   Shutter Sound          ✓ ▸
   Auto-Save Images
   Save Locations         ▸
@@ -177,9 +177,20 @@ The first row names the program, its version and its author, so a screenshot of 
 
 Text lands on the clipboard; `Ctrl+V` wherever you want it. Confirmation is the shutter sound plus a small message above the taskbar with a character count. No notification banner, which also means no notification permission prompt.
 
-**Keep Line Breaks** is the setting you will actually reach for. Off (default), wrapped lines are joined into paragraphs — right for prose, docs, emails, error dialogs. On, you get exactly the lines the engine saw — right for code, logs, IDs, table cells.
+### Join Wrapped Lines
 
-Line joining is decided from **geometry, not character counts**: a line that stops short of the right margin didn't wrap, so its break is kept. See [the architecture notes](docs/ARCHITECTURE.md#text-normalisation) for why the obvious approach doesn't work, and `tests/TextNormalizerTests.cpp` for the cases that shaped it.
+OCR reports what it sees **on screen**, not what the text means. A paragraph that wraps over three lines arrives as three separate lines. This setting decides whether to put it back together.
+
+| | |
+|---|---|
+| **✓ on** (default) | Wrapped prose is rejoined into paragraphs. Right for docs, emails, error dialogs. |
+| **☐ off** | Every line exactly as the engine saw it. Four lines on screen, four lines of text. Right for code, logs, IDs, table cells. |
+
+The important nuance, and the reason this used to be called *Keep Line Breaks*: **on** does not mean "join everything". It only joins lines that actually **wrapped**. A column of work-order numbers stays a column, because each of those lines stopped well short of the right margin and therefore did not wrap.
+
+That decision is made from **geometry, not punctuation**. A line is treated as a continuation only if all four hold: the previous line ran to the right margin, the vertical gap is normal leading, the current line is not indented, and it does not start a list item. See [the architecture notes](docs/ARCHITECTURE.md#text-normalisation) for why the obvious approach doesn't work, and `tests/TextNormalizerTests.cpp` for the cases that shaped it.
+
+**off** is the predictable one — verbatim, always. Reach for it when a capture comes back joined in a way you did not want.
 
 ---
 
@@ -302,7 +313,7 @@ Nobody has profiled it, either. The figures under [Resource usage](#resource-usa
 
 - **Full-screen capture is one monitor** — the one under the pointer. Capturing several at once would write files that need stitching.
 - **OCR language follows Windows.** It uses your installed display languages; there is no per-capture language picker.
-- **Table columns merge.** Blocks on the same visual row join with a space. "Keep Line Breaks" at least preserves the rows.
+- **Table columns merge.** Blocks on the same visual row join with a space. Switching *Join Wrapped Lines* off at least preserves the rows.
 - **No webcam recording.** Compositing a webcam in needs a different encoding pipeline, not a flag.
 - **No system audio recording.** Microphone input works; loopback capture of what the machine is playing is a separate WASAPI path that is not wired up.
 - **No auto-paste.** Clipboard-only by design.

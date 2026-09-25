@@ -8,6 +8,27 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.4.0] — 2026-09-26
+
+### Changed
+
+- **"Keep Line Breaks" is now "Join Wrapped Lines", and defaults to on.**
+  Same behaviour, honest label. The old name implied that switching it off
+  gave you one continuous line, which was never true: the setting only ever
+  rejoined lines that *wrapped*, and left genuinely separate lines alone. It
+  is stored under a new registry key, so an existing `keepLineBreaks` value
+  cannot be read under the opposite meaning.
+
+### Improved
+
+- **OCR now retries a capture it struggled to read.** The first pass is the
+  image as captured; if that finds little, it tries an inverted copy (for
+  light text on a dark background, which the engine reads noticeably worse)
+  and a 2x copy (for small text), keeping whichever pass read the most. A
+  pass that already read a good amount short-circuits the rest, so an
+  ordinary capture costs exactly what it did before. The log names the pass
+  that won.
+
 ## [1.3.1] — 2026-09-26
 
 The first release to actually contain any of this.
@@ -200,7 +221,8 @@ The short version: the app model, the confirmation surface, the recording
 indicator, the hotkeys, the container format, the OCR engine and the editor's
 Y axis all changed because the platform is different. Nothing else did.
 
-[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.4.0
 [1.3.1]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.3.1
 [1.1.0]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.1.0
 [1.0.0]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.0.0

@@ -142,6 +142,18 @@ The bucketing tolerance compares against the row's **running mean** `midY`, not 
 
 Note the three different reductions in one struct — X is a union, height is a max, `midY` is a *mean*. A word with a descender must not drag the whole line's centre down.
 
+### When the engine struggles
+
+Windows' recogniser has two blind spots that have nothing to do with language: **light text on a dark background**, and **small text**. Both used to mean a capture came back partly or wholly empty.
+
+So a capture now gets up to four passes, in this order: as captured; inverted, if the mean luminance says the image is dark; doubled, if the short edge is under 700 pixels; and both, if both apply. Whichever pass read the most characters wins, and the log names it.
+
+The cost is bounded in two ways. The variants are only **queued** when the image has the problem they solve, so an ordinary bright, roomy capture queues nothing beyond the first pass. And a first pass that reads 200 characters or more short-circuits the rest, so a dark screenshot that is simply full of text does not pay for an inverted copy it will not use. Each prepared copy is built inside the loop and released at the end of it, so at most one exists at a time — building all four up front would cost ten times the source in memory for a capture the first pass usually wins.
+
+The 2x pass is skipped when doubling would push the image back over `MaxImageDimension`, which the downscale above just brought it under. That ceiling applies to the long edge, so gating on the short edge alone would silently break every wide, thin capture — one line of text dragged across a monitor, the commonest shape there is.
+
+What this does **not** fix: `Windows.Media.Ocr` scores candidate regions against a lexicon and discards what does not look like words in an installed language. A string with no dictionary word in it — `@#4!TW$RH^%&CFG?:` — can be read cleanly and still be thrown away. Apple's Vision does not do this, which is why the macOS original reads such strings and this does not. No amount of preprocessing changes it; only a different engine would, at the cost of the no-dependencies rule.
+
 ### The engine's size limit
 
 `OcrEngine.MaxImageDimension` is a hard ceiling, and a full-screen capture on a large display can exceed it. Refusing the capture would be worse than reading a downscaled copy, so the image is scaled to fit. Because all geometry is normalised, scaling changes nothing downstream.

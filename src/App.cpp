@@ -37,7 +37,7 @@ enum : int {
     ID_SHOT_REGION = 1001, ID_SHOT_FULL, ID_SHOT_SHOW,
     ID_TEXT_REGION, ID_TEXT_FULL, ID_TEXT_COPYLAST, ID_TEXT_SHOW,
     ID_REC_REGION, ID_REC_FULL, ID_REC_STOP, ID_REC_SHOW,
-    ID_SET_KEEPLINEBREAKS, ID_SET_AUTOSAVE,
+    ID_SET_JOINWRAPPED, ID_SET_AUTOSAVE,
     ID_FOLDER_SHOT_CHOOSE = 1020, ID_FOLDER_SHOT_RESET,
     ID_FOLDER_TEXT_CHOOSE, ID_FOLDER_TEXT_RESET,
     ID_FOLDER_VIDEO_CHOOSE, ID_FOLDER_VIDEO_RESET,
@@ -644,8 +644,8 @@ HMENU App::BuildMenu() {
         AppendSubmenu(menu, shortcuts, L"Shortcuts");
     }
 
-    AppendCommand(menu, ID_SET_KEEPLINEBREAKS, L"Keep Line Breaks", true,
-                  settings::GetBool(settings::key::kKeepLineBreaks, false));
+    AppendCommand(menu, ID_SET_JOINWRAPPED, L"Join Wrapped Lines", true,
+                  settings::GetBool(settings::key::kJoinWrappedLines, true));
     {
         const bool shutterOn = settings::GetBool(settings::key::kShutterSound, true);
         const std::wstring customPath = settings::GetString(settings::key::kShutterSoundPath);
@@ -788,7 +788,7 @@ HMENU App::BuildMenu() {
         MediaFolder::Screenshots().IsUsingDefaultDirectory()
         && MediaFolder::TextImages().IsUsingDefaultDirectory()
         && MediaFolder::Videos().IsUsingDefaultDirectory()
-        && !settings::GetBool(settings::key::kKeepLineBreaks, false)
+        &&  settings::GetBool(settings::key::kJoinWrappedLines, true)
         &&  settings::GetBool(settings::key::kShutterSound, true)
         && !settings::GetBool(settings::key::kSaveCaptures, false)
         &&  settings::GetInt(settings::key::kStartupDelay, 0) == 0
@@ -946,9 +946,9 @@ void App::OnCommand(int command) {
     case ID_REC_STOP:     ScreenRecorder::Shared().Stop(); return;
     case ID_REC_SHOW:     MediaFolder::Videos().Reveal(); return;
 
-    case ID_SET_KEEPLINEBREAKS:
-        settings::SetBool(settings::key::kKeepLineBreaks,
-                          !settings::GetBool(settings::key::kKeepLineBreaks, false));
+    case ID_SET_JOINWRAPPED:
+        settings::SetBool(settings::key::kJoinWrappedLines,
+                          !settings::GetBool(settings::key::kJoinWrappedLines, true));
         return;
     case ID_SHUTTER_OFF:
         settings::SetBool(settings::key::kShutterSound, false);
@@ -1073,9 +1073,13 @@ void App::ScreenshotToText(capture::Mode mode) {
     }
     isCapturing_ = true;
 
-    const bool keepLineBreaks = settings::GetBool(settings::key::kKeepLineBreaks, false);
-    LOG_DEBUG(util::Format(L"pipeline: start mode=%s keepLineBreaks=%d",
-                           capture::ModeLabel(mode), keepLineBreaks ? 1 : 0));
+    // The normaliser's flag is still "keep the breaks", which is the inverse
+    // of the setting. Inverted once, here, so nothing downstream has to hold
+    // both senses in its head.
+    const bool joinWrapped    = settings::GetBool(settings::key::kJoinWrappedLines, true);
+    const bool keepLineBreaks = !joinWrapped;
+    LOG_DEBUG(util::Format(L"pipeline: start mode=%s joinWrappedLines=%d",
+                           capture::ModeLabel(mode), joinWrapped ? 1 : 0));
 
     std::unique_ptr<Bitmap> image = AcquireImage(mode);
     if (!image) {
@@ -1400,7 +1404,7 @@ void App::Sanitize() {
     message += L"These settings return to their defaults:\r\n"
                L"    • the three folder locations\r\n"
                L"    • all six keyboard shortcuts\r\n"
-               L"    • Keep Line Breaks, Shutter Sound, Auto-Save Images\r\n"
+               L"    • Join Wrapped Lines, Shutter Sound, Auto-Save Images\r\n"
                L"    • all Video Settings\r\n"
                L"    • the annotation tool, colour and stroke width\r\n"
                L"    • Run at Startup (switched off)";
@@ -1454,7 +1458,7 @@ void App::Sanitize() {
     // Removal rather than assignment, so the defaults take over cleanly.
     // debugMode is deliberately untouched: it is a developer switch, not a
     // setting the user chose.
-    settings::Remove(settings::key::kKeepLineBreaks);
+    settings::Remove(settings::key::kJoinWrappedLines);
     settings::Remove(settings::key::kShutterSound);
     settings::Remove(settings::key::kShutterSoundPath);
     settings::Remove(settings::key::kSaveCaptures);

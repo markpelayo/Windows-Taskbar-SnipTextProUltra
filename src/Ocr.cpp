@@ -243,6 +243,77 @@ void BucketIntoRows(std::vector<OcrLine>& observations, std::vector<OcrLine>& ou
     }
 }
 
+
+// --- preparing the image for the engine ------------------------------------
+//
+// Windows.Media.Ocr is a language recogniser, not a shape recogniser: it
+// scores candidate regions against a lexicon and discards what does not look
+// like words. That makes it good at prose and noticeably worse than Apple's
+// Vision at strings with no dictionary word in them — serial numbers, hashes,
+// punctuation runs.
+//
+// Nothing here changes that. What it does change is the cases where the
+// engine was simply struggling to SEE the text: light-on-dark, or small.
+// Those are worth a second attempt, because a second attempt is cheap
+// compared to the capture the user has already taken.
+
+double MeanLuminance(const Bitmap& image) {
+    if (!image.IsValid()) return 255.0;
+    const BYTE* pixels = static_cast<const BYTE*>(image.Bits());
+    const size_t total = static_cast<size_t>(image.Width()) * image.Height();
+    if (total == 0) return 255.0;
+
+    // Every 7th pixel: a fair estimate of the overall brightness at a
+    // seventh of the cost. An odd stride keeps the sample walking across
+    // columns rather than settling into one.
+    unsigned long long sum = 0;
+    size_t counted = 0;
+    for (size_t i = 0; i < total; i += 7) {
+        const BYTE* p = pixels + i * 4;
+        sum += static_cast<unsigned long long>(p[2]) * 54
+             + static_cast<unsigned long long>(p[1]) * 183
+             + static_cast<unsigned long long>(p[0]) * 19;   // /256 below
+        ++counted;
+    }
+    return counted ? static_cast<double>(sum) / counted / 256.0 : 255.0;
+}
+
+// Light text on a dark background, inverted so it becomes dark on light —
+// the orientation every OCR engine is trained hardest on.
+std::unique_ptr<Bitmap> MakeInverted(const Bitmap& image) {
+    auto out = Bitmap::Create(image.Width(), image.Height());
+    if (!out) return nullptr;
+    const BYTE* from = static_cast<const BYTE*>(image.Bits());
+    BYTE* to = static_cast<BYTE*>(out->Bits());
+    const size_t total = static_cast<size_t>(image.Width()) * image.Height();
+    for (size_t i = 0; i < total; ++i) {
+        to[i * 4 + 0] = static_cast<BYTE>(255 - from[i * 4 + 0]);
+        to[i * 4 + 1] = static_cast<BYTE>(255 - from[i * 4 + 1]);
+        to[i * 4 + 2] = static_cast<BYTE>(255 - from[i * 4 + 2]);
+        to[i * 4 + 3] = 255;
+    }
+    return out;
+}
+
+// Small text is the other thing the engine gives up on. Doubling it costs
+// four times the pixels and often turns nothing into something.
+std::unique_ptr<Bitmap> MakeUpscaled(const Bitmap& image, int factor) {
+    const int width  = image.Width() * factor;
+    const int height = image.Height() * factor;
+    auto out = Bitmap::Create(width, height);
+    if (!out || !out->MemoryDC() || !image.MemoryDC()) return nullptr;
+    ::SetStretchBltMode(out->MemoryDC(), HALFTONE);
+    ::SetBrushOrgEx(out->MemoryDC(), 0, 0, nullptr);
+    ::StretchBlt(out->MemoryDC(), 0, 0, width, height,
+                 image.MemoryDC(), 0, 0, image.Width(), image.Height(), SRCCOPY);
+    // GDI batches drawing per thread, and everything downstream reads these
+    // bytes directly rather than through GDI. Without the flush the reader
+    // can see the bitmap before the blit has landed in it.
+    ::GdiFlush();
+    out->MakeOpaque();
+    return out;
+}
+
 std::atomic<int> g_availability{ -1 };   // -1 unknown, 0 no, 1 yes
 
 } // namespace
@@ -312,6 +383,7 @@ Result Recognize(const Bitmap& image) {
             ::SetBrushOrgEx(scaled->MemoryDC(), 0, 0, nullptr);
             ::StretchBlt(scaled->MemoryDC(), 0, 0, width, height,
                          image.MemoryDC(), 0, 0, image.Width(), image.Height(), SRCCOPY);
+            ::GdiFlush();   // see the note in MakeUpscaled
             scaled->MakeOpaque();
             source = scaled.get();
             LOG_DEBUG(util::Format(L"ocr: downscaled %dx%d to %dx%d for the engine limit",
@@ -319,106 +391,204 @@ Result Recognize(const Bitmap& image) {
         }
     }
 
-    ComPtr<ABIG::ISoftwareBitmap> softwareBitmap = MakeSoftwareBitmap(*source);
-    if (!softwareBitmap) {
-        result.failure = L"Couldn't hand the capture to the text recogniser.";
-        return result;
-    }
+    // One recognition pass over one prepared image. Returns the raw
+    // observations; the caller decides which pass to keep.
+    auto runPass = [&](const Bitmap& prepared, std::vector<OcrLine>& out) -> bool {
+        out.clear();
 
-    ComPtr<ABIF::IAsyncOperation<ABIO::OcrResult*>> operation;
-    if (FAILED(engine->RecognizeAsync(softwareBitmap.Get(), &operation)) || !operation) {
-        result.failure = L"Text recognition refused the capture.";
-        return result;
-    }
+        ComPtr<ABIG::ISoftwareBitmap> softwareBitmap = MakeSoftwareBitmap(prepared);
+        if (!softwareBitmap) return false;
 
-    ComPtr<ABIO::IOcrResult> recognized;
-    if (FAILED(AwaitOcrResult(operation.Get(), recognized.GetAddressOf())) || !recognized) {
-        logging::Write(L"ocr: request FAILED");
-        return result;   // empty lines, no failure message — treated as "no text"
-    }
-
-    ComPtr<ABIC::IVectorView<ABIO::OcrLine*>> engineLines;
-    if (FAILED(recognized->get_Lines(&engineLines)) || !engineLines) return result;
-
-    UINT32 lineCount = 0;
-    engineLines->get_Size(&lineCount);
-    if (lineCount == 0) {
-        LOG_DEBUG(L"ocr: 0 observations");
-        return result;
-    }
-
-    const double imageWidth  = static_cast<double>(source->Width());
-    const double imageHeight = static_cast<double>(source->Height());
-
-    std::vector<OcrLine> observations;
-    observations.reserve(lineCount);
-
-    for (UINT32 i = 0; i < lineCount; ++i) {
-        ComPtr<ABIO::IOcrLine> engineLine;
-        if (FAILED(engineLines->GetAt(i, &engineLine)) || !engineLine) continue;
-
-        ComPtr<ABIC::IVectorView<ABIO::OcrWord*>> words;
-        if (FAILED(engineLine->get_Words(&words)) || !words) continue;
-
-        UINT32 wordCount = 0;
-        words->get_Size(&wordCount);
-        if (wordCount == 0) continue;
-
-        // Geometry is unioned across the words in X and maxed in height, but
-        // the vertical centre is the MEAN of the words' centres — a word with
-        // a descender must not drag the whole line's centre down.
-        double minX = 0, maxX = 0, maxHeight = 0, midYSum = 0;
-        size_t contributing = 0;
-        std::wstring text;
-        bool first = true;
-
-        for (UINT32 w = 0; w < wordCount; ++w) {
-            ComPtr<ABIO::IOcrWord> word;
-            if (FAILED(words->GetAt(w, &word)) || !word) continue;
-
-            ABIF::Rect box{};
-            if (FAILED(word->get_BoundingRect(&box))) continue;
-
-            HSTRING raw = nullptr;
-            if (SUCCEEDED(word->get_Text(&raw))) {
-                if (!text.empty()) text.append(L" ");
-                text.append(HStringToWide(raw));
-                ::WindowsDeleteString(raw);
-            }
-
-            const double left   = box.X / imageWidth;
-            const double right  = (box.X + box.Width) / imageWidth;
-            const double height = box.Height / imageHeight;
-            // Flip Y: the engine reports a top-left origin, everything
-            // downstream assumes bottom-left.
-            const double midY   = 1.0 - (box.Y + box.Height / 2.0) / imageHeight;
-
-            if (first) {
-                minX = left; maxX = right; maxHeight = height;
-                first = false;
-            } else {
-                minX = (std::min)(minX, left);
-                maxX = (std::max)(maxX, right);
-                maxHeight = (std::max)(maxHeight, height);
-            }
-            midYSum += midY;
-            // Counted here, not from the word count: the loop skips words
-            // whose geometry could not be read, and dividing by the full
-            // count would drag the line's centre toward the bottom of the
-            // image and mis-bucket it into the wrong visual row.
-            ++contributing;
+        ComPtr<ABIF::IAsyncOperation<ABIO::OcrResult*>> operation;
+        if (FAILED(engine->RecognizeAsync(softwareBitmap.Get(), &operation)) || !operation) {
+            return false;
         }
 
-        if (first || text.empty() || contributing == 0) continue;
+        ComPtr<ABIO::IOcrResult> recognized;
+        if (FAILED(AwaitOcrResult(operation.Get(), recognized.GetAddressOf())) || !recognized) {
+            return false;
+        }
 
-        OcrLine line;
-        line.text   = std::move(text);
-        line.minX   = minX;
-        line.maxX   = maxX;
-        line.height = maxHeight;
-        line.midY   = midYSum / static_cast<double>(contributing);
-        observations.push_back(std::move(line));
+        ComPtr<ABIC::IVectorView<ABIO::OcrLine*>> engineLines;
+        if (FAILED(recognized->get_Lines(&engineLines)) || !engineLines) return true;
+
+        UINT32 lineCount = 0;
+        engineLines->get_Size(&lineCount);
+        if (lineCount == 0) return true;
+
+        const double imageWidth  = static_cast<double>(prepared.Width());
+        const double imageHeight = static_cast<double>(prepared.Height());
+        out.reserve(lineCount);
+
+        for (UINT32 i = 0; i < lineCount; ++i) {
+            ComPtr<ABIO::IOcrLine> engineLine;
+            if (FAILED(engineLines->GetAt(i, &engineLine)) || !engineLine) continue;
+
+            ComPtr<ABIC::IVectorView<ABIO::OcrWord*>> words;
+            if (FAILED(engineLine->get_Words(&words)) || !words) continue;
+
+            UINT32 wordCount = 0;
+            words->get_Size(&wordCount);
+            if (wordCount == 0) continue;
+
+            // Geometry is unioned across the words in X and maxed in height,
+            // but the vertical centre is the MEAN of the words' centres — a
+            // word with a descender must not drag the line's centre down.
+            double minX = 0, maxX = 0, maxHeight = 0, midYSum = 0;
+            size_t contributing = 0;
+            std::wstring text;
+            bool first = true;
+
+            for (UINT32 w = 0; w < wordCount; ++w) {
+                ComPtr<ABIO::IOcrWord> word;
+                if (FAILED(words->GetAt(w, &word)) || !word) continue;
+
+                ABIF::Rect box{};
+                if (FAILED(word->get_BoundingRect(&box))) continue;
+
+                HSTRING raw = nullptr;
+                if (SUCCEEDED(word->get_Text(&raw))) {
+                    if (!text.empty()) text.append(L" ");
+                    text.append(HStringToWide(raw));
+                    ::WindowsDeleteString(raw);
+                }
+
+                const double left   = box.X / imageWidth;
+                const double right  = (box.X + box.Width) / imageWidth;
+                const double height = box.Height / imageHeight;
+                // Flip Y: the engine reports a top-left origin, everything
+                // downstream assumes bottom-left.
+                const double midY   = 1.0 - (box.Y + box.Height / 2.0) / imageHeight;
+
+                if (first) {
+                    minX = left; maxX = right; maxHeight = height;
+                    first = false;
+                } else {
+                    minX = (std::min)(minX, left);
+                    maxX = (std::max)(maxX, right);
+                    maxHeight = (std::max)(maxHeight, height);
+                }
+                midYSum += midY;
+                ++contributing;
+            }
+
+            if (first || text.empty() || contributing == 0) continue;
+
+            OcrLine line;
+            line.text   = std::move(text);
+            line.minX   = minX;
+            line.maxX   = maxX;
+            line.height = maxHeight;
+            line.midY   = midYSum / static_cast<double>(contributing);
+            out.push_back(std::move(line));
+        }
+        return true;
+    };
+
+    auto characterCount = [](const std::vector<OcrLine>& lines) {
+        size_t total = 0;
+        for (const OcrLine& line : lines) total += line.text.size();
+        return total;
+    };
+
+    // --- which images to try ---------------------------------------------
+    // The plain capture first, because it is right the overwhelming majority
+    // of the time. The other two exist for the engine's two blind spots, and
+    // are only queued when the image actually has that problem — an ordinary
+    // bright, roomy capture queues nothing else and costs exactly what it
+    // always did.
+    enum class Prep { AsCaptured, Inverted, Doubled, DoubledInverted };
+    struct Attempt { Prep prep; const wchar_t* name; };
+
+    std::vector<Attempt> attempts;
+    attempts.push_back({ Prep::AsCaptured, L"as captured" });
+
+    // Light text on a dark background. The engine reads dark-on-light
+    // considerably better.
+    const bool dark = MeanLuminance(*source) < 118.0;
+    if (dark) attempts.push_back({ Prep::Inverted, L"inverted" });
+
+    // Small text. Doubling it must not push the image back over the ceiling
+    // the downscale above just brought it under — and that ceiling applies to
+    // the LONG edge, so gating on the short edge alone would silently break
+    // every wide, thin capture, which is the commonest shape of all: one line
+    // of text dragged across a monitor.
+    const int shortEdge = (std::min)(source->Width(), source->Height());
+    const int longEdge  = (std::max)(source->Width(), source->Height());
+    const bool canDouble = shortEdge < 700 &&
+                           (maxDimension == 0 ||
+                            static_cast<UINT32>(longEdge) * 2 <= maxDimension);
+    if (canDouble) {
+        attempts.push_back({ Prep::Doubled, L"2x" });
+        if (dark) attempts.push_back({ Prep::DoubledInverted, L"2x inverted" });
     }
+
+    // --- run them, keep whichever read the most --------------------------
+    std::vector<OcrLine> observations;
+    std::vector<OcrLine> candidate;
+    const wchar_t* winner = L"none";
+    size_t best = 0;
+    bool anyPassRan = false;
+
+    for (const Attempt& attempt : attempts) {
+        // Built inside the loop and released at the end of it, so at most one
+        // prepared copy is alive at a time. Building all four up front would
+        // cost ten times the source in memory for a capture where the first
+        // pass usually wins outright.
+        std::unique_ptr<Bitmap> prepared;
+        const Bitmap* target = source;
+        switch (attempt.prep) {
+        case Prep::Inverted:
+            prepared = MakeInverted(*source);
+            target = prepared.get();
+            break;
+        case Prep::Doubled:
+            prepared = MakeUpscaled(*source, 2);
+            target = prepared.get();
+            break;
+        case Prep::DoubledInverted: {
+            std::unique_ptr<Bitmap> doubled = MakeUpscaled(*source, 2);
+            if (doubled) prepared = MakeInverted(*doubled);
+            target = prepared.get();
+            break;
+        }
+        case Prep::AsCaptured:
+            break;
+        }
+        if (!target) continue;
+
+        if (!runPass(*target, candidate)) continue;   // the engine refused this one
+        anyPassRan = true;
+
+        const size_t count = characterCount(candidate);
+        LOG_DEBUG(util::Format(L"ocr: pass '%s' read %zu chars on %zu lines",
+                               attempt.name, count, candidate.size()));
+        if (count > best) {
+            best = count;
+            observations = std::move(candidate);
+            winner = attempt.name;
+        }
+
+        // A first pass that already read a substantial amount is the whole
+        // picture; the variants exist for captures that came back nearly
+        // empty. The bar is deliberately high — a dark screenshot full of
+        // text should not pay for an inverted pass, but one that yielded a
+        // single stray word should.
+        if (attempt.prep == Prep::AsCaptured && count >= 200) break;
+    }
+
+    if (best == 0) {
+        // Distinguish "read it, found nothing" from "never managed to read
+        // it". The second is a real failure and the user should be told,
+        // rather than shown the benign "no text found".
+        if (!anyPassRan) {
+            result.failure = L"Windows text recognition didn't complete. "
+                             L"Try again, and see the log if it keeps happening.";
+        }
+        LOG_DEBUG(L"ocr: no pass found any text");
+        return result;
+    }
+    LOG_DEBUG(util::Format(L"ocr: kept pass '%s' with %zu chars", winner, best));
 
     LOG_DEBUG(util::Format(L"ocr: %zu observations", observations.size()));
     BucketIntoRows(observations, result.lines);

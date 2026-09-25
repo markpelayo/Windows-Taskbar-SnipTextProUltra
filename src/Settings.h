@@ -18,7 +18,11 @@ extern const wchar_t* const kRegistryPath;   // Software\markpelayo\SnipText
 
 // --- keys ------------------------------------------------------------------
 namespace key {
-inline constexpr const wchar_t* kKeepLineBreaks   = L"keepLineBreaks";
+// Checked means "rejoin lines that wrapped"; the default. Deliberately a
+// NEW key rather than a reuse of the old "keepLineBreaks": that one meant the
+// opposite, and reading it under the new meaning would silently flip the
+// behaviour for anyone upgrading.
+inline constexpr const wchar_t* kJoinWrappedLines = L"joinWrappedLines";
 inline constexpr const wchar_t* kShutterSound     = L"shutterSound";
 // Absent or empty means the built-in shutter; otherwise a path to a .wav.
 inline constexpr const wchar_t* kShutterSoundPath = L"shutterSoundPath";

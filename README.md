@@ -37,6 +37,22 @@ That's it. The pinned icon is now the app.
 
 ---
 
+## Download
+
+`SnipTextProUltra.exe` is attached to [the latest release](https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/latest). One file, no installer, nothing to put beside it — the binary is statically linked.
+
+> **Windows will warn you about it.** The executable is not code-signed, so SmartScreen shows *"Windows protected your PC"*. That warning is correct, and worth reading rather than reflexively clicking past: it means Windows cannot tell who published this. The honest answer is that it was published by one person with no certificate.
+>
+> If you want to run it anyway: **More info → Run anyway**.
+>
+> If you would rather not click through a SmartScreen warning — a reasonable position, and the habit is worth protecting — [build it yourself](#build) instead. It is two commands, and it is the only way to be certain the binary matches the code you can read here.
+
+A `SHA-256` checksum is published beside each release binary. It is not a signature and does not pretend to be one; it only lets you confirm the file you downloaded is the file CI produced:
+
+```
+Get-FileHash .\SnipTextProUltra.exe -Algorithm SHA256
+```
+
 ## Requirements
 
 - Windows 11 (or Windows 10 version 1903 or later)
@@ -68,10 +84,7 @@ cmake --build build --config Release
 ctest --test-dir build -C Release
 ```
 
-> **No download link, on purpose.** An unsigned executable downloaded from the
-> internet gets a SmartScreen warning that teaches people to click through
-> SmartScreen warnings. Building it yourself is also the only way to be
-> certain the binary matches the source you can read here.
+Building from source is the recommended route. It is the only way to be certain the binary matches the code you can read here, and it sidesteps the SmartScreen warning that an unsigned download will always produce.
 
 ### Uninstalling
 
@@ -90,18 +103,26 @@ Then delete `SnipTextProUltra.exe` and unpin it. Your captures are left alone �
 
 | | |
 |---|---|
-| `Alt+Shift+1` | Screenshot — region, opens the editor |
-| `Alt+Shift+2` | Screenshot — full screen, opens the editor |
-| `Alt+Shift+3` | Screenshot to Text — region |
-| `Alt+Shift+4` | Screenshot to Text — full screen |
-| `Alt+Shift+5` | Record — region (press again to stop) |
-| `Alt+Shift+6` | Record — full screen (press again to stop) |
+| `Ctrl+Shift+1` | Screenshot — region, opens the editor |
+| `Ctrl+Shift+2` | Screenshot — full screen, opens the editor |
+| `Ctrl+Shift+3` | Screenshot to Text — region |
+| `Ctrl+Shift+4` | Screenshot to Text — full screen |
+| `Ctrl+Shift+5` | Record — region (press again to stop) |
+| `Ctrl+Shift+6` | Record — full screen (press again to stop) |
 
-The numbers run top to bottom in menu order, so the menu itself is the reminder. `Alt+Shift` is unclaimed by Windows 11: it avoids `Win+Shift+S`, which is the built-in Snipping Tool, and `Win+Alt+<digit>`, which the shell uses for taskbar Jump Lists and would win the race for.
+Those are the defaults. The numbers run top to bottom in menu order, so the menu itself is the reminder.
 
 In any region capture: drag to select, **Space** switches to click-a-whole-window, **Esc** cancels.
 
-If another program already owns one of these combinations, that one shortcut silently does nothing for the session — the menu item still works. The log says which one. Changing them is a one-line edit to the modifier mask in `RegisterHotkeys()` in `src/App.cpp`; `Ctrl+Alt+1`–`6` is the other unclaimed option.
+### Changing them
+
+**Settings → Shortcuts** lists all six with their current bindings. Pick one and a small window appears; press the combination you want and Enter to save.
+
+Anything the keyboard can produce works, including a bare function key — press `F9` and that is the binding, no modifier required. **Delete** unbinds a shortcut entirely, leaving the action reachable only from the menu. **Esc** cancels without changing anything, and **Reset to Defaults** puts all six back.
+
+While that window is open the app's own shortcuts stand down. They have to: a global hotkey fires before the foreground window sees the key, so otherwise pressing the shortcut you were trying to change would trigger its action instead of being captured.
+
+If another program already owns a combination, `RegisterHotKey` refuses it. That shortcut then silently does nothing for the session and the log names it — the menu item still works, and you can pick a different combination.
 
 ---
 
@@ -110,23 +131,21 @@ If another program already owns one of these combinations, that one shortcut sil
 ```
 Windows-Taskbar-SnipTextProUltra 1.0.0 · by markpelayo
 ──────────────────────
-Screenshot
-  Capture Region…          Alt+Shift+1
-  Capture Full Screen      Alt+Shift+2
-  Show Saved Images (12)
+  Screenshot Region…             Ctrl+Shift+1
+  Screenshot Full Screen         Ctrl+Shift+2
+  Show Saved Screenshots (12)
 ──────────────────────
-Screenshot to Text
-  Capture Region…          Alt+Shift+3
-  Capture Full Screen      Alt+Shift+4
+  ScreenshotToText Region…       Ctrl+Shift+3
+  ScreenshotToText Full Screen   Ctrl+Shift+4
   Copy: "Work Order #…"
-  Show Saved Images (4)
+  Show Saved Text Images (4)
 ──────────────────────
-Record Video
-  Record Region…           Alt+Shift+5
-  Record Full Screen       Alt+Shift+6
+  Record Region…                 Ctrl+Shift+5
+  Record Full Screen             Ctrl+Shift+6
   Show Saved Videos (3)
 ──────────────────────
 Settings
+  Shortcuts              ▸
   Keep Line Breaks       ✓
   Shutter Sound          ✓
   Auto-Save Images       ✓
@@ -142,9 +161,9 @@ Startup
   Quit SnipText
 ```
 
-Every capture section has the same shape: **capture commands first, then the ways to get at what they produced.** Once you have read one section you can predict the others.
+Every section has the same shape: **the commands first, then the way to get at what they produced.** Once you have read one section you can predict the others. The command names carry the section, so there are no headers repeating what the row beneath already says.
 
-The first row names the program, its version and its author, so a screenshot of the menu is enough to tell someone which build you are on.
+The first row names the program, its version and its author, so a screenshot of the menu is enough to tell someone which build you are on. It is also a command: clicking it opens the repository.
 
 ---
 
@@ -196,7 +215,7 @@ Annotations are stored in **image pixel coordinates**, so the PNG you save is fu
 
 ## Recording video
 
-`Alt+Shift+5` puts a resizable selection rectangle on screen — drag inside to move, drag the eight handles to resize, drag empty space to draw a new one. The readout shows the size in **recorded pixels**, accounting for the quality setting. **Enter** or the Record button starts; **Esc** cancels.
+`Ctrl+Shift+5` puts a resizable selection rectangle on screen — drag inside to move, drag the eight handles to resize, drag empty space to draw a new one. The readout shows the size in **recorded pixels**, accounting for the quality setting. **Enter** or the Record button starts; **Esc** cancels.
 
 The overlay is hidden before the first frame is grabbed, so it never appears in the video.
 

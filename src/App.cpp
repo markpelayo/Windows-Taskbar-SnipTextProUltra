@@ -3,6 +3,7 @@
 #include "Bitmap.h"
 #include "Clipboard.h"
 #include "EditorSettings.h"
+#include "Hotkeys.h"
 #include "Log.h"
 #include "MediaFolder.h"
 #include "Ocr.h"
@@ -41,8 +42,10 @@ enum : int {
     ID_FOLDER_TEXT_CHOOSE, ID_FOLDER_TEXT_RESET,
     ID_FOLDER_VIDEO_CHOOSE, ID_FOLDER_VIDEO_RESET,
     ID_VID_CURSOR = 1040, ID_VID_CLICKS,
-    ID_SANITIZE = 1050, ID_QUIT,
+    ID_SANITIZE = 1050, ID_QUIT, ID_ABOUT,
     ID_STARTUP_OFF = 1060, ID_STARTUP_ON,
+    ID_SHORTCUT_RESET = 1070,
+    ID_SHORTCUT_BASE  = 1080,   // + index into hotkeys::kAllActions
     ID_FPS_BASE      = 1100,   // + index into kFrameRateChoices
     ID_QUALITY_BASE  = 1110,   // + index
     ID_AUDIO_NONE    = 1120,
@@ -52,10 +55,8 @@ enum : int {
 
 const int kStartupDelayChoices[6] = { 5, 10, 15, 20, 30, 60 };
 
-// Hotkey identifiers, numbered in menu order, top to bottom, so the menu
-// itself is the reminder of what each one does.
-enum : int { HK_SHOT_REGION = 1, HK_SHOT_FULL, HK_TEXT_REGION, HK_TEXT_FULL,
-             HK_RECORD_REGION, HK_RECORD_FULL };
+constexpr const wchar_t* kRepositoryUrl =
+    L"https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra";
 
 UINT RelaunchMessage() {
     static const UINT message = ::RegisterWindowMessageW(L"SnipTextProUltra.ShowMenu");
@@ -108,23 +109,31 @@ void AppendSubmenu(HMENU parent, HMENU child, const std::wstring& title,
 }
 
 // The first row: which program this is, which version, and whose it is.
-// Disabled, because it is a label rather than a command.
+//
+// A Win32 menu item cannot be a hyperlink — there is no such thing — so this
+// is an ordinary enabled command that opens the repository in the browser.
+// That is the closest honest equivalent, and it means the row does something
+// rather than just sitting there greyed out.
 void AppendTitleRow(HMENU menu) {
     if (!menu) return;
     const std::wstring title = L"Windows-Taskbar-SnipTextProUltra "
                                SNIPTEXT_VERSION_WIDE L"  ·  by markpelayo";
-    MENUITEMINFOW item{};
-    item.cbSize     = sizeof(item);
-    item.fMask      = MIIM_STRING | MIIM_STATE | MIIM_ID;
-    item.fState     = MFS_DISABLED;
-    item.wID        = 0;
-    item.dwTypeData = const_cast<wchar_t*>(title.c_str());
-    ::InsertMenuItemW(menu, ::GetMenuItemCount(menu), TRUE, &item);
+    ::AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(ID_ABOUT), title.c_str());
 }
 
 // "Show Saved Images (12)" or "Show Saved Images — none yet". The count is
 // part of the label because the alternative is opening a folder to find out
 // it is empty.
+// The shortcut column, read live rather than hard-coded, so rebinding one
+// updates the menu the next time it opens.
+// Includes the tab, so an unbound action produces no accelerator column at
+// all rather than a label ending in a bare tab — which Win32 still reserves
+// the column's width for.
+std::wstring ShortcutLabel(hotkeys::Action action) {
+    const hotkeys::Binding binding = hotkeys::Current(action);
+    return binding.IsBound() ? L"\t" + hotkeys::Describe(binding) : std::wstring();
+}
+
 std::wstring SavedItemTitle(const wchar_t* title, int count) {
     return count > 0 ? util::Format(L"%s (%d)", title, count)
                      : std::wstring(title) + L" — none yet";
@@ -395,32 +404,10 @@ void App::SetUpAfterStartupDelay() {
 }
 
 void App::RegisterHotkeys() {
-    struct Binding { int id; UINT key; };
-    // Alt+Shift+1 through 6, numbered in menu order.
-    //
-    // Alt+Shift is unclaimed by Windows 11. It avoids Win+Shift+S, which is
-    // the built-in Snipping Tool, and Win+Alt+<digit>, which the shell uses
-    // for taskbar Jump Lists and would lose the race to.
-    const Binding bindings[] = {
-        { HK_SHOT_REGION,   '1' }, { HK_SHOT_FULL,     '2' },
-        { HK_TEXT_REGION,   '3' }, { HK_TEXT_FULL,     '4' },
-        { HK_RECORD_REGION, '5' }, { HK_RECORD_FULL,   '6' },
-    };
-
-    for (const Binding& binding : bindings) {
-        // MOD_NOREPEAT: a held key should fire once, not open a crosshair per
-        // repeat tick.
-        if (!::RegisterHotKey(hwnd_, binding.id, MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,
-                              binding.key)) {
-            // A taken shortcut fails silently and permanently for this
-            // launch; the menu item still works. Surfacing a dialog at
-            // startup for something the user can neither see nor fix would be
-            // worse than a log line.
-            logging::Write(util::Format(L"hotkey: Alt+Shift+%c is already taken by another "
-                           L"program. Use the menu item instead.",
-                           static_cast<wchar_t>(binding.key)));
-        }
-    }
+    // The bindings themselves, their defaults and their persistence all live
+    // in hotkeys::, so the menu, the registration and the rebinding dialog
+    // cannot disagree about what is bound to what.
+    hotkeys::Register(hwnd_);
 }
 
 bool App::LaunchedAtLogin() {
@@ -470,16 +457,24 @@ LRESULT App::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
 
     switch (message) {
     case WM_HOTKEY:
-        switch (static_cast<int>(wParam)) {
-        case HK_SHOT_REGION:   Screenshot(capture::Mode::Region); return 0;
-        case HK_SHOT_FULL:     Screenshot(capture::Mode::FullScreen); return 0;
-        case HK_TEXT_REGION:   ScreenshotToText(capture::Mode::Region); return 0;
-        case HK_TEXT_FULL:     ScreenshotToText(capture::Mode::FullScreen); return 0;
+        // The hotkey id IS the action, so a rebinding changes which keys
+        // arrive here and nothing else.
+        switch (static_cast<hotkeys::Action>(wParam)) {
+        case hotkeys::Action::ScreenshotRegion:
+            Screenshot(capture::Mode::Region); return 0;
+        case hotkeys::Action::ScreenshotFullScreen:
+            Screenshot(capture::Mode::FullScreen); return 0;
+        case hotkeys::Action::TextRegion:
+            ScreenshotToText(capture::Mode::Region); return 0;
+        case hotkeys::Action::TextFullScreen:
+            ScreenshotToText(capture::Mode::FullScreen); return 0;
         // Both recording hotkeys are toggles. Once the overlay is gone the
-        // only feedback is the tray indicator, and a toggle is what you reach
-        // for then — so either one stops a recording, whichever started it.
-        case HK_RECORD_REGION: ToggleRecording(true); return 0;
-        case HK_RECORD_FULL:   ToggleRecording(false); return 0;
+        // only feedback is the indicator, and a toggle is what you reach for
+        // then — so either one stops a recording, whichever started it.
+        case hotkeys::Action::RecordRegion:
+            ToggleRecording(true); return 0;
+        case hotkeys::Action::RecordFullScreen:
+            ToggleRecording(false); return 0;
         }
         return 0;
 
@@ -534,7 +529,7 @@ LRESULT App::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         return 0;
 
     case WM_DESTROY:
-        for (int id = HK_SHOT_REGION; id <= HK_RECORD_FULL; ++id) ::UnregisterHotKey(hwnd_, id);
+        hotkeys::Unregister(hwnd_);
         HideStopIcon();
         ::PostQuitMessage(0);
         return 0;
@@ -564,16 +559,27 @@ HMENU App::BuildMenu() {
     AppendTitleRow(menu);
     AppendSeparator(menu);
 
-    AppendHeader(menu, L"Screenshot");
-    AppendCommand(menu, ID_SHOT_REGION, L"Capture Region…\tAlt+Shift+1");
-    AppendCommand(menu, ID_SHOT_FULL,   L"Capture Full Screen\tAlt+Shift+2");
-    AppendCommand(menu, ID_SHOT_SHOW, SavedItemTitle(L"Show Saved Images", screenshotCount),
+    // No section headers any more: the command names now carry the section,
+    // so a header would be repeating the row beneath it. The shortcut column
+    // is filled from the live bindings rather than hard-coded, so a rebound
+    // shortcut shows up here immediately.
+    AppendCommand(menu, ID_SHOT_REGION,
+                  L"Screenshot Region…" + ShortcutLabel(hotkeys::Action::ScreenshotRegion));
+    AppendCommand(menu, ID_SHOT_FULL,
+                  L"Screenshot Full Screen"
+                      + ShortcutLabel(hotkeys::Action::ScreenshotFullScreen));
+    // "Images" alone was unambiguous only while a header sat above it. Now
+    // that the headers are gone, the two rows have to say which is which.
+    AppendCommand(menu, ID_SHOT_SHOW,
+                  SavedItemTitle(L"Show Saved Screenshots", screenshotCount),
                   screenshotCount > 0);
     AppendSeparator(menu);
 
-    AppendHeader(menu, L"Screenshot to Text");
-    AppendCommand(menu, ID_TEXT_REGION, L"Capture Region…\tAlt+Shift+3");
-    AppendCommand(menu, ID_TEXT_FULL,   L"Capture Full Screen\tAlt+Shift+4");
+    AppendCommand(menu, ID_TEXT_REGION,
+                  L"ScreenshotToText Region…" + ShortcutLabel(hotkeys::Action::TextRegion));
+    AppendCommand(menu, ID_TEXT_FULL,
+                  L"ScreenshotToText Full Screen"
+                      + ShortcutLabel(hotkeys::Action::TextFullScreen));
     if (lastText_.empty()) {
         AppendCommand(menu, ID_TEXT_COPYLAST, L"No text captured yet", false);
     } else {
@@ -583,23 +589,44 @@ HMENU App::BuildMenu() {
         AppendCommand(menu, ID_TEXT_COPYLAST,
                       L"Copy: “" + Preview(lastText_, 14) + L"”");
     }
-    AppendCommand(menu, ID_TEXT_SHOW, SavedItemTitle(L"Show Saved Images", textImageCount),
+    AppendCommand(menu, ID_TEXT_SHOW, SavedItemTitle(L"Show Saved Text Images", textImageCount),
                   textImageCount > 0);
     AppendSeparator(menu);
 
-    AppendHeader(menu, L"Record Video");
     if (recording) {
         AppendCommand(menu, ID_REC_STOP,
                       L"Stop Recording (" + ScreenRecorder::Shared().ElapsedText() + L")");
     } else {
-        AppendCommand(menu, ID_REC_REGION, L"Record Region…\tAlt+Shift+5");
-        AppendCommand(menu, ID_REC_FULL,   L"Record Full Screen\tAlt+Shift+6");
+        AppendCommand(menu, ID_REC_REGION,
+                      L"Record Region…" + ShortcutLabel(hotkeys::Action::RecordRegion));
+        AppendCommand(menu, ID_REC_FULL,
+                      L"Record Full Screen"
+                          + ShortcutLabel(hotkeys::Action::RecordFullScreen));
     }
     AppendCommand(menu, ID_REC_SHOW, SavedItemTitle(L"Show Saved Videos", videoCount),
                   videoCount > 0);
     AppendSeparator(menu);
 
     AppendHeader(menu, L"Settings");
+
+    // Shortcuts sits at the top of Settings, because it is the one setting
+    // that changes what the rows above this point say.
+    {
+        HMENU shortcuts = ::CreatePopupMenu();
+        if (shortcuts) {
+            for (int i = 0; i < hotkeys::kActionCount; ++i) {
+                const hotkeys::Action action = hotkeys::kAllActions[i];
+                AppendCommand(shortcuts, ID_SHORTCUT_BASE + i,
+                              std::wstring(hotkeys::ActionTitle(action)) + L"\t"
+                                  + hotkeys::Describe(hotkeys::Current(action)));
+            }
+            AppendSeparator(shortcuts);
+            AppendCommand(shortcuts, ID_SHORTCUT_RESET, L"Reset to Defaults",
+                          !hotkeys::IsDefault());
+        }
+        AppendSubmenu(menu, shortcuts, L"Shortcuts");
+    }
+
     AppendCommand(menu, ID_SET_KEEPLINEBREAKS, L"Keep Line Breaks", true,
                   settings::GetBool(settings::key::kKeepLineBreaks, false));
     AppendCommand(menu, ID_SET_SHUTTER, L"Shutter Sound", true,
@@ -709,6 +736,7 @@ HMENU App::BuildMenu() {
         && !settings::IsRunAtStartupEnabled()
         &&  video::IsDefault()
         &&  editor_settings::IsDefault()
+        &&  hotkeys::IsDefault()
         &&  lastText_.empty();
     const int totalFiles = screenshotCount + textImageCount + videoCount;
     AppendCommand(menu, ID_SANITIZE, L"Sanitize and Restore Default…",
@@ -801,7 +829,39 @@ void App::OnCommand(int command) {
         ApplyStartup(true, kStartupDelayChoices[command - ID_DELAY_BASE]);
         return;
     }
-    if (command >= ID_AUDIO_BASE) {
+    if (command >= ID_SHORTCUT_BASE && command < ID_SHORTCUT_BASE + hotkeys::kActionCount) {
+        const hotkeys::Action action = hotkeys::kAllActions[command - ID_SHORTCUT_BASE];
+        hotkeys::Binding captured;
+        if (hotkeys::CaptureBinding(hwnd_, action, &captured)) {
+            // Two actions on one combination means the second registration
+            // fails and that action is silently keyboard-unreachable. Taking
+            // the binding away from the previous owner makes the outcome
+            // match what the user just asked for.
+            if (captured.IsBound()) {
+                for (hotkeys::Action other : hotkeys::kAllActions) {
+                    if (other == action) continue;
+                    if (hotkeys::Current(other) == captured) {
+                        hotkeys::Set(other, hotkeys::Binding{});
+                        logging::Write(util::Format(
+                            L"hotkey: %s gave up %s to %s",
+                            hotkeys::ActionTitle(other),
+                            hotkeys::Describe(captured).c_str(),
+                            hotkeys::ActionTitle(action)));
+                    }
+                }
+            }
+            hotkeys::Set(action, captured);
+            // CaptureBinding puts the old registrations back before it
+            // returns, so the new one needs a fresh pass to take effect.
+            hotkeys::Unregister(hwnd_);
+            hotkeys::Register(hwnd_);
+            logging::Write(util::Format(L"hotkey: %s is now %s",
+                                        hotkeys::ActionTitle(action),
+                                        hotkeys::Describe(captured).c_str()));
+        }
+        return;
+    }
+    if (command >= ID_AUDIO_BASE && command < ID_DELAY_BASE) {
         const size_t index = static_cast<size_t>(command - ID_AUDIO_BASE);
         const std::vector<video::Microphone>& microphones = video::AvailableMicrophones();
         if (index < microphones.size()) video::SetAudioDeviceId(microphones[index].id);
@@ -862,6 +922,17 @@ void App::OnCommand(int command) {
 
     case ID_STARTUP_OFF: ApplyStartup(false, 0); return;
     case ID_STARTUP_ON:  ApplyStartup(true, 0); return;
+
+    case ID_SHORTCUT_RESET:
+        hotkeys::ResetAll();
+        hotkeys::Unregister(hwnd_);
+        hotkeys::Register(hwnd_);
+        logging::Write(L"hotkey: all shortcuts reset to defaults");
+        return;
+
+    case ID_ABOUT:
+        ::ShellExecuteW(nullptr, L"open", kRepositoryUrl, nullptr, nullptr, SW_SHOWNORMAL);
+        return;
 
     case ID_SANITIZE: Sanitize(); return;
 
@@ -955,7 +1026,7 @@ void App::ScreenshotToText(capture::Mode mode) {
         isCapturing_ = false;
         ReportFailure(L"Couldn't start text recognition.");
     }
-    // `isCapturing_` stays true until the result lands, so a second Alt+Shift+3
+    // `isCapturing_` stays true until the result lands, so a second text-capture
     // during recognition is ignored rather than racing to the clipboard.
 }
 
@@ -1211,6 +1282,7 @@ void App::Sanitize() {
     }
     message += L"These settings return to their defaults:\r\n"
                L"    • the three folder locations\r\n"
+               L"    • all six keyboard shortcuts\r\n"
                L"    • Keep Line Breaks, Shutter Sound, Auto-Save Images\r\n"
                L"    • all Video Settings\r\n"
                L"    • the annotation tool, colour and stroke width\r\n"
@@ -1271,6 +1343,11 @@ void App::Sanitize() {
     settings::Remove(settings::key::kStartupDelay);
     video::RestoreDefaults();
     editor_settings::RestoreDefaults();
+    hotkeys::ResetAll();
+    // Re-registered immediately: the old bindings are still held by the
+    // window and would otherwise keep firing until the next launch.
+    hotkeys::Unregister(hwnd_);
+    hotkeys::Register(hwnd_);
 
     // Removes the override and recreates the default directory, so the three
     // folders exist afterwards even if they didn't before.

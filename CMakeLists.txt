@@ -23,6 +23,7 @@ set(SOURCES
     src/Clipboard.cpp
     src/EditorSettings.cpp
     src/EditorWindow.cpp
+    src/Hotkeys.cpp
     src/Log.cpp
     src/MediaFolder.cpp
     src/Ocr.cpp

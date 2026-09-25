@@ -75,26 +75,46 @@ in the same commit — it currently tells people verbose is the default.
    git push origin main --follow-tags
    ```
 
-   Pushing a `v*` tag triggers the build workflow, so CI confirms the tagged
-   commit compiles before the release goes out.
+   That is the whole release. Pushing a `v*` tag runs the build workflow,
+   which compiles, runs the tests, computes a SHA-256, and publishes a GitHub
+   release with the executable and the checksum attached.
 
-8. **Create the GitHub release** from the tag, using the release-notes file as
-   the body:
+   The release body is `docs/RELEASE-NOTES-vX.Y.Z.md` when that file exists
+   and `CHANGELOG.md` when it does not — so a tag pushed before its notes were
+   written still gets something useful rather than an empty page.
+
+   **The tests gate the release.** A failing test fails the job before the
+   publish step, so a broken tag produces no release at all rather than a
+   release nobody should download.
+
+8. **Check the release page.** Confirm the binary is attached and the notes
+   rendered.
+
+   If the tag was wrong, delete the release and the tag together and redo
+   step 7:
 
    ```
-   gh release create vX.Y.Z --title "vX.Y.Z — <short line>" \
-     --notes-file docs/RELEASE-NOTES-vX.Y.Z.md
+   gh release delete vX.Y.Z --cleanup-tag --yes
    ```
 
-   Add `--prerelease` for anything not yet run on real hardware.
+## The binary, and what it does not come with
 
-## What is deliberately not part of a release
+Releases attach `SnipTextProUltra.exe`. It is **not code-signed**, so
+SmartScreen warns about it, and that warning is accurate — Windows cannot tell
+who published it.
 
-**No binary attachment.** An unsigned executable downloaded from the internet
-gets a SmartScreen warning, and shipping one teaches people to click through
-SmartScreen warnings. Building from source is also the only way for someone to
-be certain the binary matches the code they can read. If that ever changes it
-needs a real code-signing certificate, not an exception.
+The README says so plainly rather than telling people to ignore it, and it
+points at building from source as the alternative. Do not soften that wording
+in a future release: the instinct to click through a SmartScreen warning is
+worth more than the convenience of a download, and a project that trains
+people out of it has done them a disservice.
+
+Signing properly needs a real code-signing certificate. That is the fix if
+this ever matters enough — not a reassuring paragraph.
+
+The `SHA-256` published beside the binary is **not** a substitute. It proves
+the file matches what CI built; it says nothing about who built it or whether
+the source was sound.
 
 **No installer.** The program is one self-contained file that writes its
 settings to `HKCU` and its log to `%LOCALAPPDATA%`. The uninstall instructions

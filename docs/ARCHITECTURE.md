@@ -16,6 +16,7 @@ No Visual Studio project file. `build.bat` compiles `src/*.cpp` with `cl.exe`, l
 | `App.cpp` | The flyout menu, hotkeys, both capture pipelines, recording state |
 | `framework.h` | Windows configuration macros and the RAII wrappers |
 | `Util.cpp` | Strings, code points, paths, time, DPI, geometry |
+| `Hotkeys.cpp` | The six shortcuts: bindings, persistence, and the rebinding window |
 | `Log.cpp` | Plain-text file logger with rotation |
 | `Settings.cpp` | Registry-backed settings, and Run-at-Startup |
 | `MediaFolder.cpp` | One output folder — three instances |
@@ -110,7 +111,7 @@ The same reasoning is why the selection is **not** reset on mouse-down. Doing th
 ## The OCR pipeline
 
 ```
-Alt+Shift+3  →  frozen desktop  →  crop  →  Windows.Media.Ocr  →  row bucketing
+Ctrl+Shift+3  →  frozen desktop  →  crop  →  Windows.Media.Ocr  →  row bucketing
                                                  ↓
              clipboard  ←  TextNormalizer  ←  [OcrLine]
 ```
@@ -356,7 +357,7 @@ Worth listing explicitly, since this is a port.
 |---|---|---|
 | Menu bar item | Pinned taskbar shortcut, relaunch-to-open | Windows has no menu bar; see the app model above |
 | Menubar title shows the char count | A small message above the taskbar for 1.6 s | Windows has no equivalent surface, and a notification balloon is heavier and permission-gated |
-| `⌘⌥1`–`6` | `Alt+Shift+1`–`6` | Unclaimed by Windows 11; see the note below |
+| `⌘⌥1`–`6` | `Ctrl+Shift+1`–`6` | Unclaimed by Windows 11; see the note below |
 | `.mov` via AVFoundation | `.mp4` via Media Foundation | The native encoder on each platform |
 | Vision OCR | `Windows.Media.Ocr` | The on-device engine each OS ships |
 | Y-up coordinates in the editor | Y-down | GDI+ and every other Windows coordinate |
@@ -366,18 +367,20 @@ Worth listing explicitly, since this is a port.
 | Login item via `SMAppService` | `HKCU\...\Run` | The Windows equivalent |
 | Legacy folder migration at launch | — | There is no earlier Windows version to migrate from |
 
-### Choosing the hotkeys
+### The hotkeys
 
-Two combinations were ruled out before `Alt+Shift`:
+Six global shortcuts, defaulting to `Ctrl+Shift+1`–`6` in menu order. Two combinations were ruled out before that:
 
 - **`Win+Shift+<digit>`** sits next to `Win+Shift+S`, the built-in Snipping Tool. Too close to the thing this replaces.
-- **`Win+Alt+<digit>`** is owned by the shell, which uses it to open the Jump List of the pinned taskbar app in that position — and it registers its hotkeys long before any user program starts. `RegisterHotKey` is first-come-first-served, so ours would simply lose.
+- **`Win+Alt+<digit>`** is owned by the shell for taskbar Jump Lists, and it registers long before any user program starts. `RegisterHotKey` is first-come-first-served, so ours would simply lose.
 
-`Alt+Shift+<digit>` is unclaimed by Windows 11 and wins neither of those races.
+They are rebindable from **Settings → Shortcuts**. A binding is a modifier mask plus a virtual-key code, packed into one registry DWORD so the two halves cannot get out of step. Three details are load-bearing:
 
-A third-party program can still own one. That failure is handled the way the macOS version handles a taken Carbon hotkey: the action is **not recorded** for a hotkey that was never installed, so the shortcut silently does nothing for the session and a log line names it. The menu item always works regardless, so the app is never unreachable.
+- **A binding with no modifiers is legal**, which is what makes a bare `F9` work. A binding with no key at all means "not bound", which is how a shortcut is switched off — and those two are distinguishable, because the settings layer separates "value absent" from "value present and zero".
+- **The capture window unregisters our own hotkeys for its lifetime.** A global hotkey fires before the foreground window sees the key, so without this, pressing the shortcut you are trying to change would trigger its action instead of being captured. They are restored on every exit path, including the cancel and the click-away.
+- **`Set` removes the value when the binding equals the default**, rather than writing the default back. That is the same rule the rest of the settings follow, and it is what keeps `IsDefault` — and therefore the Sanitize menu item's enablement — honest.
 
-`MOD_CONTROL | MOD_ALT` is the other unclaimed option and is a one-line change to the modifier mask in `RegisterHotkeys()`. Making the hotkeys configurable is the real fix and is on the list below.
+A registration that fails because another program owns the combination is handled the way the macOS version handles a taken Carbon hotkey: the shortcut silently does nothing for the session, a log line names it, and the menu item still works. The app is never unreachable.
 
 ---
 

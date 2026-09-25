@@ -662,10 +662,20 @@ void RegionOverlay::OnMouseMove(HWND hwnd, POINT point) {
     }
 
     if (dragMode_ == DragMode::None) {
-        ::SetCursor(::LoadCursorW(nullptr,
-                                  (style_ == Style::Adjustable && hasSelection_ &&
-                                   util::RectContains(selection_, point))
-                                      ? IDC_SIZEALL : IDC_CROSS));
+        const wchar_t* cursor = IDC_CROSS;
+        if (style_ == Style::Adjustable && hasSelection_) {
+            // The Record button is checked before the selection, exactly as
+            // the click handler checks it — so what the pointer says matches
+            // what a click would do.
+            if (util::RectContains(RecordButtonRect(), point)) {
+                cursor = IDC_HAND;
+            } else if (GripAt(point) != Grip::None) {
+                cursor = IDC_SIZEALL;
+            } else if (util::RectContains(selection_, point)) {
+                cursor = IDC_SIZEALL;
+            }
+        }
+        ::SetCursor(::LoadCursorW(nullptr, cursor));
         return;
     }
 

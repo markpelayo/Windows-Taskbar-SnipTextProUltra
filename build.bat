@@ -76,6 +76,7 @@ cl.exe %CFLAGS% /Fo"%OUT%\\" /Fe"%OUT%\SnipTextProUltra.exe" ^
     "%ROOT%src\Clipboard.cpp" ^
     "%ROOT%src\EditorSettings.cpp" ^
     "%ROOT%src\EditorWindow.cpp" ^
+    "%ROOT%src\Hotkeys.cpp" ^
     "%ROOT%src\Log.cpp" ^
     "%ROOT%src\MediaFolder.cpp" ^
     "%ROOT%src\Ocr.cpp" ^

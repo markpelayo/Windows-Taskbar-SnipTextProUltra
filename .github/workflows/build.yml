@@ -7,6 +7,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Only the release step needs write access, and only on a tag. Everything
+# else runs with the default read-only token.
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-2022
@@ -41,8 +46,49 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
 
-      - uses: actions/upload-artifact@v4
+      # An unsigned binary cannot prove where it came from, so a checksum is
+      # published beside it. It is not a signature and does not pretend to be
+      # one — it only lets someone confirm the file they downloaded is the
+      # file this run produced.
+      - name: Checksum
+        run: |
+          $exe = "build/Release/SnipTextProUltra.exe"
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  SnipTextProUltra.exe" | Out-File -Encoding ascii "$exe.sha256"
+          Write-Host "SHA256: $hash"
+
+      - name: Upload the build
+        uses: actions/upload-artifact@v4
         with:
-          name: SnipText
-          path: build/Release/SnipTextProUltra.exe
+          name: SnipTextProUltra
+          path: |
+            build/Release/SnipTextProUltra.exe
+            build/Release/SnipTextProUltra.exe.sha256
           if-no-files-found: error
+
+      # --- release, tags only ------------------------------------------------
+
+      # Per-version notes when they exist, the changelog otherwise, so a tag
+      # pushed before its notes were written still gets a useful release body
+      # rather than an empty one.
+      - name: Choose the release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        id: notes
+        run: |
+          $path = "docs/RELEASE-NOTES-${{ github.ref_name }}.md"
+          if (-not (Test-Path $path)) {
+            Write-Host "No $path — falling back to CHANGELOG.md"
+            $path = "CHANGELOG.md"
+          }
+          "path=$path" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body_path: ${{ steps.notes.outputs.path }}
+          files: |
+            build/Release/SnipTextProUltra.exe
+            build/Release/SnipTextProUltra.exe.sha256
+          fail_on_unmatched_files: true

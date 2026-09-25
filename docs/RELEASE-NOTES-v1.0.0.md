@@ -127,14 +127,14 @@ a screenshot of it identifies the build.
 
 | | |
 |---|---|
-| `Alt+Shift+1` | Screenshot — region |
-| `Alt+Shift+2` | Screenshot — full screen |
-| `Alt+Shift+3` | Screenshot to Text — region |
-| `Alt+Shift+4` | Screenshot to Text — full screen |
-| `Alt+Shift+5` | Record — region (press again to stop) |
-| `Alt+Shift+6` | Record — full screen (press again to stop) |
+| `Ctrl+Shift+1` | Screenshot — region |
+| `Ctrl+Shift+2` | Screenshot — full screen |
+| `Ctrl+Shift+3` | Screenshot to Text — region |
+| `Ctrl+Shift+4` | Screenshot to Text — full screen |
+| `Ctrl+Shift+5` | Record — region (press again to stop) |
+| `Ctrl+Shift+6` | Record — full screen (press again to stop) |
 
-`Alt+Shift` is unclaimed by Windows 11. It avoids `Win+Shift+S`, which is
+`Ctrl+Shift` is unclaimed by Windows 11. It avoids `Win+Shift+S`, which is
 the built-in Snipping Tool, and `Win+Alt+<digit>`, which the shell owns for
 taskbar Jump Lists. If another program already has one of these, that
 shortcut silently does nothing for the session and the log names it — the

@@ -97,6 +97,9 @@ private:
 
     bool         stopIconVisible_ = false;
     bool         recordingBlinkOn_ = true;
+    // Virtual-desktop coordinates of whatever is being recorded, so the
+    // green frame can be drawn around exactly that rectangle.
+    RECT         recordingRegion_{};
     std::wstring lastText_;   // in memory only; empty at every launch
 
     std::vector<std::unique_ptr<EditorWindow>> editors_;

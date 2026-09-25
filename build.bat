@@ -1,10 +1,10 @@
 @echo off
 setlocal enabledelayedexpansion
 
-rem build.bat - compiles SnipText.exe with MSVC. No CMake, no NuGet, no
+rem build.bat - compiles SnipTextProUltra.exe with MSVC. No CMake, no NuGet, no
 rem third-party anything: the Windows SDK has everything this program uses.
 rem
-rem   build.bat            build into build\SnipText.exe
+rem   build.bat            build into build\SnipTextProUltra.exe
 rem   build.bat run        build, then launch it
 rem   build.bat test       build and run the text-normaliser tests
 rem   build.bat clean      delete the build folder
@@ -67,7 +67,7 @@ rc.exe /nologo /fo "%OUT%\SnipText.res" "%ROOT%src\SnipText.rc"
 if errorlevel 1 exit /b 1
 
 echo Compiling...
-cl.exe %CFLAGS% /Fo"%OUT%\\" /Fe"%OUT%\SnipText.exe" ^
+cl.exe %CFLAGS% /Fo"%OUT%\\" /Fe"%OUT%\SnipTextProUltra.exe" ^
     "%ROOT%src\main.cpp" ^
     "%ROOT%src\App.cpp" ^
     "%ROOT%src\Annotation.cpp" ^
@@ -79,6 +79,7 @@ cl.exe %CFLAGS% /Fo"%OUT%\\" /Fe"%OUT%\SnipText.exe" ^
     "%ROOT%src\Log.cpp" ^
     "%ROOT%src\MediaFolder.cpp" ^
     "%ROOT%src\Ocr.cpp" ^
+    "%ROOT%src\RecordingIndicator.cpp" ^
     "%ROOT%src\RegionOverlay.cpp" ^
     "%ROOT%src\ScreenRecorder.cpp" ^
     "%ROOT%src\Settings.cpp" ^
@@ -89,7 +90,7 @@ cl.exe %CFLAGS% /Fo"%OUT%\\" /Fe"%OUT%\SnipText.exe" ^
     /link /LTCG /SUBSYSTEM:WINDOWS /MANIFEST:NO "%OUT%\SnipText.res" %LIBS%
 if errorlevel 1 exit /b 1
 
-echo Built %OUT%\SnipText.exe
+echo Built %OUT%\SnipTextProUltra.exe
 
 if /i "%1"=="test" (
     echo Building tests...
@@ -105,5 +106,5 @@ if /i "%1"=="test" (
     exit /b !errorlevel!
 )
 
-if /i "%1"=="run" start "" "%OUT%\SnipText.exe"
+if /i "%1"=="run" start "" "%OUT%\SnipTextProUltra.exe"
 exit /b 0

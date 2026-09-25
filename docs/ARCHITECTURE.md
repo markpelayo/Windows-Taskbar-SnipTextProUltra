@@ -23,6 +23,7 @@ No Visual Studio project file. `build.bat` compiles `src/*.cpp` with `cl.exe`, l
 | `Capture.cpp` | Screen grabs and the shutter sound |
 | `RegionOverlay.cpp` | The full-desktop selection overlay, in two styles |
 | `Ocr.cpp` | `Windows.Media.Ocr` plus reading-order sort |
+| `RecordingIndicator.cpp` | The green frame and the Stop pill shown while recording |
 | `OcrLine.h` | One visual line: text plus bounding geometry |
 | `TextNormalizer.cpp` | Raw OCR lines → pasteable text |
 | `Clipboard.cpp` | Text clipboard write with read-back verification |
@@ -109,7 +110,7 @@ The same reasoning is why the selection is **not** reset on mouse-down. Doing th
 ## The OCR pipeline
 
 ```
-Win+Alt+3  →  frozen desktop  →  crop  →  Windows.Media.Ocr  →  row bucketing
+Alt+Shift+3  →  frozen desktop  →  crop  →  Windows.Media.Ocr  →  row bucketing
                                                  ↓
              clipboard  ←  TextNormalizer  ←  [OcrLine]
 ```
@@ -247,6 +248,27 @@ The watchdog window is deliberately generous. Setting up an encoder for a 4K reg
 
 `onStateChange` fires **before** `onFinish` on every path, because the state callback is what clears the recording indicator; firing it afterwards would wipe the "saved" confirmation in the same turn.
 
+### Telling the user it is recording
+
+The first version put a blinking icon in the notification area and nothing else, which is what the macOS original does with its menu bar. On Windows 11 that fails for a reason that has nothing to do with the code: **the notification area is collapsed behind a chevron by default**, so the indicator was invisible to the person it was for. They started a recording and had no way to tell it was running short of opening the menu.
+
+The replacement is two windows, split by what each is for.
+
+**The frame** says *what* is being recorded: a green dashed border around the region. It is sized to the region grown by the border thickness, and then the exact region is punched out of it with `SetWindowRgn`. What remains occupies only pixels **outside** the recorded rectangle, which buys two things at once — it cannot appear in the video, and it cannot cover the thing being recorded. It is `WS_EX_LAYERED | WS_EX_TRANSPARENT` and answers `HTTRANSPARENT`, so clicks pass straight through.
+
+It is also painted exactly once. A static border costs nothing to keep on screen, which is why the dashes do not march.
+
+The dashes are filled rectangles rather than a dashed pen: a pen's dash pattern is defined along the path, so drawing the four sides as one rectangle leaves the dashes meeting raggedly at the corners. The corners are drawn solid for the same reason.
+
+**The pill** says *that* it is recording, and stops it: `● 00:24  Stop`, placed below the frame, or above it if there is no room below. Both of those are outside the recorded rectangle. A full-screen recording has no outside, so it goes in the bottom-left corner of the region and the log records that it will be in the video — an honest line beats a surprise.
+
+Two details:
+
+- The dot alternates **bright red and dim red**, never shown and hidden. A dot that vanishes reads as "stopped", and removing the glyph changes the text's width, which makes the whole pill jitter once a second.
+- `WM_MOUSEACTIVATE` returns `MA_NOACTIVATE`. Clicking Stop must not pull focus away from whatever is being recorded, because a focus change is visible in the last frames of the video.
+
+The ongoing cost of the whole thing is one repaint of roughly 150×34 pixels per second, driven by the recording timer that already existed. The tray icon stays as a second way to stop, but it is no longer the indicator.
+
 ### Encoding details worth knowing
 
 - **Even dimensions.** H.264 with 4:2:0 chroma requires them, and after a 0.75 quality scale an odd result is easy to produce. Media Foundation will not round it for you.
@@ -334,7 +356,7 @@ Worth listing explicitly, since this is a port.
 |---|---|---|
 | Menu bar item | Pinned taskbar shortcut, relaunch-to-open | Windows has no menu bar; see the app model above |
 | Menubar title shows the char count | A small message above the taskbar for 1.6 s | Windows has no equivalent surface, and a notification balloon is heavier and permission-gated |
-| `⌘⌥1`–`6` | `Win+Alt+1`–`6` | Chosen for the finger memory; see the caveat below |
+| `⌘⌥1`–`6` | `Alt+Shift+1`–`6` | Unclaimed by Windows 11; see the note below |
 | `.mov` via AVFoundation | `.mp4` via Media Foundation | The native encoder on each platform |
 | Vision OCR | `Windows.Media.Ocr` | The on-device engine each OS ships |
 | Y-up coordinates in the editor | Y-down | GDI+ and every other Windows coordinate |
@@ -344,18 +366,18 @@ Worth listing explicitly, since this is a port.
 | Login item via `SMAppService` | `HKCU\...\Run` | The Windows equivalent |
 | Legacy folder migration at launch | — | There is no earlier Windows version to migrate from |
 
-### The hotkey caveat
+### Choosing the hotkeys
 
-`Win+Alt+<digit>` is not free. The Windows shell uses it to open the Jump List of the pinned taskbar app in that position, and the shell registers its hotkeys long before any user program starts. `RegisterHotKey` is first-come-first-served, so some or all of the six registrations may fail outright.
+Two combinations were ruled out before `Alt+Shift`:
 
-The failure is handled the way the macOS version handles a taken Carbon hotkey: the action is **not recorded** for a hotkey that was never installed, the shortcut silently does nothing for the session, and a log line names it. The menu item always works regardless, so the app is never unreachable.
+- **`Win+Shift+<digit>`** sits next to `Win+Shift+S`, the built-in Snipping Tool. Too close to the thing this replaces.
+- **`Win+Alt+<digit>`** is owned by the shell, which uses it to open the Jump List of the pinned taskbar app in that position — and it registers its hotkeys long before any user program starts. `RegisterHotKey` is first-come-first-served, so ours would simply lose.
 
-Two unclaimed alternatives, both a one-line change to the modifier mask in `RegisterHotkeys()`:
+`Alt+Shift+<digit>` is unclaimed by Windows 11 and wins neither of those races.
 
-- `MOD_CONTROL | MOD_ALT` — Ctrl+Alt+1–6. Unclaimed by Windows 11, though Ctrl+Alt+digit is a common third-party binding.
-- `MOD_ALT | MOD_SHIFT` — Alt+Shift+1–6. Also unclaimed, and does not collide with `Win+Shift+S` the way anything under `Win+Shift` would.
+A third-party program can still own one. That failure is handled the way the macOS version handles a taken Carbon hotkey: the action is **not recorded** for a hotkey that was never installed, so the shortcut silently does nothing for the session and a log line names it. The menu item always works regardless, so the app is never unreachable.
 
-Making the hotkeys configurable is the real fix and is on the list below.
+`MOD_CONTROL | MOD_ALT` is the other unclaimed option and is a one-line change to the modifier mask in `RegisterHotkeys()`. Making the hotkeys configurable is the real fix and is on the list below.
 
 ---
 

@@ -16,7 +16,7 @@ Everything runs locally. OCR is Windows' own `Windows.Media.Ocr`, capture is GDI
 
 One executable, no installer, no third-party dependencies — nothing but the Windows SDK. The binary is statically linked, so there is no runtime to install.
 
-**This is version 1.0.0, and it has not been run on real hardware yet.** Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
+This is version 1.0.0. It builds clean under `/W4 /WX` and has been run on Windows 11 on one machine. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
 
 ---
 
@@ -26,11 +26,11 @@ macOS has a menu bar; Windows does not. The closest honest equivalent is a progr
 
 Pinning on Windows pins a *shortcut to the executable*, so "clicking the icon" means launching it. The first launch stays resident to hold the global hotkeys. Every later launch finds the running instance, tells it to open its menu, and exits immediately. From your side that is one icon that opens one menu — the macOS behaviour, built out of the pieces Windows actually provides.
 
-While idle there is **no tray icon and no window**. A tray icon appears only while recording, so the red square is a one-click Stop with no menu to open first. That is the exact role the second status item plays on macOS.
+While idle there is **no tray icon and no window**. Both appear only while recording — see [Recording video](#recording-video) for what that looks like.
 
 ### Pinning it
 
-1. Build it (below), then run `build\SnipText.exe` once.
+1. Build it (below), then run `build\SnipTextProUltra.exe` once.
 2. Right-click its taskbar button → **Pin to taskbar**.
 
 That's it. The pinned icon is now the app.
@@ -55,7 +55,7 @@ build.bat run
 
 | | |
 |---|---|
-| `build.bat` | Build into `build\SnipText.exe` |
+| `build.bat` | Build into `build\SnipTextProUltra.exe` |
 | `build.bat run` | Build and launch |
 | `build.bat test` | Build and run the text-normaliser tests |
 | `build.bat clean` | Delete the build folder |
@@ -76,13 +76,13 @@ ctest --test-dir build -C Release
 ### Uninstalling
 
 ```
-taskkill /IM SnipText.exe /F
+taskkill /IM SnipTextProUltra.exe /F
 reg delete "HKCU\Software\markpelayo\SnipText" /f
 reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v SnipText /f
 rmdir /s /q "%LOCALAPPDATA%\SnipText"
 ```
 
-Then delete `SnipText.exe` and unpin it. Your captures are left alone — they are in `%USERPROFILE%\Pictures\SnipText_*` and `%USERPROFILE%\Videos\SnipText_Videos`. Delete those yourself if you want them gone.
+Then delete `SnipTextProUltra.exe` and unpin it. Your captures are left alone — they are in `%USERPROFILE%\Pictures\SnipText_*` and `%USERPROFILE%\Videos\SnipText_Videos`. Delete those yourself if you want them gone.
 
 ---
 
@@ -90,48 +90,40 @@ Then delete `SnipText.exe` and unpin it. Your captures are left alone — they a
 
 | | |
 |---|---|
-| `Win+Alt+1` | Screenshot — region, opens the editor |
-| `Win+Alt+2` | Screenshot — full screen, opens the editor |
-| `Win+Alt+3` | Screenshot to Text — region |
-| `Win+Alt+4` | Screenshot to Text — full screen |
-| `Win+Alt+5` | Record — region (press again to stop) |
-| `Win+Alt+6` | Record — full screen (press again to stop) |
+| `Alt+Shift+1` | Screenshot — region, opens the editor |
+| `Alt+Shift+2` | Screenshot — full screen, opens the editor |
+| `Alt+Shift+3` | Screenshot to Text — region |
+| `Alt+Shift+4` | Screenshot to Text — full screen |
+| `Alt+Shift+5` | Record — region (press again to stop) |
+| `Alt+Shift+6` | Record — full screen (press again to stop) |
 
-The numbers run top to bottom in menu order, so the menu itself is the reminder.
+The numbers run top to bottom in menu order, so the menu itself is the reminder. `Alt+Shift` is unclaimed by Windows 11: it avoids `Win+Shift+S`, which is the built-in Snipping Tool, and `Win+Alt+<digit>`, which the shell uses for taskbar Jump Lists and would win the race for.
 
 In any region capture: drag to select, **Space** switches to click-a-whole-window, **Esc** cancels.
 
-> **Heads up: `Win+Alt+<digit>` is already a Windows shortcut.** The shell uses
-> it to open the Jump List of the pinned taskbar app in that position. The
-> shell registers first, so some or all of these six may simply fail to
-> register — in which case that shortcut does nothing for the session and the
-> menu item is the way in. Check the log to see which ones took.
->
-> If they don't take on your machine, `Ctrl+Alt+1`–`6` and `Alt+Shift+1`–`6`
-> are both unclaimed by Windows 11 and are one line to switch to — the
-> modifier flags are in `RegisterHotkeys()` in `src/App.cpp`.
-
-If another program already owns one of these combinations, that one shortcut silently does nothing for the session — the menu item still works. The log says which one.
+If another program already owns one of these combinations, that one shortcut silently does nothing for the session — the menu item still works. The log says which one. Changing them is a one-line edit to the modifier mask in `RegisterHotkeys()` in `src/App.cpp`; `Ctrl+Alt+1`–`6` is the other unclaimed option.
 
 ---
 
 ## The menu
 
 ```
+Windows-Taskbar-SnipTextProUltra 1.0.0 · by markpelayo
+──────────────────────
 Screenshot
-  Capture Region…          Win+Alt+1
-  Capture Full Screen      Win+Alt+2
+  Capture Region…          Alt+Shift+1
+  Capture Full Screen      Alt+Shift+2
   Show Saved Images (12)
 ──────────────────────
 Screenshot to Text
-  Capture Region…          Win+Alt+3
-  Capture Full Screen      Win+Alt+4
+  Capture Region…          Alt+Shift+3
+  Capture Full Screen      Alt+Shift+4
   Copy: "Work Order #…"
   Show Saved Images (4)
 ──────────────────────
 Record Video
-  Record Region…           Win+Alt+5
-  Record Full Screen       Win+Alt+6
+  Record Region…           Alt+Shift+5
+  Record Full Screen       Alt+Shift+6
   Show Saved Videos (3)
 ──────────────────────
 Settings
@@ -145,12 +137,14 @@ Settings
   Sanitize and Restore Default…
 ──────────────────────
 Startup
-  Run at Startup: 15 s   ▸
+✓ Run at Startup: 15 s   ▸
 ──────────────────────
   Quit SnipText
 ```
 
 Every capture section has the same shape: **capture commands first, then the ways to get at what they produced.** Once you have read one section you can predict the others.
+
+The first row names the program, its version and its author, so a screenshot of the menu is enough to tell someone which build you are on.
 
 ---
 
@@ -202,11 +196,20 @@ Annotations are stored in **image pixel coordinates**, so the PNG you save is fu
 
 ## Recording video
 
-`Win+Alt+5` puts a resizable selection rectangle on screen — drag inside to move, drag the eight handles to resize, drag empty space to draw a new one. The readout shows the size in **recorded pixels**, accounting for the quality setting. **Enter** or the Record button starts; **Esc** cancels.
+`Alt+Shift+5` puts a resizable selection rectangle on screen — drag inside to move, drag the eight handles to resize, drag empty space to draw a new one. The readout shows the size in **recorded pixels**, accounting for the quality setting. **Enter** or the Record button starts; **Esc** cancels.
 
 The overlay is hidden before the first frame is grabbed, so it never appears in the video.
 
-While recording, a red square appears in the notification area. Its tooltip carries the elapsed time, and a single click stops the recording.
+### Knowing that it is recording
+
+Two things appear the moment a recording starts:
+
+- **A green dashed frame** around the recorded area, so there is never any doubt about what is being captured. It is drawn strictly *outside* the captured rectangle, which means it never appears in the resulting video — and it is painted once and then costs nothing.
+- **A Stop pill** — `● 00:24  Stop` — placed just outside the frame. It carries the elapsed time, its dot pulses once a second, and one click stops the recording. It is also placed outside the captured area wherever there is room; on a full-screen recording there is nowhere outside, so it sits in the bottom-left corner and *does* appear in the video. The log says so when that happens.
+
+A red square also appears in the notification area as a second way to stop. It is not the indicator, though — Windows 11 collapses the notification area behind a chevron by default, so anything that lives only there is invisible to most people.
+
+Stopping a recording removes all three.
 
 Quitting mid-recording stops it first and waits up to three seconds for the encoder to finish writing the MP4 index — exiting before that leaves an unplayable file.
 
@@ -238,7 +241,7 @@ It is deliberately lightweight, and the design reasons are in [the architecture 
 
 - **While idle there is nothing running**: no timer, no window, no tray icon, no background thread. The process exists to hold six hotkey registrations and a message loop.
 - **Peak memory is one capture's bitmap** — about 8 MB for a 1440p screen, 33 MB for 4K — released as soon as OCR or the editor is finished with it.
-- **One timer exists only while recording**, at one tick a second, driving both the elapsed time and the blink so they cannot drift apart.
+- **One timer exists only while recording**, at one tick a second, driving the elapsed time, the pulse and the Stop pill so they cannot drift apart. The green frame is painted once and never repaints; the pill repaints about 150×34 pixels a second, which is the entire ongoing cost of the recording indicator.
 - **Every GDI object, handle and COM pointer is owned by an RAII wrapper**, so there is no branch — including an early return — on which a resource leaks.
 - Undo is capped at 50 snapshots; the log rotates at 512 KB.
 
@@ -250,15 +253,23 @@ Nobody has profiled it. Those are design properties, not measurements.
 
 Stated plainly, because it matters more than any feature list.
 
-**Not tested at all.** This port was written from the macOS source and has never been compiled or run on a Windows machine. It is a complete, careful implementation, not a verified one. Treat version 1.0.0 as a first draft that needs a real machine.
+### Verified
 
-The parts most likely to need work on first contact:
+- **It builds**, clean, under `/W4 /WX` with MSVC — so there is not a single compiler warning in the tree — and the CI job does it on every push.
+- **It runs.** On Windows 11, on one machine, at one resolution. The menu opens, the region overlay works, the recorder produces files.
+- **The text normaliser's logic**, against the twenty assertions in `tests/TextNormalizerTests.cpp` — the six cases that shaped the algorithm plus the list-marker traps. Those expectations were checked against an independent implementation of the same algorithm before being written down.
 
-- **Media Foundation encoding.** The sink-writer configuration, the RGB32 input stride and the AAC audio path are all written from documentation. Expect the recorder to be where the first bugs are.
-- **The WinRT OCR plumbing.** It uses the ABI headers and WRL rather than C++/WinRT, to keep the build dependency-free. The `SoftwareBitmap` buffer dance is the fiddly part.
-- **Multi-monitor and mixed-DPI setups.** The program is Per-Monitor-V2 aware and works in physical pixels throughout, which is the correct design, but "correct design" and "correct on your three-monitor desk" are different claims.
+### Not verified
 
-**Tested.** The text normaliser's logic, against the cases in `tests/TextNormalizerTests.cpp` — the six that shaped the algorithm plus the list-marker traps. Those expectations were checked against an independent implementation of the same algorithm before being written down.
+Everything else. In rough order of how likely it is to bite:
+
+- **Video output quality.** Recordings are produced, but nobody has checked them frame by frame across frame rates, quality settings, or with audio on. The Media Foundation sink-writer configuration was written from documentation.
+- **Microphone audio.** The WASAPI capture and AAC path have not been exercised at all. They are written to fail soft — a bad microphone gives you a silent video, never a lost one — but "fails soft" is a design claim, not a measurement.
+- **Multi-monitor and mixed-DPI setups.** The program is Per-Monitor-V2 aware and works in physical pixels throughout, which is the correct design, but "correct design" and "correct on your three-monitor desk" are different claims. The startup log prints your display layout, which is the first thing to check if a capture lands in the wrong place.
+- **The annotation editor under sustained use.** Individual tools work. Long sessions, deep undo stacks, and the interaction between text entry and the other tools have not been hammered.
+- **Long-running behaviour.** The idle cost is designed to be zero and every resource is RAII-owned, but nobody has left it running for a week and watched the handle count.
+
+Nobody has profiled it, either. The figures under [Resource usage](#resource-usage) are design properties, not measurements.
 
 ---
 

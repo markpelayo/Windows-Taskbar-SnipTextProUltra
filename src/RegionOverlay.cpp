@@ -21,8 +21,11 @@ constexpr int kInvalidatePadding = 90;   // covers border, handles, readout and 
 constexpr int kReadoutPadding    = 6;
 constexpr int kButtonWidth       = 110;
 constexpr int kButtonHeight      = 32;
-constexpr int kHintWidth         = 340;
-constexpr int kHintHeight        = 22;
+// Wide enough for the longest hint, which is the window-pick one at about
+// 70 characters. The text is also drawn with DT_END_ELLIPSIS, so a wider
+// system font trims rather than clipping mid-word at both ends.
+constexpr int kHintWidth         = 560;
+constexpr int kHintHeight        = 24;
 
 constexpr BYTE kDimAlpha     = 115;   // 0.45 of 255
 constexpr BYTE kHintAlpha    = 140;   // 0.55
@@ -265,6 +268,24 @@ LRESULT RegionOverlay::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPA
         Cancel(hwnd);
         return 0;
 
+    case WM_CAPTURECHANGED:
+        // Capture can be taken away — a system dialog, a shell hook — and
+        // when it is, no WM_LBUTTONUP ever arrives. Without this the Record
+        // button stays latched dark and the drag state stays stale for the
+        // rest of the overlay's life.
+        //
+        // The guard is essential: ReleaseCapture sends this message back
+        // synchronously even when we are the ones releasing, so without it
+        // OnMouseUp would find its own state already wiped and every click
+        // would do nothing.
+        if (releasingCapture_) return 0;
+        pressedRecord_   = false;
+        dragMode_        = DragMode::None;
+        activeGrip_      = Grip::None;
+        didStartNewRect_ = false;
+        ::InvalidateRect(hwnd, nullptr, FALSE);
+        return 0;
+
     case WM_KEYDOWN:
         OnKeyDown(hwnd, wParam);
         return 0;
@@ -399,7 +420,9 @@ void RegionOverlay::DrawChrome(HDC dc) const {
 
     if (style_ == Style::Adjustable) {
         const RECT button = RecordButtonRect();
-        FillSolid(dc, button, RGB(232, 17, 35));   // the Windows 11 system red
+        // Darkens while held, so a press that has not been released yet is
+        // visibly a press.
+        FillSolid(dc, button, pressedRecord_ ? RGB(164, 12, 25) : RGB(232, 17, 35));
         ::SetTextColor(dc, RGB(255, 255, 255));
         RECT label = button;
         ::DrawTextW(dc, L"Record", -1, &label, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
@@ -415,7 +438,8 @@ void RegionOverlay::DrawChrome(HDC dc) const {
             : (windowPickMode_
                    ? L"Click a window to capture it  ·  Space to drag instead  ·  Esc to cancel"
                    : L"Drag to select  ·  Space to pick a window  ·  Esc to cancel");
-    ::DrawTextW(dc, message, -1, &hintText, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    ::DrawTextW(dc, message, -1, &hintText,
+                DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
 }
 
 // --- geometry --------------------------------------------------------------
@@ -456,6 +480,7 @@ RECT RegionOverlay::RecordButtonRect() const {
     RECT button{};
     button.left  = midX - kButtonWidth / 2;
     button.right = button.left + kButtonWidth;
+
     // Centred in the selection, unless the selection is too short to hold the
     // button comfortably, in which case it goes below.
     if (util::RectHeight(selection_) < kButtonHeight * 5 / 2) {
@@ -464,29 +489,90 @@ RECT RegionOverlay::RecordButtonRect() const {
         button.top = (selection_.top + selection_.bottom) / 2 - kButtonHeight / 2;
     }
     button.bottom = button.top + kButtonHeight;
+
+    // A short selection against the bottom edge would otherwise put the
+    // button off-screen, where it cannot be clicked at all. This is the one
+    // definition both the drawing and the hit-testing use, so they cannot
+    // disagree about where it went.
+    const int desktopHeight = util::RectHeight(desktopBounds_);
+    if (button.bottom > desktopHeight - 4) {
+        button.top    = selection_.top - kButtonHeight - 10;
+        button.bottom = button.top + kButtonHeight;
+    }
+    if (button.top < 4) {
+        button.top    = 4;
+        button.bottom = button.top + kButtonHeight;
+    }
+
+    // Horizontally too, for a selection hard against a side edge.
+    const int desktopWidth = util::RectWidth(desktopBounds_);
+    if (button.left < 4) {
+        button.left  = 4;
+        button.right = button.left + kButtonWidth;
+    }
+    if (button.right > desktopWidth - 4) {
+        button.right = desktopWidth - 4;
+        button.left  = button.right - kButtonWidth;
+    }
     return button;
 }
 
 RECT RegionOverlay::HintRect() const {
-    const int midX = hasSelection_
-                   ? (selection_.left + selection_.right) / 2
-                   : util::RectWidth(desktopBounds_) / 2;
+    const int desktopWidth  = util::RectWidth(desktopBounds_);
+    const int desktopHeight = util::RectHeight(desktopBounds_);
+
+    int midX = desktopWidth / 2;
+    if (hasSelection_) {
+        midX = (selection_.left + selection_.right) / 2;
+    } else {
+        // Centred on the monitor under the pointer, not on the virtual
+        // desktop — on a two-monitor setup the desktop's centre is the seam
+        // between them, which would split the hint down the middle.
+        const RECT monitor = util::MonitorBounds(util::MonitorUnderCursor());
+        midX = (monitor.left + monitor.right) / 2 - desktopBounds_.left;
+    }
+
+    // The Record button sits below the selection when the selection is too
+    // short to hold it inside, and the hint has to clear it or it paints its
+    // translucent bar straight across the button's label. Asked of the real
+    // function rather than re-derived, because RecordButtonRect also flips
+    // the button above the selection near the bottom edge — and a second
+    // copy of that rule would drift out of step with the first.
+    const bool buttonIsBelow = (style_ == Style::Adjustable) && hasSelection_ &&
+                               (RecordButtonRect().top > selection_.bottom);
+    const int belowGap = buttonIsBelow ? kButtonHeight + 20 : 12;
+
     RECT hint{};
-    hint.left  = midX - kHintWidth / 2;
-    hint.right = hint.left + kHintWidth;
-    hint.top   = hasSelection_ ? selection_.bottom + 10 + kButtonHeight + 10
-                               : util::RectHeight(desktopBounds_) / 2;
-    if (style_ == Style::Instant) hint.top = selection_.bottom + 12;
-    if (!hasSelection_)           hint.top = 60;
+    hint.left   = midX - kHintWidth / 2;
+    hint.right  = hint.left + kHintWidth;
+    hint.top    = hasSelection_ ? selection_.bottom + belowGap : 60;
     hint.bottom = hint.top + kHintHeight;
 
-    // Keep it on screen whatever the selection did.
-    const int maxBottom = util::RectHeight(desktopBounds_) - 8;
-    if (hint.bottom > maxBottom) {
+    // Three placements, tried in order: just below the selection, just above
+    // it, then tucked inside its bottom edge. A selection that fills the
+    // screen has no outside, and a hint clipped off the bottom of the display
+    // is worse than one sitting over the shot.
+    if (hasSelection_ && hint.bottom > desktopHeight - 8) {
         hint.bottom = selection_.top - 12;
         hint.top    = hint.bottom - kHintHeight;
     }
-    if (hint.top < 8) { hint.top = 8; hint.bottom = hint.top + kHintHeight; }
+    if (hint.top < 8) {
+        hint.bottom = (hasSelection_ ? selection_.bottom : desktopHeight) - 12;
+        hint.top    = hint.bottom - kHintHeight;
+    }
+    // Last resort: clamp into the desktop.
+    if (hint.bottom > desktopHeight - 4) {
+        hint.bottom = desktopHeight - 4;
+        hint.top    = hint.bottom - kHintHeight;
+    }
+    if (hint.top < 4) { hint.top = 4; hint.bottom = hint.top + kHintHeight; }
+
+    // Keep it horizontally on screen too, for a selection hard against an edge.
+    if (hint.left < 8) { hint.left = 8; hint.right = hint.left + kHintWidth; }
+    if (hint.right > desktopWidth - 8) {
+        hint.right = desktopWidth - 8;
+        hint.left  = hint.right - kHintWidth;
+    }
     return hint;
 }
 
@@ -533,7 +619,17 @@ void RegionOverlay::OnMouseDown(HWND hwnd, POINT point) {
     }
 
     if (style_ == Style::Adjustable) {
-        // Handles first: they are small, they sit on the outline, and they
+        // The Record button first of all. It sits inside the selection, so
+        // without this the click that was aimed at it is read as "start
+        // dragging the selection" and the button can never be pressed.
+        if (util::RectContains(RecordButtonRect(), point)) {
+            pressedRecord_ = true;
+            dragMode_      = DragMode::None;
+            ::InvalidateRect(hwnd, nullptr, FALSE);
+            return;
+        }
+
+        // Handles next: they are small, they sit on the outline, and they
         // are what you meant if you managed to hit one.
         Grip grip = GripAt(point);
         if (grip != Grip::None) {
@@ -626,7 +722,18 @@ void RegionOverlay::OnMouseMove(HWND hwnd, POINT point) {
 }
 
 void RegionOverlay::OnMouseUp(HWND hwnd, POINT point) {
+    releasingCapture_ = true;
     ::ReleaseCapture();
+    releasingCapture_ = false;
+
+    // A button press only counts if the release lands on it too, which is
+    // what lets someone press it, think better of it, and slide off.
+    if (pressedRecord_) {
+        pressedRecord_ = false;
+        ::InvalidateRect(hwnd, nullptr, FALSE);
+        if (util::RectContains(RecordButtonRect(), point)) Confirm(hwnd);
+        return;
+    }
 
     if (dragMode_ == DragMode::Drawing && style_ == Style::Instant) {
         RECT drawn = util::NormalizedRect(dragOrigin_, point);

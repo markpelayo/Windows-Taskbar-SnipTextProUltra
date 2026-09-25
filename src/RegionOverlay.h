@@ -100,9 +100,14 @@ private:
     RECT     dragStartSelection_{};
     bool     didStartNewRect_ = false;
     bool     windowPickMode_  = false;
+    bool     pressedRecord_   = false;
     // Set while the overlay hides itself on purpose, so the deactivation that
     // causes is not mistaken for the user clicking away.
     bool     suppressDeactivate_ = false;
+    // Set while we release capture ourselves. ReleaseCapture synchronously
+    // sends WM_CAPTURECHANGED back to us, and the handler for it resets the
+    // very drag state that OnMouseUp is about to read.
+    bool     releasingCapture_   = false;
 
     Selection result_{};
     bool      finished_ = false;

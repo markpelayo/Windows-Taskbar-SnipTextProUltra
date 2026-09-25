@@ -26,6 +26,7 @@ set(SOURCES
     src/Log.cpp
     src/MediaFolder.cpp
     src/Ocr.cpp
+    src/RecordingIndicator.cpp
     src/RegionOverlay.cpp
     src/ScreenRecorder.cpp
     src/Settings.cpp
@@ -37,6 +38,11 @@ set(SOURCES
 )
 
 add_executable(SnipText WIN32 ${SOURCES})
+
+# The CMake target stays "SnipText" so the generated project names are short;
+# the file on disk is SnipTextProUltra.exe.
+set_target_properties(SnipText PROPERTIES OUTPUT_NAME "SnipTextProUltra")
+
 target_include_directories(SnipText PRIVATE src)
 
 target_compile_definitions(SnipText PRIVATE
@@ -56,6 +62,10 @@ if(MSVC)
     #   CVT1100: duplicate resource. type:MANIFEST, name:1, language:0x0409
     #   LNK1123: failure during conversion to COFF
     target_link_options(SnipText PRIVATE /SUBSYSTEM:WINDOWS /MANIFEST:NO)
+    # Belt and braces for the Visual Studio generator, which writes
+    # <GenerateManifest> from its own property rather than from the link
+    # flags, so /MANIFEST:NO alone does not always reach it.
+    set_target_properties(SnipText PROPERTIES VS_GLOBAL_GenerateManifest false)
 endif()
 
 target_link_libraries(SnipText PRIVATE

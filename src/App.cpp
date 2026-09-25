@@ -6,6 +6,7 @@
 #include "Log.h"
 #include "MediaFolder.h"
 #include "Ocr.h"
+#include "RecordingIndicator.h"
 #include "RegionOverlay.h"
 #include "ScreenRecorder.h"
 #include "Settings.h"
@@ -96,11 +97,29 @@ void AppendSeparator(HMENU menu) {
     if (menu) ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 }
 
-void AppendSubmenu(HMENU parent, HMENU child, const std::wstring& title) {
+void AppendSubmenu(HMENU parent, HMENU child, const std::wstring& title,
+                   bool checked = false) {
     // A null child would produce an MF_POPUP item that cannot be opened —
     // worse than the row simply not being there.
     if (!parent || !child) return;
-    ::AppendMenuW(parent, MF_POPUP, reinterpret_cast<UINT_PTR>(child), title.c_str());
+    UINT flags = MF_POPUP;
+    if (checked) flags |= MF_CHECKED;
+    ::AppendMenuW(parent, flags, reinterpret_cast<UINT_PTR>(child), title.c_str());
+}
+
+// The first row: which program this is, which version, and whose it is.
+// Disabled, because it is a label rather than a command.
+void AppendTitleRow(HMENU menu) {
+    if (!menu) return;
+    const std::wstring title = L"Windows-Taskbar-SnipTextProUltra "
+                               SNIPTEXT_VERSION_WIDE L"  ·  by markpelayo";
+    MENUITEMINFOW item{};
+    item.cbSize     = sizeof(item);
+    item.fMask      = MIIM_STRING | MIIM_STATE | MIIM_ID;
+    item.fState     = MFS_DISABLED;
+    item.wID        = 0;
+    item.dwTypeData = const_cast<wchar_t*>(title.c_str());
+    ::InsertMenuItemW(menu, ::GetMenuItemCount(menu), TRUE, &item);
 }
 
 // "Show Saved Images (12)" or "Show Saved Images — none yet". The count is
@@ -241,6 +260,7 @@ bool App::Run() {
     }
 
     ScreenRecorder::Shared().Shutdown();
+    RecordingIndicator::Shared().Hide();
     toast::Destroy();
     gdip::Shutdown();
     logging::Shutdown();
@@ -376,14 +396,11 @@ void App::SetUpAfterStartupDelay() {
 
 void App::RegisterHotkeys() {
     struct Binding { int id; UINT key; };
-    // Win+Alt+1 through 6, numbered in menu order.
+    // Alt+Shift+1 through 6, numbered in menu order.
     //
-    // Worth knowing: the Windows shell already uses Win+Alt+<digit> to open
-    // the Jump List of the pinned taskbar app in that position. Whichever
-    // process registers first wins, and the shell is always first, so these
-    // registrations can simply fail. When one does, that shortcut does
-    // nothing for the session and the log names it — the menu item still
-    // works. See ARCHITECTURE.md for the alternatives.
+    // Alt+Shift is unclaimed by Windows 11. It avoids Win+Shift+S, which is
+    // the built-in Snipping Tool, and Win+Alt+<digit>, which the shell uses
+    // for taskbar Jump Lists and would lose the race to.
     const Binding bindings[] = {
         { HK_SHOT_REGION,   '1' }, { HK_SHOT_FULL,     '2' },
         { HK_TEXT_REGION,   '3' }, { HK_TEXT_FULL,     '4' },
@@ -393,14 +410,14 @@ void App::RegisterHotkeys() {
     for (const Binding& binding : bindings) {
         // MOD_NOREPEAT: a held key should fire once, not open a crosshair per
         // repeat tick.
-        if (!::RegisterHotKey(hwnd_, binding.id, MOD_WIN | MOD_ALT | MOD_NOREPEAT,
+        if (!::RegisterHotKey(hwnd_, binding.id, MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,
                               binding.key)) {
             // A taken shortcut fails silently and permanently for this
             // launch; the menu item still works. Surfacing a dialog at
             // startup for something the user can neither see nor fix would be
             // worse than a log line.
-            logging::Write(util::Format(L"hotkey: Win+Alt+%c is already taken — most likely by "
-                           L"the shell's Jump List shortcut. Use the menu item instead.",
+            logging::Write(util::Format(L"hotkey: Alt+Shift+%c is already taken by another "
+                           L"program. Use the menu item instead.",
                            static_cast<wchar_t>(binding.key)));
         }
     }
@@ -544,16 +561,19 @@ HMENU App::BuildMenu() {
     const int videoCount      = MediaFolder::Videos().Count();
     const bool recording      = ScreenRecorder::Shared().IsRecording();
 
+    AppendTitleRow(menu);
+    AppendSeparator(menu);
+
     AppendHeader(menu, L"Screenshot");
-    AppendCommand(menu, ID_SHOT_REGION, L"Capture Region…\tWin+Alt+1");
-    AppendCommand(menu, ID_SHOT_FULL,   L"Capture Full Screen\tWin+Alt+2");
+    AppendCommand(menu, ID_SHOT_REGION, L"Capture Region…\tAlt+Shift+1");
+    AppendCommand(menu, ID_SHOT_FULL,   L"Capture Full Screen\tAlt+Shift+2");
     AppendCommand(menu, ID_SHOT_SHOW, SavedItemTitle(L"Show Saved Images", screenshotCount),
                   screenshotCount > 0);
     AppendSeparator(menu);
 
     AppendHeader(menu, L"Screenshot to Text");
-    AppendCommand(menu, ID_TEXT_REGION, L"Capture Region…\tWin+Alt+3");
-    AppendCommand(menu, ID_TEXT_FULL,   L"Capture Full Screen\tWin+Alt+4");
+    AppendCommand(menu, ID_TEXT_REGION, L"Capture Region…\tAlt+Shift+3");
+    AppendCommand(menu, ID_TEXT_FULL,   L"Capture Full Screen\tAlt+Shift+4");
     if (lastText_.empty()) {
         AppendCommand(menu, ID_TEXT_COPYLAST, L"No text captured yet", false);
     } else {
@@ -572,8 +592,8 @@ HMENU App::BuildMenu() {
         AppendCommand(menu, ID_REC_STOP,
                       L"Stop Recording (" + ScreenRecorder::Shared().ElapsedText() + L")");
     } else {
-        AppendCommand(menu, ID_REC_REGION, L"Record Region…\tWin+Alt+5");
-        AppendCommand(menu, ID_REC_FULL,   L"Record Full Screen\tWin+Alt+6");
+        AppendCommand(menu, ID_REC_REGION, L"Record Region…\tAlt+Shift+5");
+        AppendCommand(menu, ID_REC_FULL,   L"Record Full Screen\tAlt+Shift+6");
     }
     AppendCommand(menu, ID_REC_SHOW, SavedItemTitle(L"Show Saved Videos", videoCount),
                   videoCount > 0);
@@ -716,9 +736,13 @@ HMENU App::BuildMenu() {
                 title = (delay <= 0) ? L"Run at Startup: On"
                                      : util::Format(L"Run at Startup: %d s", delay);
             }
+            // Checked whenever startup is enabled, at any delay — so the
+            // state is readable from the parent row without opening the
+            // submenu to go looking for it.
+            //
             // Only attached if the submenu was actually created; an MF_POPUP
             // item with a null handle is a menu item that cannot be used.
-            AppendSubmenu(menu, startup, title);
+            AppendSubmenu(menu, startup, title, enabled);
         }
     }
     AppendSeparator(menu);
@@ -931,7 +955,7 @@ void App::ScreenshotToText(capture::Mode mode) {
         isCapturing_ = false;
         ReportFailure(L"Couldn't start text recognition.");
     }
-    // `isCapturing_` stays true until the result lands, so a second Win+Alt+3
+    // `isCapturing_` stays true until the result lands, so a second Alt+Shift+3
     // during recognition is ignored rather than racing to the clipboard.
 }
 
@@ -1018,16 +1042,25 @@ void App::BeginRecording(bool region) {
         target = selection.bounds;
         ::OffsetRect(&target, desktop.left, desktop.top);
 
+        // The recorder substitutes the monitor under the cursor for an empty
+        // region. Resolving that here too keeps recordingRegion_ — and so the
+        // green frame — describing what is actually being recorded.
+        if (util::RectWidth(target) <= 0 || util::RectHeight(target) <= 0) {
+            target = util::MonitorBounds(util::MonitorUnderCursor());
+        }
+
         // The overlay's window is already hidden at this point, and the
         // overlay object is still alive, so IsShowing() still reports true —
         // which is what stops a second overlay appearing in the first frames
         // of the recording about to start.
+        recordingRegion_ = target;
         const std::wstring failure = ScreenRecorder::Shared().Start(target);
         if (!failure.empty()) ReportFailure(failure);
         return;
     }
 
     target = util::MonitorBounds(util::MonitorUnderCursor());
+    recordingRegion_ = target;
     const std::wstring failure = ScreenRecorder::Shared().Start(target);
     if (!failure.empty()) ReportFailure(failure);
 }
@@ -1037,13 +1070,20 @@ void App::OnRecordingStateChanged() {
 
     if (ScreenRecorder::Shared().IsRecording()) {
         recordingBlinkOn_ = true;
-        // One timer drives both the elapsed text and the blink, so the two
-        // can never drift out of step.
+        // One timer drives the elapsed text, the blink and the pill, so the
+        // three can never drift out of step.
         ::SetTimer(hwnd_, kRecordingTimer, 1000, nullptr);
         toast::SetSuppressed(true);
         ShowStopIcon();
+        // The green frame and the Stop pill are the indicator people
+        // actually see; the tray icon is a second way to stop, not the
+        // notification.
+        RecordingIndicator::Shared().Show(recordingRegion_, [] {
+            ScreenRecorder::Shared().Stop();
+        });
     } else {
         toast::SetSuppressed(false);
+        RecordingIndicator::Shared().Hide();
         HideStopIcon();
     }
     UpdateRecordingIndicator();
@@ -1081,6 +1121,10 @@ void App::HideStopIcon() {
 }
 
 void App::UpdateRecordingIndicator() {
+    // The pill first: it is the one people are looking at.
+    RecordingIndicator::Shared().Update(ScreenRecorder::Shared().ElapsedText(),
+                                        recordingBlinkOn_);
+
     if (!stopIconVisible_) return;
 
     NOTIFYICONDATAW data{};

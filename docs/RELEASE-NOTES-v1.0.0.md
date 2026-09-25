@@ -10,32 +10,37 @@ which does the same three things from the macOS menu bar.
 
 ---
 
-## ⚠️ Read this before you install
+## Read this before you install
 
-**This release has never been compiled or run on a Windows machine.**
+**It builds and it runs — on one machine.**
 
-It is a complete, carefully reviewed implementation written from the macOS
-source — not a verified one. Two full static review passes fixed around thirty
-real defects before tagging, but the first real build will almost certainly
-surface more. Treat v1.0.0 as pre-release whatever the version number says.
+The build is clean under `/W4 /WX`, meaning not a single compiler warning in
+the tree, and CI does it on every push. It has been launched and driven on
+Windows 11 at one resolution: the menu opens, the region overlay works, the
+recorder produces files. The text normaliser is covered by twenty assertions
+whose expectations were checked against an independent implementation of the
+same algorithm.
 
-The areas most likely to need work on first contact:
+Everything past that is unverified. In rough order of how likely it is to
+bite:
 
-- **Media Foundation encoding.** The sink-writer configuration, the RGB32
-  input stride and the AAC audio path are all written from documentation.
-  Expect the recorder to be where the first bugs are.
-- **The WinRT OCR plumbing.** It uses the ABI headers and WRL rather than
-  C++/WinRT, to keep the build dependency-free. The `SoftwareBitmap` buffer
-  handling is the fiddly part.
+- **Video output quality.** Recordings are produced, but nobody has watched
+  one frame by frame across frame rates, quality settings, or with audio on.
+  The Media Foundation configuration was written from documentation.
+- **Microphone audio.** The WASAPI capture and AAC path have not been
+  exercised at all. They are written to fail soft — a bad microphone gives you
+  a silent video, never a lost one — but that is a design claim, not a
+  measurement.
 - **Multi-monitor and mixed-DPI setups.** The program is Per-Monitor-V2 aware
-  and works in physical pixels throughout, which is the correct design — but
-  "correct design" and "correct on your three-monitor desk" are different
-  claims.
+  and works in physical pixels throughout, which is the correct design. The
+  startup log prints your display layout; that is the first thing to check if
+  a capture lands in the wrong place.
+- **The annotation editor under sustained use.** Individual tools work; long
+  sessions and deep undo stacks have not been hammered.
 
-What *is* verified: the geometry-driven text normaliser, against the twenty
-assertions in `tests/TextNormalizerTests.cpp`. Those expectations were checked
-against an independent implementation of the same algorithm before being
-written down.
+Verbose logging is **on by default** in 1.x for exactly this reason, and every
+launch writes an environment block. If something misbehaves, that log is what
+explains it.
 
 ---
 
@@ -97,6 +102,14 @@ number that every asynchronous entry point checks, watchdogs sit on both the
 start and stop paths, and the finish callback fires exactly once per
 recording — never twice, never zero times.
 
+While a recording runs, a **green dashed frame** marks the captured area and a
+**`● 00:24  Stop` pill** carries the elapsed time and stops it in one click.
+The frame is drawn strictly outside the captured rectangle, so it never ends up
+in the video, and it is painted once and then costs nothing. The pill goes
+outside the frame wherever there is room; on a full-screen recording there is
+nowhere outside, so it sits in a corner and the log says it will be in the
+video.
+
 ### How it behaves as a Windows app
 
 macOS has a menu bar; Windows does not. Pinning on Windows pins a *shortcut*,
@@ -105,7 +118,8 @@ to hold the hotkeys; every later launch finds the running instance, tells it to
 open its menu, and exits. One icon, one menu.
 
 While idle there is no tray icon and no window — no timer, no thread, nothing
-running. A tray icon appears only while recording, as a one-click Stop.
+running. The menu's first row names the program, its version and its author, so
+a screenshot of it identifies the build.
 
 ---
 
@@ -113,25 +127,25 @@ running. A tray icon appears only while recording, as a one-click Stop.
 
 | | |
 |---|---|
-| `Win+Alt+1` | Screenshot — region |
-| `Win+Alt+2` | Screenshot — full screen |
-| `Win+Alt+3` | Screenshot to Text — region |
-| `Win+Alt+4` | Screenshot to Text — full screen |
-| `Win+Alt+5` | Record — region (press again to stop) |
-| `Win+Alt+6` | Record — full screen (press again to stop) |
+| `Alt+Shift+1` | Screenshot — region |
+| `Alt+Shift+2` | Screenshot — full screen |
+| `Alt+Shift+3` | Screenshot to Text — region |
+| `Alt+Shift+4` | Screenshot to Text — full screen |
+| `Alt+Shift+5` | Record — region (press again to stop) |
+| `Alt+Shift+6` | Record — full screen (press again to stop) |
 
-**Known collision:** the Windows shell already uses `Win+Alt+<digit>` to open
-the Jump List of the pinned taskbar app in that position, and it registers
-first. Some or all of these six may fail to register, in which case that
-shortcut does nothing for the session and the log names it — the menu item
-always works. `Ctrl+Alt` and `Alt+Shift` are both unclaimed and are a one-line
-change to the modifier mask in `RegisterHotkeys()`.
+`Alt+Shift` is unclaimed by Windows 11. It avoids `Win+Shift+S`, which is
+the built-in Snipping Tool, and `Win+Alt+<digit>`, which the shell owns for
+taskbar Jump Lists. If another program already has one of these, that
+shortcut silently does nothing for the session and the log names it — the
+menu item always works.
 
 ---
 
 ## Known issues
 
-- `Win+Alt+<digit>` may be taken by the shell, as above.
+- Hotkeys are not configurable. Changing them is a one-line edit to the
+  modifier mask in `RegisterHotkeys()`.
 - Full-screen capture covers one monitor, the one under the pointer.
 - Table columns merge into a single line; *Keep Line Breaks* preserves the rows.
 - No webcam recording, and no system-audio (loopback) recording. Microphone

@@ -81,13 +81,15 @@ to undo it.
 
 ### A menu that says what it does
 
-The three section headers are gone. The command names carry the section now —
-*Screenshot Region…*, *ScreenshotToText Region…*, *Record Region…* — so a
-header would only repeat the row beneath it.
+The headers over the capture sections are gone. The command names carry them now —
+*Screenshot a Region…*, *ScreenshotToText a Region…*, *Record Region…* — so a
+header would only repeat the row beneath it. The *Startup* header went the
+same way, since the row under it already began with "Run at Startup".
 
-One knock-on: the two *Show Saved Images* rows were unambiguous only *because*
-of those headers, so they are now **Show Saved Screenshots** and **Show Saved
-Text Images**.
+The three scattered *Show Saved* rows are now one **Show Saved Files**
+submenu, just above *Sanitize and Restore Default*. They are the same kind of
+thing, and collecting them leaves each capture section as nothing but its
+commands. The parent row greys out when all three folders are empty.
 
 The first row names the program, its version and its author, and clicking it
 opens the repository.

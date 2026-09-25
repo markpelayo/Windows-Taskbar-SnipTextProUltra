@@ -99,12 +99,13 @@ void AppendSeparator(HMENU menu) {
 }
 
 void AppendSubmenu(HMENU parent, HMENU child, const std::wstring& title,
-                   bool checked = false) {
+                   bool checked = false, bool enabled = true) {
     // A null child would produce an MF_POPUP item that cannot be opened —
     // worse than the row simply not being there.
     if (!parent || !child) return;
     UINT flags = MF_POPUP;
-    if (checked) flags |= MF_CHECKED;
+    if (checked)  flags |= MF_CHECKED;
+    if (!enabled) flags |= MF_GRAYED;
     ::AppendMenuW(parent, flags, reinterpret_cast<UINT_PTR>(child), title.c_str());
 }
 
@@ -121,9 +122,6 @@ void AppendTitleRow(HMENU menu) {
     ::AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(ID_ABOUT), title.c_str());
 }
 
-// "Show Saved Images (12)" or "Show Saved Images — none yet". The count is
-// part of the label because the alternative is opening a folder to find out
-// it is empty.
 // The shortcut column, read live rather than hard-coded, so rebinding one
 // updates the menu the next time it opens.
 // Includes the tab, so an unbound action produces no accelerator column at
@@ -134,6 +132,8 @@ std::wstring ShortcutLabel(hotkeys::Action action) {
     return binding.IsBound() ? L"\t" + hotkeys::Describe(binding) : std::wstring();
 }
 
+// "Screenshots (12)" or "Videos — none yet". The count is part of the label
+// because the alternative is opening a folder to find out it is empty.
 std::wstring SavedItemTitle(const wchar_t* title, int count) {
     return count > 0 ? util::Format(L"%s (%d)", title, count)
                      : std::wstring(title) + L" — none yet";
@@ -559,24 +559,19 @@ HMENU App::BuildMenu() {
     AppendTitleRow(menu);
     AppendSeparator(menu);
 
-    // No section headers any more: the command names now carry the section,
-    // so a header would be repeating the row beneath it. The shortcut column
+    // No headers over the capture sections any more: the command names now
+    // carry the section, so a header would repeat the row beneath it. The shortcut column
     // is filled from the live bindings rather than hard-coded, so a rebound
     // shortcut shows up here immediately.
     AppendCommand(menu, ID_SHOT_REGION,
-                  L"Screenshot Region…" + ShortcutLabel(hotkeys::Action::ScreenshotRegion));
+                  L"Screenshot a Region…" + ShortcutLabel(hotkeys::Action::ScreenshotRegion));
     AppendCommand(menu, ID_SHOT_FULL,
                   L"Screenshot Full Screen"
                       + ShortcutLabel(hotkeys::Action::ScreenshotFullScreen));
-    // "Images" alone was unambiguous only while a header sat above it. Now
-    // that the headers are gone, the two rows have to say which is which.
-    AppendCommand(menu, ID_SHOT_SHOW,
-                  SavedItemTitle(L"Show Saved Screenshots", screenshotCount),
-                  screenshotCount > 0);
     AppendSeparator(menu);
 
     AppendCommand(menu, ID_TEXT_REGION,
-                  L"ScreenshotToText Region…" + ShortcutLabel(hotkeys::Action::TextRegion));
+                  L"ScreenshotToText a Region…" + ShortcutLabel(hotkeys::Action::TextRegion));
     AppendCommand(menu, ID_TEXT_FULL,
                   L"ScreenshotToText Full Screen"
                       + ShortcutLabel(hotkeys::Action::TextFullScreen));
@@ -589,8 +584,6 @@ HMENU App::BuildMenu() {
         AppendCommand(menu, ID_TEXT_COPYLAST,
                       L"Copy: “" + Preview(lastText_, 14) + L"”");
     }
-    AppendCommand(menu, ID_TEXT_SHOW, SavedItemTitle(L"Show Saved Text Images", textImageCount),
-                  textImageCount > 0);
     AppendSeparator(menu);
 
     if (recording) {
@@ -603,8 +596,6 @@ HMENU App::BuildMenu() {
                       L"Record Full Screen"
                           + ShortcutLabel(hotkeys::Action::RecordFullScreen));
     }
-    AppendCommand(menu, ID_REC_SHOW, SavedItemTitle(L"Show Saved Videos", videoCount),
-                  videoCount > 0);
     AppendSeparator(menu);
 
     AppendHeader(menu, L"Settings");
@@ -724,6 +715,30 @@ HMENU App::BuildMenu() {
     appendFolderSubmenu({ MediaFolder::Videos(), L"Video Folder",
                           ID_FOLDER_VIDEO_CHOOSE, ID_FOLDER_VIDEO_RESET });
 
+    // --- everything the three capture commands have produced ---
+    // One row rather than three scattered through the capture sections: they
+    // are the same kind of thing, and grouping them keeps each section to its
+    // commands alone.
+    {
+        HMENU saved = ::CreatePopupMenu();
+        if (saved) {
+            AppendCommand(saved, ID_SHOT_SHOW,
+                          SavedItemTitle(L"Screenshots", screenshotCount),
+                          screenshotCount > 0);
+            AppendCommand(saved, ID_TEXT_SHOW,
+                          SavedItemTitle(L"ScreenshotToText Images", textImageCount),
+                          textImageCount > 0);
+            AppendCommand(saved, ID_REC_SHOW,
+                          SavedItemTitle(L"Videos", videoCount),
+                          videoCount > 0);
+        }
+        // Disabled outright when all three folders are empty, so the parent
+        // row behaves the way the individual rows used to: it tells you there
+        // is nothing there rather than opening to three dead entries.
+        const bool anySaved = (screenshotCount + textImageCount + videoCount) > 0;
+        AppendSubmenu(menu, saved, L"Show Saved Files", false, anySaved);
+    }
+
     // --- Sanitize ---
     const bool atDefaults =
         MediaFolder::Screenshots().IsUsingDefaultDirectory()
@@ -744,7 +759,8 @@ HMENU App::BuildMenu() {
     AppendSeparator(menu);
 
     // --- Startup ---
-    AppendHeader(menu, L"Startup");
+    // No header: the row below already begins with "Run at Startup", so a
+    // header would be the same word twice in a row.
     {
         HMENU startup = ::CreatePopupMenu();
         const bool enabled = settings::IsRunAtStartupEnabled();

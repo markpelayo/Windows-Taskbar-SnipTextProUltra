@@ -27,12 +27,16 @@ actually using the thing.
 ### Changed
 
 - **Default shortcuts are now `Ctrl+Shift+1`–`6`**, replacing `Alt+Shift`.
-- **The menu lost its three section headers.** The command names carry the
-  section now — *Screenshot Region…*, *ScreenshotToText Region…*, *Record
-  Region…* — so a header would just repeat the row beneath it. The two
-  *Show Saved Images* rows were only unambiguous while those headers sat
-  above them, so they are now *Show Saved Screenshots* and *Show Saved Text
-  Images*.
+- **The menu lost its capture-section headers.** The command names carry them
+  now — *Screenshot a Region…*, *ScreenshotToText a Region…*, *Record
+  Region…* — so a header would just repeat the row beneath it. The *Startup*
+  header went the same way, since the row under it already began with "Run at
+  Startup".
+- **The three *Show Saved* rows became one *Show Saved Files* submenu**,
+  sitting just above *Sanitize and Restore Default*. They are the same kind
+  of thing, and grouping them leaves each capture section as nothing but its
+  commands. The parent row is greyed out when all three folders are empty,
+  which is how the individual rows used to behave.
 - **The shortcut column in the menu is read from the live bindings**, so a
   rebound shortcut appears there the next time the menu opens.
 - **The icon was redesigned again** in a Material style: a gradient tile with

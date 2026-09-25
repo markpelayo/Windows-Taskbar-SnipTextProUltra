@@ -129,20 +129,17 @@ If another program already owns a combination, `RegisterHotKey` refuses it. That
 ## The menu
 
 ```
-Windows-Taskbar-SnipTextProUltra 1.0.0 · by markpelayo
+Windows-Taskbar-SnipTextProUltra 1.1.0 · by markpelayo
 ──────────────────────
-  Screenshot Region…             Ctrl+Shift+1
-  Screenshot Full Screen         Ctrl+Shift+2
-  Show Saved Screenshots (12)
+  Screenshot a Region…            Ctrl+Shift+1
+  Screenshot Full Screen          Ctrl+Shift+2
 ──────────────────────
-  ScreenshotToText Region…       Ctrl+Shift+3
-  ScreenshotToText Full Screen   Ctrl+Shift+4
+  ScreenshotToText a Region…      Ctrl+Shift+3
+  ScreenshotToText Full Screen    Ctrl+Shift+4
   Copy: "Work Order #…"
-  Show Saved Text Images (4)
 ──────────────────────
-  Record Region…                 Ctrl+Shift+5
-  Record Full Screen             Ctrl+Shift+6
-  Show Saved Videos (3)
+  Record Region…                  Ctrl+Shift+5
+  Record Full Screen              Ctrl+Shift+6
 ──────────────────────
 Settings
   Shortcuts              ▸
@@ -153,15 +150,25 @@ Settings
   Text Folder            ▸
   Video Settings         ▸
   Video Folder           ▸
+  Show Saved Files       ▸
   Sanitize and Restore Default…
 ──────────────────────
-Startup
 ✓ Run at Startup: 15 s   ▸
 ──────────────────────
   Quit SnipText
 ```
 
-Every section has the same shape: **the commands first, then the way to get at what they produced.** Once you have read one section you can predict the others. The command names carry the section, so there are no headers repeating what the row beneath already says.
+**Show Saved Files** collects the three output folders in one place:
+
+```
+  Screenshots (12)
+  ScreenshotToText Images (4)
+  Videos — none yet
+```
+
+The parent row is greyed out when all three folders are empty, so it tells you there is nothing there rather than opening onto three dead entries.
+
+Each section is just its commands, and everything those commands produced lives together under **Show Saved Files**. The command names carry the section, so there are no headers repeating what the row beneath already says.
 
 The first row names the program, its version and its author, so a screenshot of the menu is enough to tell someone which build you are on. It is also a command: clicking it opens the repository.
 

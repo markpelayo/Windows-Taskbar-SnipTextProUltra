@@ -20,6 +20,8 @@ extern const wchar_t* const kRegistryPath;   // Software\markpelayo\SnipText
 namespace key {
 inline constexpr const wchar_t* kKeepLineBreaks   = L"keepLineBreaks";
 inline constexpr const wchar_t* kShutterSound     = L"shutterSound";
+// Absent or empty means the built-in shutter; otherwise a path to a .wav.
+inline constexpr const wchar_t* kShutterSoundPath = L"shutterSoundPath";
 inline constexpr const wchar_t* kSaveCaptures     = L"saveCaptures";
 inline constexpr const wchar_t* kStartupDelay     = L"startupDelaySeconds";
 inline constexpr const wchar_t* kDebugMode        = L"debugMode";

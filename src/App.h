@@ -10,10 +10,13 @@
 // one menu, which is the macOS menubar behaviour reproduced with the pieces
 // Windows actually provides.
 //
-// There is no permanent tray icon and no visible window while idle. A tray
-// icon appears only while recording, so the red square is a one-click Stop
-// with no menu to open first — the exact role the second status item plays
-// on macOS.
+// There is a permanent tray icon and no visible window at all. The icon
+// exists so the program is visibly running and reachable: without it the only
+// way to confirm it was alive was Task Manager, and the only way to quit was
+// to find its menu first. Either mouse button on it opens the same menu.
+//
+// While recording, that one icon alternates with a red square once a second
+// rather than a second icon appearing — so the tray slot never moves.
 
 #pragma once
 
@@ -72,15 +75,16 @@ private:
     static DWORD WINAPI OcrThread(void* parameter);
     void OnOcrFinished(OcrOutcome* outcome);
 
-    // --- recording indicator ---
-    void ShowStopIcon();
-    void HideStopIcon();
+    // --- tray icon and recording indicator ---
+    void ShowTrayIcon();
+    void HideTrayIcon();
     void UpdateRecordingIndicator();
     void OnRecordingStateChanged();
     void OnRecordingFinished(const std::wstring& path, const std::wstring& failure);
 
     // --- settings actions ---
     void ChooseFolder(MediaFolder& folder);
+    void ChooseShutterSound();
     void ApplyStartup(bool enabled, int delaySeconds);
     void Sanitize();
     void ReportFailure(const std::wstring& message);
@@ -95,7 +99,7 @@ private:
     // clipboard.
     bool isCapturing_ = false;
 
-    bool         stopIconVisible_ = false;
+    bool         trayIconVisible_  = false;
     bool         recordingBlinkOn_ = true;
     // Virtual-desktop coordinates of whatever is being recorded, so the
     // green frame can be drawn around exactly that rectangle.

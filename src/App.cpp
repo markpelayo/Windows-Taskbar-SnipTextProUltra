@@ -37,7 +37,7 @@ enum : int {
     ID_SHOT_REGION = 1001, ID_SHOT_FULL, ID_SHOT_SHOW,
     ID_TEXT_REGION, ID_TEXT_FULL, ID_TEXT_COPYLAST, ID_TEXT_SHOW,
     ID_REC_REGION, ID_REC_FULL, ID_REC_STOP, ID_REC_SHOW,
-    ID_SET_KEEPLINEBREAKS, ID_SET_SHUTTER, ID_SET_AUTOSAVE,
+    ID_SET_KEEPLINEBREAKS, ID_SET_AUTOSAVE,
     ID_FOLDER_SHOT_CHOOSE = 1020, ID_FOLDER_SHOT_RESET,
     ID_FOLDER_TEXT_CHOOSE, ID_FOLDER_TEXT_RESET,
     ID_FOLDER_VIDEO_CHOOSE, ID_FOLDER_VIDEO_RESET,
@@ -45,6 +45,7 @@ enum : int {
     ID_SANITIZE = 1050, ID_QUIT, ID_ABOUT,
     ID_STARTUP_OFF = 1060, ID_STARTUP_ON,
     ID_SHORTCUT_RESET = 1070,
+    ID_SHUTTER_OFF = 1074, ID_SHUTTER_BUILTIN, ID_SHUTTER_CUSTOM, ID_SHUTTER_PREVIEW,
     ID_SHORTCUT_BASE  = 1080,   // + index into hotkeys::kAllActions
     ID_FPS_BASE      = 1100,   // + index into kFrameRateChoices
     ID_QUALITY_BASE  = 1110,   // + index
@@ -64,8 +65,8 @@ UINT RelaunchMessage() {
 }
 
 // Explorer broadcasts this after it restarts. Without handling it, an
-// Explorer crash mid-recording would take the Stop icon with it permanently
-// while the app went on believing the icon was there.
+// Explorer crash would take the tray icon with it permanently while the app
+// went on believing the icon was there.
 UINT TaskbarCreatedMessage() {
     static const UINT message = ::RegisterWindowMessageW(L"TaskbarCreated");
     return message;
@@ -117,8 +118,13 @@ void AppendSubmenu(HMENU parent, HMENU child, const std::wstring& title,
 // rather than just sitting there greyed out.
 void AppendTitleRow(HMENU menu) {
     if (!menu) return;
-    const std::wstring title = L"Windows-Taskbar-SnipTextProUltra "
-                               SNIPTEXT_VERSION_WIDE L"  ·  by markpelayo";
+    // The app name rather than the repository name. The repository's
+    // "Windows-Taskbar-" prefix says which platform it targets, which is
+    // information the program running on that platform does not need — and it
+    // made this row the widest in the menu, which set the width of every row
+    // beneath it.
+    const std::wstring title = L"SnipTextProUltra  ·  v" SNIPTEXT_VERSION_WIDE
+                               L"  ·  by markpelayo";
     ::AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(ID_ABOUT), title.c_str());
 }
 
@@ -157,6 +163,16 @@ std::wstring Preview(const std::wstring& text, size_t limit) {
     return util::FromCodePoints(points) + L"…";
 }
 
+// The application icon, at the tray's preferred small size. Loaded once and
+// never destroyed: it lives for the life of the process, and a static holding
+// an HICON would run its destructor at CRT exit, after GDI teardown.
+HICON IdleTrayIcon() {
+    static HICON icon = static_cast<HICON>(::LoadImageW(
+        ::GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_SNIPTEXT), IMAGE_ICON,
+        ::GetSystemMetrics(SM_CXSMICON), ::GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR));
+    return icon;
+}
+
 ScopedIcon MakeStopIcon() {
     // Generated rather than loaded from a resource, so there is one fewer
     // thing in the binary that has to be kept in step with the drawing code.
@@ -192,6 +208,12 @@ ScopedIcon MakeStopIcon() {
     info.hbmMask  = mask.get();
     info.hbmColor = image->Handle();
     return ScopedIcon(::CreateIconIndirect(&info));
+}
+
+// Same lifetime reasoning as IdleTrayIcon.
+HICON RecordingTrayIcon() {
+    static HICON icon = MakeStopIcon().release();
+    return icon ? icon : IdleTrayIcon();
 }
 
 } // namespace
@@ -389,7 +411,7 @@ bool App::CreateHiddenWindow() {
     // A real top-level window rather than a message-only one: RegisterHotKey
     // wants a window that belongs to the thread, and a zero-size
     // WS_EX_TOOLWINDOW never appears in the taskbar or in Alt-Tab.
-    hwnd_ = ::CreateWindowExW(WS_EX_TOOLWINDOW, kWindowClass, L"SnipText", WS_POPUP,
+    hwnd_ = ::CreateWindowExW(WS_EX_TOOLWINDOW, kWindowClass, L"SnipTextProUltra", WS_POPUP,
                               0, 0, 0, 0, nullptr, nullptr,
                               ::GetModuleHandleW(nullptr), this);
     if (!hwnd_) {
@@ -400,6 +422,9 @@ bool App::CreateHiddenWindow() {
 }
 
 void App::SetUpAfterStartupDelay() {
+    // Part of "the app is now up and usable", so it waits out the startup
+    // delay alongside the hotkeys rather than appearing before them.
+    ShowTrayIcon();
     RegisterHotkeys();
 }
 
@@ -448,10 +473,10 @@ LRESULT App::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         return 0;
     }
     if (message == TaskbarCreatedMessage()) {
-        if (ScreenRecorder::Shared().IsRecording()) {
-            stopIconVisible_ = false;   // the old icon went with Explorer
-            ShowStopIcon();
-        }
+        // The old icon went with Explorer, so the flag is stale.
+        trayIconVisible_ = false;
+        ShowTrayIcon();
+        UpdateRecordingIndicator();
         return 0;
     }
 
@@ -479,11 +504,11 @@ LRESULT App::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         return 0;
 
     case WM_TRAY_ICON:
-        if (LOWORD(lParam) == WM_LBUTTONUP) {
-            // A single click stops immediately; there is no menu to open
-            // first, which is the whole point of the icon existing.
-            ScreenRecorder::Shared().Stop();
-        } else if (LOWORD(lParam) == WM_RBUTTONUP) {
+        // Either button opens the menu. A left-click that did something
+        // different from a right-click would be a trap, and while recording
+        // the menu's first row is already "Stop Recording (MM:SS)" — with the
+        // Stop pill on screen as the one-click route.
+        if (LOWORD(lParam) == WM_LBUTTONUP || LOWORD(lParam) == WM_RBUTTONUP) {
             ShowMenu();
         }
         return 0;
@@ -530,7 +555,7 @@ LRESULT App::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
 
     case WM_DESTROY:
         hotkeys::Unregister(hwnd_);
-        HideStopIcon();
+        HideTrayIcon();
         ::PostQuitMessage(0);
         return 0;
     }
@@ -598,10 +623,11 @@ HMENU App::BuildMenu() {
     }
     AppendSeparator(menu);
 
-    AppendHeader(menu, L"Settings");
-
-    // Shortcuts sits at the top of Settings, because it is the one setting
-    // that changes what the rows above this point say.
+    // No "Settings" header: the rows below are visibly settings, and the
+    // separator above already marks the break.
+    //
+    // Shortcuts comes first, because it is the one setting that changes what
+    // the rows above this point say.
     {
         HMENU shortcuts = ::CreatePopupMenu();
         if (shortcuts) {
@@ -620,44 +646,65 @@ HMENU App::BuildMenu() {
 
     AppendCommand(menu, ID_SET_KEEPLINEBREAKS, L"Keep Line Breaks", true,
                   settings::GetBool(settings::key::kKeepLineBreaks, false));
-    AppendCommand(menu, ID_SET_SHUTTER, L"Shutter Sound", true,
-                  settings::GetBool(settings::key::kShutterSound, true));
+    {
+        const bool shutterOn = settings::GetBool(settings::key::kShutterSound, true);
+        const std::wstring customPath = settings::GetString(settings::key::kShutterSoundPath);
+
+        HMENU shutter = ::CreatePopupMenu();
+        if (shutter) {
+            AppendCommand(shutter, ID_SHUTTER_OFF, L"Off", true, !shutterOn);
+            AppendCommand(shutter, ID_SHUTTER_BUILTIN, L"Built-in Shutter", true,
+                          shutterOn && customPath.empty());
+            AppendCommand(shutter, ID_SHUTTER_CUSTOM,
+                          customPath.empty()
+                              ? std::wstring(L"Custom Sound\u2026")
+                              : L"Custom: " + util::LastPathComponent(customPath) + L"\u2026",
+                          true, shutterOn && !customPath.empty());
+            AppendSeparator(shutter);
+            AppendCommand(shutter, ID_SHUTTER_PREVIEW, L"Preview");
+        }
+        AppendSubmenu(menu, shutter, L"Shutter Sound", shutterOn);
+    }
     AppendCommand(menu, ID_SET_AUTOSAVE, L"Auto-Save Images", true,
                   settings::GetBool(settings::key::kSaveCaptures, false));
 
-    // --- the three folder submenus ---
+    // --- where the three capture commands write ---
+    // Collected under one row. Three top-level folder rows, each able to grow
+    // a ": FolderName" suffix, were the second-widest thing in the menu after
+    // the title row.
     struct FolderEntry { MediaFolder& folder; const wchar_t* title; int chooseId; int resetId; };
     const FolderEntry folderEntries[] = {
-        { MediaFolder::Screenshots(), L"Screenshot Folder",
+        { MediaFolder::Screenshots(), L"Screenshots",
           ID_FOLDER_SHOT_CHOOSE, ID_FOLDER_SHOT_RESET },
-        // Deliberately not "Screenshot to Text Folder": it reads as a set
-        // with the other two, and the menu is only ever as narrow as its
-        // longest label.
-        { MediaFolder::TextImages(), L"Text Folder",
+        { MediaFolder::TextImages(), L"ScreenshotToText Images",
           ID_FOLDER_TEXT_CHOOSE, ID_FOLDER_TEXT_RESET },
+        { MediaFolder::Videos(), L"Videos",
+          ID_FOLDER_VIDEO_CHOOSE, ID_FOLDER_VIDEO_RESET },
     };
 
-    auto appendFolderSubmenu = [&](const FolderEntry& entry) {
-        HMENU submenu = ::CreatePopupMenu();
-        if (!submenu) return;
-        ::AppendMenuW(submenu, MF_STRING | MF_GRAYED, 0, entry.folder.DisplayPath().c_str());
-        AppendSeparator(submenu);
-        AppendCommand(submenu, entry.chooseId, L"Choose Folder…");
-        AppendCommand(submenu, entry.resetId, L"Reset to Default",
-                      !entry.folder.IsUsingDefaultDirectory());
+    if (HMENU locations = ::CreatePopupMenu()) {
+        for (const FolderEntry& entry : folderEntries) {
+            HMENU submenu = ::CreatePopupMenu();
+            if (!submenu) continue;
+            ::AppendMenuW(submenu, MF_STRING | MF_GRAYED, 0,
+                          entry.folder.DisplayPath().c_str());
+            AppendSeparator(submenu);
+            AppendCommand(submenu, entry.chooseId, L"Choose Folder…");
+            AppendCommand(submenu, entry.resetId, L"Reset to Default",
+                          !entry.folder.IsUsingDefaultDirectory());
 
-        // No "Default" suffix while at the default location: the folder name
-        // only appears once it carries information.
-        std::wstring title = entry.folder.IsUsingDefaultDirectory()
-            ? std::wstring(entry.title)
-            : std::wstring(entry.title) + L": "
-              + util::LastPathComponent(entry.folder.Directory());
-        AppendSubmenu(menu, submenu, title);
-    };
+            // No "Default" suffix while at the default location: the folder
+            // name only appears once it carries information.
+            std::wstring title = entry.folder.IsUsingDefaultDirectory()
+                ? std::wstring(entry.title)
+                : std::wstring(entry.title) + L": "
+                  + util::LastPathComponent(entry.folder.Directory());
+            AppendSubmenu(locations, submenu, title);
+        }
+        AppendSubmenu(menu, locations, L"Save Locations");
+    }
 
-    for (const FolderEntry& entry : folderEntries) appendFolderSubmenu(entry);
-
-    // --- Video Settings, which sits between Text Folder and Video Folder ---
+    // --- Video Settings ---
     {
         HMENU videoMenu = ::CreatePopupMenu();
         if (videoMenu) {
@@ -712,9 +759,6 @@ HMENU App::BuildMenu() {
         }
     }
 
-    appendFolderSubmenu({ MediaFolder::Videos(), L"Video Folder",
-                          ID_FOLDER_VIDEO_CHOOSE, ID_FOLDER_VIDEO_RESET });
-
     // --- everything the three capture commands have produced ---
     // One row rather than three scattered through the capture sections: they
     // are the same kind of thing, and grouping them keeps each section to its
@@ -752,6 +796,7 @@ HMENU App::BuildMenu() {
         &&  video::IsDefault()
         &&  editor_settings::IsDefault()
         &&  hotkeys::IsDefault()
+        &&  settings::GetString(settings::key::kShutterSoundPath).empty()
         &&  lastText_.empty();
     const int totalFiles = screenshotCount + textImageCount + videoCount;
     AppendCommand(menu, ID_SANITIZE, L"Sanitize and Restore Default…",
@@ -791,7 +836,7 @@ HMENU App::BuildMenu() {
     }
     AppendSeparator(menu);
 
-    AppendCommand(menu, ID_QUIT, L"Quit SnipText");
+    AppendCommand(menu, ID_QUIT, L"Quit SnipTextProUltra");
     return menu;
 }
 
@@ -905,9 +950,26 @@ void App::OnCommand(int command) {
         settings::SetBool(settings::key::kKeepLineBreaks,
                           !settings::GetBool(settings::key::kKeepLineBreaks, false));
         return;
-    case ID_SET_SHUTTER:
-        settings::SetBool(settings::key::kShutterSound,
-                          !settings::GetBool(settings::key::kShutterSound, true));
+    case ID_SHUTTER_OFF:
+        settings::SetBool(settings::key::kShutterSound, false);
+        return;
+
+    case ID_SHUTTER_BUILTIN:
+        settings::SetBool(settings::key::kShutterSound, true);
+        // Clearing the path is what selects the built-in sound; the custom
+        // file itself is left alone on disk.
+        settings::Remove(settings::key::kShutterSoundPath);
+        capture::PreviewShutter();
+        return;
+
+    case ID_SHUTTER_CUSTOM:
+        ChooseShutterSound();
+        return;
+
+    case ID_SHUTTER_PREVIEW:
+        // Plays whatever is configured even when the shutter is switched
+        // off, so you can hear a sound before deciding to turn it on.
+        capture::PreviewShutter();
         return;
     case ID_SET_AUTOSAVE: {
         const bool on = !settings::GetBool(settings::key::kSaveCaptures, false);
@@ -1161,29 +1223,29 @@ void App::OnRecordingStateChanged() {
         // three can never drift out of step.
         ::SetTimer(hwnd_, kRecordingTimer, 1000, nullptr);
         toast::SetSuppressed(true);
-        ShowStopIcon();
         // The green frame and the Stop pill are the indicator people
-        // actually see; the tray icon is a second way to stop, not the
-        // notification.
+        // actually see; the tray icon only changes appearance.
         RecordingIndicator::Shared().Show(recordingRegion_, [] {
             ScreenRecorder::Shared().Stop();
         });
     } else {
         toast::SetSuppressed(false);
         RecordingIndicator::Shared().Hide();
-        HideStopIcon();
     }
     UpdateRecordingIndicator();
 }
 
-void App::ShowStopIcon() {
-    if (stopIconVisible_) return;
-
-    // Created once and intentionally never destroyed. A function-local static
-    // holding an HICON would run its destructor at CRT exit, after GDI
-    // teardown; one icon handle for the process is the cheaper trade.
-    static HICON icon = MakeStopIcon().release();
-    if (!icon) return;
+// The tray icon is permanent now, not just something that appears while
+// recording.
+//
+// The original design had nothing in the tray while idle, on the grounds that
+// an idle utility should be invisible. In practice that meant the only way to
+// tell the program was running at all was Task Manager — and the only way to
+// quit it was to find its menu first. An icon that says "this is running,
+// here is its menu, here is how to quit" is worth the one shell call it
+// costs. There is still no timer and no thread while idle.
+void App::ShowTrayIcon() {
+    if (trayIconVisible_) return;
 
     NOTIFYICONDATAW data{};
     data.cbSize           = sizeof(data);
@@ -1191,20 +1253,21 @@ void App::ShowStopIcon() {
     data.uID              = kTrayIconId;
     data.uFlags           = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     data.uCallbackMessage = WM_TRAY_ICON;
-    data.hIcon            = icon;
-    ::wcscpy_s(data.szTip, L"SnipText — recording. Click to stop.");
+    data.hIcon            = IdleTrayIcon();
+    ::wcscpy_s(data.szTip, L"SnipTextProUltra");
 
-    stopIconVisible_ = ::Shell_NotifyIconW(NIM_ADD, &data) != FALSE;
+    trayIconVisible_ = ::Shell_NotifyIconW(NIM_ADD, &data) != FALSE;
+    if (!trayIconVisible_) logging::Write(L"tray: couldn't add the icon");
 }
 
-void App::HideStopIcon() {
-    if (!stopIconVisible_) return;
+void App::HideTrayIcon() {
+    if (!trayIconVisible_) return;
     NOTIFYICONDATAW data{};
     data.cbSize = sizeof(data);
     data.hWnd   = hwnd_;
     data.uID    = kTrayIconId;
     ::Shell_NotifyIconW(NIM_DELETE, &data);
-    stopIconVisible_ = false;
+    trayIconVisible_ = false;
 }
 
 void App::UpdateRecordingIndicator() {
@@ -1212,21 +1275,26 @@ void App::UpdateRecordingIndicator() {
     RecordingIndicator::Shared().Update(ScreenRecorder::Shared().ElapsedText(),
                                         recordingBlinkOn_);
 
-    if (!stopIconVisible_) return;
+    if (!trayIconVisible_) return;
+
+    const bool recording = ScreenRecorder::Shared().IsRecording();
 
     NOTIFYICONDATAW data{};
     data.cbSize = sizeof(data);
     data.hWnd   = hwnd_;
     data.uID    = kTrayIconId;
-    data.uFlags = NIF_TIP | NIF_STATE;
-    // Blink by hiding and showing the icon rather than by swapping icons: it
-    // costs no second icon handle, and the tray reserves the slot either way
-    // so nothing shuffles along the taskbar once a second.
-    data.dwState     = recordingBlinkOn_ ? 0 : NIS_HIDDEN;
-    data.dwStateMask = NIS_HIDDEN;
-    const std::wstring tip = L"SnipText — recording "
-                           + ScreenRecorder::Shared().ElapsedText()
-                           + L". Click to stop.";
+    data.uFlags = NIF_ICON | NIF_TIP;
+
+    // Recording swaps the icon rather than adding a second one, so the
+    // tray slot never moves. The dot alternates between the red square and
+    // the app icon once a second, which reads as activity — hiding the icon
+    // outright would read as "the program stopped".
+    data.hIcon = recording ? (recordingBlinkOn_ ? RecordingTrayIcon() : IdleTrayIcon())
+                           : IdleTrayIcon();
+
+    const std::wstring tip =
+        recording ? L"SnipTextProUltra — recording " + ScreenRecorder::Shared().ElapsedText()
+                  : std::wstring(L"SnipTextProUltra");
     ::wcsncpy_s(data.szTip, tip.c_str(), _TRUNCATE);
     ::Shell_NotifyIconW(NIM_MODIFY, &data);
 }
@@ -1261,6 +1329,39 @@ void App::ChooseFolder(MediaFolder& folder) {
 
     folder.SetDirectory(path);
     logging::Write(folder.Label() + L": folder set to " + path);
+}
+
+void App::ChooseShutterSound() {
+    wchar_t buffer[MAX_PATH]{};
+    const std::wstring current = settings::GetString(settings::key::kShutterSoundPath);
+    if (!current.empty() && current.size() < MAX_PATH) {
+        ::wcscpy_s(buffer, current.c_str());
+    }
+
+    OPENFILENAMEW dialog{};
+    dialog.lStructSize  = sizeof(dialog);
+    dialog.hwndOwner    = hwnd_;
+    // WAV only. PlaySound plays nothing else, and offering MP3 here would
+    // mean a silent shutter with no explanation.
+    dialog.lpstrFilter  = L"WAV audio\0*.wav\0All files\0*.*\0";
+    dialog.lpstrFile    = buffer;
+    dialog.nMaxFile     = MAX_PATH;
+    dialog.lpstrTitle   = L"Choose a shutter sound";
+    dialog.lpstrDefExt  = L"wav";
+    // NOCHANGEDIR matters for a process that runs for weeks: without it the
+    // dialog leaves the working directory wherever the user browsed, which
+    // pins that volume against ejection for the rest of the session.
+    dialog.Flags        = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER
+                        | OFN_NOCHANGEDIR;
+
+    ::SetForegroundWindow(hwnd_);
+    if (!::GetOpenFileNameW(&dialog)) return;   // cancelled: nothing changes
+
+    settings::SetString(settings::key::kShutterSoundPath, buffer);
+    // Choosing a sound implies wanting to hear it.
+    settings::SetBool(settings::key::kShutterSound, true);
+    logging::Write(std::wstring(L"shutter: custom sound set to ") + buffer);
+    capture::PreviewShutter();
 }
 
 void App::ApplyStartup(bool enabled, int delaySeconds) {
@@ -1355,6 +1456,7 @@ void App::Sanitize() {
     // setting the user chose.
     settings::Remove(settings::key::kKeepLineBreaks);
     settings::Remove(settings::key::kShutterSound);
+    settings::Remove(settings::key::kShutterSoundPath);
     settings::Remove(settings::key::kSaveCaptures);
     settings::Remove(settings::key::kStartupDelay);
     video::RestoreDefaults();

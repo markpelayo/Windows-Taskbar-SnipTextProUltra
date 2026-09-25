@@ -21,7 +21,7 @@ No Visual Studio project file. `build.bat` compiles `src/*.cpp` with `cl.exe`, l
 | `Settings.cpp` | Registry-backed settings, and Run-at-Startup |
 | `MediaFolder.cpp` | One output folder — three instances |
 | `Bitmap.cpp` | 32-bit BGRA DIB section, PNG encoding, clipboard |
-| `Capture.cpp` | Screen grabs and the shutter sound |
+| `Capture.cpp` | Screen grabs and the synthesised shutter sound |
 | `RegionOverlay.cpp` | The full-desktop selection overlay, in two styles |
 | `Ocr.cpp` | `Windows.Media.Ocr` plus reading-order sort |
 | `RecordingIndicator.cpp` | The green frame and the Stop pill shown while recording |
@@ -49,9 +49,15 @@ Pinning on Windows pins a shortcut to the executable, so clicking a pinned icon 
 
 That gives the user one icon that opens one menu, which is what they asked for, without keeping a window on screen or hiding in a chevron.
 
-The one thing that genuinely needs a persistent visual is **recording**, and that gets a tray icon — created on start, destroyed on stop. It is a one-click Stop with no menu in the way, which is precisely the role the second status item plays on macOS.
+### The tray icon, and a reversed decision
 
-Idle cost: a message loop, six hotkey registrations, and a zero-size `WS_EX_TOOLWINDOW` window that never appears in the taskbar or in Alt-Tab. No timer, no thread, no tray icon.
+The first version put **nothing** in the tray while idle, on the grounds that an idle utility should be invisible and that the pinned taskbar icon was the way in.
+
+That was wrong in practice, for a reason the design missed: with no window and no tray icon, there is no evidence the program is running at all. The only way to check was Task Manager, and the only way to quit was to open the menu from the pinned icon and find *Quit* at the bottom. "Invisible when idle" is a good property for a background service and a bad one for something a person is supposed to trust is listening for their hotkeys.
+
+So there is now one permanent tray icon. Either mouse button opens the same menu — a left-click that did something different from a right-click would be a trap. While recording it alternates with a red square once a second rather than a second icon appearing, so the tray slot never moves.
+
+Idle cost: a message loop, six hotkey registrations, one tray icon, and a zero-size `WS_EX_TOOLWINDOW` window that never appears in the taskbar or in Alt-Tab. No timer, no thread.
 
 ---
 
@@ -231,6 +237,23 @@ The clipboard gets **both** `CF_DIBV5` and a registered `PNG` format. DIBV5 carr
 
 ---
 
+## The shutter sound
+
+Windows ships no camera-shutter sound. The first version reached for the nearest system alias, `SystemAsterisk` — which is the "you can't click that" ding, and says *error* to anyone listening. For a capture that just worked, that is precisely backwards.
+
+So it is synthesised at first use and cached for the process:
+
+- Two transients about **70 ms** apart, which is roughly a mirror going up and then blades closing.
+- Each is a short burst of noise through a one-pole lowpass, on an exponential decay of 13 ms and 20 ms respectively. The filter is what stops it sounding like static.
+- Under each, a 190 Hz sine on a 10 ms decay. That is the part that makes it read as *mechanical* rather than as a hiss.
+- A 10 ms fade at the tail, so stopping mid-cycle does not click.
+
+The noise source is a deterministic LCG rather than `rand()`, for two reasons: the sound is then identical on every machine and every run, and seeding `rand()` would disturb whatever else in the process depends on it.
+
+The result is wrapped in a RIFF/WAVE container in memory and played with `PlaySound(SND_MEMORY | SND_ASYNC)`. That buffer is **intentionally never destroyed**: winmm reads it from its own thread until playback finishes, so a function-local static would be freed during static destruction if the user quit immediately after a capture.
+
+A custom `.wav` overrides it. If that file has gone missing the built-in sound plays instead — a moved file should mean a different sound, not silence — and the fallback is logged once rather than on every capture.
+
 ## Recording
 
 Media Foundation's sink writer over an MP4 sink: H.264 video, AAC audio when a microphone is selected. Frames come from `BitBlt` on a worker thread, paced against wall-clock time rather than a fixed sleep, so a slow frame does not make the recording drift behind real time.
@@ -337,7 +360,7 @@ This inherits a known inaccuracy from the macOS original, plus a Windows-specifi
 
 Deliberate choices, since this process runs for weeks at a time.
 
-- **Idle is genuinely idle.** No timer, no window, no tray icon, no background thread. The process exists to hold six hotkey registrations and a message loop.
+- **Idle is genuinely idle.** No timer, no window, no background thread. The process exists to hold six hotkey registrations, one tray icon and a message loop.
 - **One timer, only while recording**, at one tick a second, driving both the elapsed text and the blink so the two cannot drift apart.
 - **Peak memory is one capture's bitmap** — about 8 MB for a 1440p screen, 33 MB for 4K — created late and released as soon as OCR or the editor is finished with it. Nothing is cached between captures.
 - **Every GDI object, handle and COM pointer is owned by an RAII wrapper** from `framework.h`, so there is no branch — including an early return — on which a resource leaks.
@@ -362,6 +385,8 @@ Worth listing explicitly, since this is a port.
 | Vision OCR | `Windows.Media.Ocr` | The on-device engine each OS ships |
 | Y-up coordinates in the editor | Y-down | GDI+ and every other Windows coordinate |
 | Screen Recording permission (TCC) | — | Windows has no screen-capture permission gate, so the whole permission subsystem is gone |
+| Menubar item is always visible | A permanent tray icon | Windows gives no equivalent of a menu-bar presence, and an invisible background process cannot be trusted to be listening |
+| System shutter sound | Synthesised in memory | Windows ships no camera-shutter sound, and the nearest alias means "error" |
 | Stroke slider 1–20 | 1–40 | Stroke width is in image pixels, and on a 200% display the macOS range tops out too thin |
 | Files to the Trash | Files to the Recycle Bin | Same idea, different name |
 | Login item via `SMAppService` | `HKCU\...\Run` | The Windows equivalent |

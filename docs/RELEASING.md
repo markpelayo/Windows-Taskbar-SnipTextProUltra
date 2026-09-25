@@ -66,26 +66,29 @@ in the same commit — it currently tells people verbose is the default.
    ctest --test-dir build -C Release --output-on-failure
    ```
 
-7. **Commit, tag and push.**
+7. **Run the release script.**
 
    ```
-   git add -A
-   git commit -m "Release vX.Y.Z"
-   git tag -a vX.Y.Z -m "vX.Y.Z"
-   git push origin main --follow-tags
+   ./scripts/release.sh vX.Y.Z
    ```
 
-   That is the whole release. Pushing a `v*` tag runs the build workflow,
-   which compiles, runs the tests, computes a SHA-256, and publishes a GitHub
-   release with the executable and the checksum attached.
+   It checks that `VERSION`, `src/resource.h`, `src/SnipText.manifest` and
+   `docs/RELEASE-NOTES-vX.Y.Z.md` all agree with the tag you asked for, then
+   commits, pushes, tags and pushes the tag — stopping at the first thing that
+   fails.
 
-   The release body is `docs/RELEASE-NOTES-vX.Y.Z.md` when that file exists
-   and `CHANGELOG.md` when it does not — so a tag pushed before its notes were
-   written still gets something useful rather than an empty page.
-
-   **The tests gate the release.** A failing test fails the job before the
-   publish step, so a broken tag produces no release at all rather than a
-   release nobody should download.
+   > **Why a script rather than four commands.** The sequence is commit →
+   > push → tag → push-tag, and a tag points at a *commit*, not at your
+   > working tree. If the commit quietly fails — a stale `.git/index.lock` is
+   > the classic cause, and it makes `git add` and `git commit` fail while
+   > `git tag` still succeeds — you get a tag on the previous commit. CI then
+   > builds and publishes the *old* code under the *new* version number. That
+   > is exactly what happened to v1.2.0 and v1.3.0, twice, without anybody
+   > doing anything wrong.
+   >
+   > The script clears a stale lock, refuses a tag that already exists, and
+   > refuses to tag a dirty tree. CI repeats the version check independently,
+   > so a hand-made tag is caught too.
 
 8. **Check the release page.** Confirm the binary is attached and the notes
    rendered.

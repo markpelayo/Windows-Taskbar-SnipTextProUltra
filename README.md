@@ -26,7 +26,7 @@ macOS has a menu bar; Windows does not. The closest honest equivalent is a progr
 
 Pinning on Windows pins a *shortcut to the executable*, so "clicking the icon" means launching it. The first launch stays resident to hold the global hotkeys. Every later launch finds the running instance, tells it to open its menu, and exits immediately. From your side that is one icon that opens one menu — the macOS behaviour, built out of the pieces Windows actually provides.
 
-While idle there is **no tray icon and no window**. Both appear only while recording — see [Recording video](#recording-video) for what that looks like.
+A **tray icon** sits in the notification area whenever the program is running, so you can always tell that it is and always get at its menu. Either mouse button on it opens the same menu the pinned taskbar icon does. There is no window at all.
 
 ### Pinning it
 
@@ -129,7 +129,7 @@ If another program already owns a combination, `RegisterHotKey` refuses it. That
 ## The menu
 
 ```
-Windows-Taskbar-SnipTextProUltra 1.1.0 · by markpelayo
+SnipTextProUltra  ·  v1.3.0  ·  by markpelayo
 ──────────────────────
   Screenshot a Region…            Ctrl+Shift+1
   Screenshot Full Screen          Ctrl+Shift+2
@@ -141,24 +141,21 @@ Windows-Taskbar-SnipTextProUltra 1.1.0 · by markpelayo
   Record Region…                  Ctrl+Shift+5
   Record Full Screen              Ctrl+Shift+6
 ──────────────────────
-Settings
   Shortcuts              ▸
-  Keep Line Breaks       ✓
-  Shutter Sound          ✓
-  Auto-Save Images       ✓
-  Screenshot Folder      ▸
-  Text Folder            ▸
+  Keep Line Breaks
+  Shutter Sound          ✓ ▸
+  Auto-Save Images
+  Save Locations         ▸
   Video Settings         ▸
-  Video Folder           ▸
   Show Saved Files       ▸
   Sanitize and Restore Default…
 ──────────────────────
 ✓ Run at Startup: 15 s   ▸
 ──────────────────────
-  Quit SnipText
+  Quit SnipTextProUltra
 ```
 
-**Show Saved Files** collects the three output folders in one place:
+**Save Locations** is where each capture type writes; **Show Saved Files** opens what it wrote. Both group the same three folders:
 
 ```
   Screenshots (12)
@@ -166,7 +163,9 @@ Settings
   Videos — none yet
 ```
 
-The parent row is greyed out when all three folders are empty, so it tells you there is nothing there rather than opening onto three dead entries.
+*Show Saved Files* is greyed out when all three folders are empty, so it tells you there is nothing there rather than opening onto three dead entries.
+
+**Shutter Sound** carries its own submenu: *Off*, *Built-in Shutter*, *Custom Sound…* for a `.wav` of your own, and *Preview*.
 
 Each section is just its commands, and everything those commands produced lives together under **Show Saved Files**. The command names carry the section, so there are no headers repeating what the row beneath already says.
 
@@ -265,7 +264,7 @@ Each has its own **Folder ▸** submenu, so any of the three can be pointed else
 
 It is deliberately lightweight, and the design reasons are in [the architecture notes](docs/ARCHITECTURE.md#resource-behaviour). In short:
 
-- **While idle there is nothing running**: no timer, no window, no tray icon, no background thread. The process exists to hold six hotkey registrations and a message loop.
+- **While idle there is nothing running**: no timer, no window, no background thread. The process exists to hold six hotkey registrations, one tray icon and a message loop.
 - **Peak memory is one capture's bitmap** — about 8 MB for a 1440p screen, 33 MB for 4K — released as soon as OCR or the editor is finished with it.
 - **One timer exists only while recording**, at one tick a second, driving the elapsed time, the pulse and the Stop pill so they cannot drift apart. The green frame is painted once and never repaints; the pill repaints about 150×34 pixels a second, which is the entire ongoing cost of the recording indicator.
 - **Every GDI object, handle and COM pointer is owned by an RAII wrapper**, so there is no branch — including an early return — on which a resource leaks.
@@ -314,7 +313,7 @@ Nobody has profiled it, either. The figures under [Resource usage](#resource-usa
 ## Project layout
 
 ```
-src/                  18 source files — see docs/ARCHITECTURE.md for the map
+src/                  20 source files — see docs/ARCHITECTURE.md for the map
 tests/                the text-normaliser assertions
 assets/SnipText.ico   the application icon
 build.bat             MSVC build, no CMake needed

@@ -12,6 +12,6 @@
 //
 // Still has to be kept in step by hand with VERSION and with
 // SnipText.manifest — see docs/RELEASING.md.
-#define SNIPTEXT_VERSION_COMMA  1,1,0,0
-#define SNIPTEXT_VERSION_STRING "1.1.0.0"
-#define SNIPTEXT_VERSION_WIDE   L"1.1.0"
+#define SNIPTEXT_VERSION_COMMA  1,3,1,0
+#define SNIPTEXT_VERSION_STRING "1.3.1.0"
+#define SNIPTEXT_VERSION_WIDE   L"1.3.1"

@@ -27,6 +27,20 @@ std::unique_ptr<Bitmap> GrabVirtualDesktop(RECT* bounds);
 
 // Plays the capture confirmation. There is no notification banner anywhere in
 // this program, which also means no notification permission prompt.
+//
+// The built-in sound is synthesised rather than loaded: Windows ships no
+// camera-shutter sound, and the nearest system alias is the "you can't click
+// that" ding, which is exactly the wrong message for a capture that worked.
+// Generating it also keeps the executable a single self-contained file with
+// no .wav beside it.
+//
+// A custom .wav set in Settings takes precedence. If it has gone missing the
+// built-in one is used instead, so a moved file means a different sound
+// rather than silence.
 void PlayShutter();
+
+// Plays whatever the shutter is currently configured to be, ignoring the
+// on/off setting. Used by the menu's Preview item.
+void PreviewShutter();
 
 } // namespace capture

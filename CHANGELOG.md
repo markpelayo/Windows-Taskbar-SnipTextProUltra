@@ -8,6 +8,68 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.3.1] — 2026-09-26
+
+The first release to actually contain any of this.
+
+`v1.2.0` and `v1.3.0` were both tagged before their commits existed, so both
+pointed at the same older commit: their binaries reported **1.1.0** and their
+release bodies fell back to the whole changelog. Neither ever shipped what it
+claimed to. Everything intended for those two versions is here.
+
+CI now refuses to build a tag whose `VERSION` file does not match it, or
+whose release notes are missing, so a tag can no longer quietly describe
+something other than what it builds.
+
+### Added
+
+- **A permanent tray icon.** The program is now visibly running and always
+  reachable: either mouse button on the icon opens the menu. Previously
+  nothing appeared in the tray while idle, which meant Task Manager was the
+  only way to confirm it was alive and the pinned taskbar icon was the only
+  way to reach Quit. While recording, the same icon alternates with a red
+  square once a second rather than a second icon appearing, so the tray slot
+  never moves.
+- **A real shutter sound**, synthesised at startup: two transients about
+  70 ms apart, each a short filtered noise burst with a low tone behind it.
+  Windows ships no camera-shutter sound, and the system alias in use until
+  now was the "you can't click that" ding — exactly the wrong message for a
+  capture that worked. Generating it keeps the executable a single
+  self-contained file.
+- **A custom shutter sound.** *Shutter Sound* is now a submenu: *Off*,
+  *Built-in Shutter*, *Custom Sound…* for a `.wav` of your own, and
+  *Preview*. A custom file that has gone missing falls back to the built-in
+  sound rather than leaving the capture silent.
+
+### Changed
+
+- **Clearer command names.** *Screenshot a Region…* and *ScreenshotToText a
+  Region…* read as instructions rather than labels.
+- **The menu lost its capture-section headers.** The command names carry them
+  now, so a header would just repeat the row beneath it. The *Startup* header
+  went the same way, since the row under it already began with "Run at
+  Startup". The *Settings* header stays: it groups rows that do not otherwise
+  announce themselves.
+- **The three *Show Saved* rows became one *Show Saved Files* submenu**,
+  sitting just above *Sanitize and Restore Default*. They are the same kind
+  of thing, and grouping them leaves each capture section as nothing but its
+  commands. The parent row is greyed out when all three folders are empty,
+  which is how the individual rows used to behave.
+- **The title row is shorter**, and carries the version with a `v`:
+  `SnipTextProUltra · v1.3.0 · by markpelayo`. It was the widest row in the
+  menu and therefore set the width of every row beneath it; the repository's
+  `Windows-Taskbar-` prefix says which platform it targets, which the program
+  running on that platform does not need to be told.
+- **The *Settings* header is gone.** The rows under it are visibly settings,
+  and the separator above already marks the break.
+- **The three folder rows became one *Save Locations* submenu**, above *Show
+  Saved Files*. Three top-level rows, each able to grow a `": FolderName"`
+  suffix, were the second-widest thing in the menu. *Text Folder* is now
+  *ScreenshotToText Images*, matching the command that writes there.
+- **Renamed to SnipTextProUltra throughout** — the tray tooltip, the Quit
+  row, the window title and the executable's version resource, so Task
+  Manager and the tray agree with each other.
+
 ## [1.1.0] — 2026-09-26
 
 The first release with a downloadable executable, and the first one shaped by
@@ -27,16 +89,6 @@ actually using the thing.
 ### Changed
 
 - **Default shortcuts are now `Ctrl+Shift+1`–`6`**, replacing `Alt+Shift`.
-- **The menu lost its capture-section headers.** The command names carry them
-  now — *Screenshot a Region…*, *ScreenshotToText a Region…*, *Record
-  Region…* — so a header would just repeat the row beneath it. The *Startup*
-  header went the same way, since the row under it already began with "Run at
-  Startup".
-- **The three *Show Saved* rows became one *Show Saved Files* submenu**,
-  sitting just above *Sanitize and Restore Default*. They are the same kind
-  of thing, and grouping them leaves each capture section as nothing but its
-  commands. The parent row is greyed out when all three folders are empty,
-  which is how the individual rows used to behave.
 - **The shortcut column in the menu is read from the live bindings**, so a
   rebound shortcut appears there the next time the menu opens.
 - **The icon was redesigned again** in a Material style: a gradient tile with
@@ -148,6 +200,7 @@ The short version: the app model, the confirmation surface, the recording
 indicator, the hotkeys, the container format, the OCR engine and the editor's
 Y axis all changed because the platform is different. Nothing else did.
 
-[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.3.1
 [1.1.0]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.1.0
 [1.0.0]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.0.0

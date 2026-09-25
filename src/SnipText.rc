@@ -24,12 +24,12 @@ BEGIN
         BLOCK "040904B0"
         BEGIN
             VALUE "CompanyName",      "Mark Pelayo"
-            VALUE "FileDescription",  "SnipText Pro Ultra"
+            VALUE "FileDescription",  "SnipTextProUltra"
             VALUE "FileVersion",      SNIPTEXT_VERSION_STRING
-            VALUE "InternalName",     "SnipText"
+            VALUE "InternalName",     "SnipTextProUltra"
             VALUE "LegalCopyright",   "MIT licence"
             VALUE "OriginalFilename", "SnipTextProUltra.exe"
-            VALUE "ProductName",      "SnipText Pro Ultra"
+            VALUE "ProductName",      "SnipTextProUltra"
             VALUE "ProductVersion",   SNIPTEXT_VERSION_STRING
         END
     END

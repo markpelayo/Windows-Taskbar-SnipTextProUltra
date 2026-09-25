@@ -57,7 +57,18 @@ adheres to [Semantic Versioning](https://semver.org).
 
 ### Changed
 
-- *Shortcuts* is now **Change Keyboard Shortcut**.
+- Menu labels, so that every row says which of the three things it belongs to
+  rather than relying on its position to imply it:
+  - *Shortcuts* → **Change Keyboard Shortcut**
+  - *Record Region…* → **Screen Record a Region…**
+  - *Record Full Screen* → **Screen Record Full Screen**
+  - *Video Settings* → **Screen Recording Settings**
+
+  The shortcut-picker list uses the same names, so it stays a list of the
+  commands rather than a second set of names for them.
+
+- **Show Saved Files** and **Screen Recording Settings** swapped places, so
+  the settings row sits immediately above *Sanitize and Restore Default*.
 
 - **CI runs the fast build on every push and the slow one only on tags.**
   Every commit used to wait about twenty minutes for a full static Tesseract

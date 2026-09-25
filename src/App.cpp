@@ -630,9 +630,10 @@ HMENU App::BuildMenu() {
                       L"Stop Recording (" + ScreenRecorder::Shared().ElapsedText() + L")");
     } else {
         AppendCommand(menu, ID_REC_REGION,
-                      L"Record Region…" + ShortcutLabel(hotkeys::Action::RecordRegion));
+                      L"Screen Record a Region…"
+                          + ShortcutLabel(hotkeys::Action::RecordRegion));
         AppendCommand(menu, ID_REC_FULL,
-                      L"Record Full Screen"
+                      L"Screen Record Full Screen"
                           + ShortcutLabel(hotkeys::Action::RecordFullScreen));
     }
     AppendSeparator(menu);
@@ -749,7 +750,31 @@ HMENU App::BuildMenu() {
         AppendSubmenu(menu, locations, L"Save Locations");
     }
 
-    // --- Video Settings ---
+    // --- everything the three capture commands have produced ---
+    // One row rather than three scattered through the capture sections: they
+    // are the same kind of thing, and grouping them keeps each section to its
+    // commands alone.
+    {
+        HMENU saved = ::CreatePopupMenu();
+        if (saved) {
+            AppendCommand(saved, ID_SHOT_SHOW,
+                          SavedItemTitle(L"Screenshots", screenshotCount),
+                          screenshotCount > 0);
+            AppendCommand(saved, ID_TEXT_SHOW,
+                          SavedItemTitle(L"ScreenshotToText Images", textImageCount),
+                          textImageCount > 0);
+            AppendCommand(saved, ID_REC_SHOW,
+                          SavedItemTitle(L"Videos", videoCount),
+                          videoCount > 0);
+        }
+        // Disabled outright when all three folders are empty, so the parent
+        // row behaves the way the individual rows used to: it tells you there
+        // is nothing there rather than opening to three dead entries.
+        const bool anySaved = (screenshotCount + textImageCount + videoCount) > 0;
+        AppendSubmenu(menu, saved, L"Show Saved Files", false, anySaved);
+    }
+
+    // --- Screen Recording Settings ---
     {
         HMENU videoMenu = ::CreatePopupMenu();
         if (videoMenu) {
@@ -820,32 +845,8 @@ HMENU App::BuildMenu() {
             }
             AppendSubmenu(videoMenu, audio, audioTitle);
 
-            AppendSubmenu(menu, videoMenu, L"Video Settings");
+            AppendSubmenu(menu, videoMenu, L"Screen Recording Settings");
         }
-    }
-
-    // --- everything the three capture commands have produced ---
-    // One row rather than three scattered through the capture sections: they
-    // are the same kind of thing, and grouping them keeps each section to its
-    // commands alone.
-    {
-        HMENU saved = ::CreatePopupMenu();
-        if (saved) {
-            AppendCommand(saved, ID_SHOT_SHOW,
-                          SavedItemTitle(L"Screenshots", screenshotCount),
-                          screenshotCount > 0);
-            AppendCommand(saved, ID_TEXT_SHOW,
-                          SavedItemTitle(L"ScreenshotToText Images", textImageCount),
-                          textImageCount > 0);
-            AppendCommand(saved, ID_REC_SHOW,
-                          SavedItemTitle(L"Videos", videoCount),
-                          videoCount > 0);
-        }
-        // Disabled outright when all three folders are empty, so the parent
-        // row behaves the way the individual rows used to: it tells you there
-        // is nothing there rather than opening to three dead entries.
-        const bool anySaved = (screenshotCount + textImageCount + videoCount) > 0;
-        AppendSubmenu(menu, saved, L"Show Saved Files", false, anySaved);
     }
 
     // --- Sanitize ---
@@ -1510,7 +1511,7 @@ void App::Sanitize() {
                L"    • the three folder locations\r\n"
                L"    • all six keyboard shortcuts\r\n"
                L"    • Join Wrapped Lines, Shutter Sound, Auto-Save Images\r\n"
-               L"    • all Video Settings\r\n"
+               L"    • all Screen Recording Settings\r\n"
                L"    • the annotation tool, colour and stroke width\r\n"
                L"    • Run at Startup (switched off)";
 

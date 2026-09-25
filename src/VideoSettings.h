@@ -1,7 +1,7 @@
 // VideoSettings.h — frame rate, quality, cursor, clicks, audio input.
 //
-// Video Settings lives in the flyout menu rather than behind a gear button,
-// so every setting in the app is in one place.
+// Screen Recording Settings lives in the flyout menu rather than behind a
+// gear button, so every setting in the app is in one place.
 
 #pragma once
 

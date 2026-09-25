@@ -82,7 +82,7 @@ Freezing first buys three things at once: the overlay can draw a dimmed backdrop
 Two styles share the machinery:
 
 - **Instant** — drag, release, done. Space switches to click-a-whole-window. Used by both Screenshot commands.
-- **Adjustable** — a persistent rectangle with eight handles and a Record button; Enter confirms. Used by Record Region.
+- **Adjustable** — a persistent rectangle with eight handles and a Record button; Enter confirms. Used by Screen Record a Region.
 
 ### It runs its own message loop
 

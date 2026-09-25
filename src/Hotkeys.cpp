@@ -225,14 +225,15 @@ LRESULT CALLBACK CaptureProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
 
 const wchar_t* ActionTitle(Action action) {
     switch (action) {
-    // These have to read the same as the commands they bind, or the Shortcuts
-    // submenu becomes a second set of names for the same six things.
+    // These have to read the same as the commands they bind, or the Change
+    // Keyboard Shortcut submenu becomes a second set of names for the same six
+    // things.
     case Action::ScreenshotRegion:     return L"Screenshot a Region";
     case Action::ScreenshotFullScreen: return L"Screenshot Full Screen";
     case Action::TextRegion:           return L"ScreenshotToText a Region";
     case Action::TextFullScreen:       return L"ScreenshotToText Full Screen";
-    case Action::RecordRegion:         return L"Record Region";
-    case Action::RecordFullScreen:     return L"Record Full Screen";
+    case Action::RecordRegion:         return L"Screen Record a Region";
+    case Action::RecordFullScreen:     return L"Screen Record Full Screen";
     }
     return L"";
 }

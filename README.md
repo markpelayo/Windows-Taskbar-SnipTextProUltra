@@ -127,8 +127,8 @@ Then delete `SnipTextProUltra.exe` and unpin it. Your captures are left alone �
 | `Ctrl+Shift+2` | Screenshot — full screen, opens the editor |
 | `Ctrl+Shift+3` | Screenshot to Text — region |
 | `Ctrl+Shift+4` | Screenshot to Text — full screen |
-| `Ctrl+Shift+5` | Record — region (press again to stop) |
-| `Ctrl+Shift+6` | Record — full screen (press again to stop) |
+| `Ctrl+Shift+5` | Screen record — region (press again to stop) |
+| `Ctrl+Shift+6` | Screen record — full screen (press again to stop) |
 
 Those are the defaults. The numbers run top to bottom in menu order, so the menu itself is the reminder.
 
@@ -158,16 +158,16 @@ SnipTextProUltra  ·  v1.3.0  ·  by markpelayo
   ScreenshotToText Full Screen    Ctrl+Shift+4
   Copy: "Work Order #…"
 ──────────────────────
-  Record Region…                  Ctrl+Shift+5
-  Record Full Screen              Ctrl+Shift+6
+  Screen Record a Region…         Ctrl+Shift+5
+  Screen Record Full Screen       Ctrl+Shift+6
 ──────────────────────
   Change Keyboard Shortcut ▸
   Join Wrapped Lines     ✓
   Shutter Sound          ✓ ▸
   Auto-Save Images
   Save Locations         ▸
-  Video Settings         ▸
   Show Saved Files       ▸
+  Screen Recording Settings ▸
   Sanitize and Restore Default…
 ──────────────────────
 ✓ Run at Startup: 15 s   ▸
@@ -273,7 +273,7 @@ Stopping a recording removes all three.
 
 Quitting mid-recording stops it first and waits up to three seconds for the encoder to finish writing the MP4 index — exiting before that leaves an unplayable file.
 
-**Video Settings** lives in the menu rather than behind a gear button, so every setting in the app is in one place: frame rate (15/24/30/60), quality, file size, capture mouse cursor, capture mouse clicks, and audio input.
+**Screen Recording Settings** lives in the menu rather than behind a gear button, so every setting in the app is in one place: frame rate (15/24/30/60), quality, file size, capture mouse cursor, capture mouse clicks, and audio input.
 
 **Quality** and **File Size** are different axes, and it is worth knowing which one you want. Quality scales the picture down — 75% or 50% of the captured size — so the file shrinks and the video gets blurrier when you zoom in. File Size leaves the resolution alone and changes how many bits are spent on it:
 

@@ -42,11 +42,13 @@ enum : int {
     ID_FOLDER_SHOT_CHOOSE = 1020, ID_FOLDER_SHOT_RESET,
     ID_FOLDER_TEXT_CHOOSE, ID_FOLDER_TEXT_RESET,
     ID_FOLDER_VIDEO_CHOOSE, ID_FOLDER_VIDEO_RESET,
-    ID_VID_CURSOR = 1040, ID_VID_CLICKS,
+    ID_VID_CURSOR = 1040, ID_VID_CLICKS, ID_VID_HEVC,
     ID_SANITIZE = 1050, ID_QUIT, ID_ABOUT,
     ID_STARTUP_OFF = 1060, ID_STARTUP_ON,
     ID_SHORTCUT_RESET = 1070,
-    ID_SHUTTER_OFF = 1074, ID_SHUTTER_BUILTIN, ID_SHUTTER_CUSTOM, ID_SHUTTER_PREVIEW,
+    // 1075 was ID_SHUTTER_BUILTIN. The slot is kept rather than closed up so
+    // that CUSTOM and PREVIEW keep the numbers they have always had.
+    ID_SHUTTER_OFF = 1074, ID_SHUTTER_RETIRED_1075, ID_SHUTTER_CUSTOM, ID_SHUTTER_PREVIEW,
     ID_ENGINE_AUTO = 1090, ID_ENGINE_WINDOWS, ID_ENGINE_TESSERACT,
     ID_SHORTCUT_BASE  = 1080,   // + index into hotkeys::kAllActions
     ID_FPS_BASE      = 1100,   // + index into kFrameRateChoices
@@ -54,6 +56,8 @@ enum : int {
     ID_AUDIO_NONE    = 1120,
     ID_AUDIO_BASE    = 1121,   // + index into AvailableMicrophones()
     ID_DELAY_BASE    = 1200,   // + index into kStartupDelayChoices
+    ID_TONE_BASE     = 1210,   // + index into capture::shutter, 5 of them
+    ID_COMPRESSION_BASE = 1220, // + index into video::Compression
 };
 
 const int kStartupDelayChoices[6] = { 5, 10, 15, 20, 30, 60 };
@@ -125,7 +129,7 @@ void AppendTitleRow(HMENU menu) {
     // information the program running on that platform does not need — and it
     // made this row the widest in the menu, which set the width of every row
     // beneath it.
-    const std::wstring title = L"SnipTextProUltra  ·  v" SNIPTEXT_VERSION_WIDE
+    const std::wstring title = L"SnipTextProUltra  ·  v" SNIPTEXT_VERSION_DISPLAY
                                L"  ·  by markpelayo";
     ::AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(ID_ABOUT), title.c_str());
 }
@@ -316,7 +320,7 @@ bool App::Run() {
 void App::WriteStartupDiagnostics() {
     // --- build ---
     logging::Write(util::Format(L"env: SnipText %s (%s, built %S %S)",
-                                SNIPTEXT_VERSION_WIDE,
+                                SNIPTEXT_VERSION_DISPLAY,
 #ifdef _WIN64
                                 L"x64",
 #else
@@ -651,7 +655,7 @@ HMENU App::BuildMenu() {
             AppendCommand(shortcuts, ID_SHORTCUT_RESET, L"Reset to Defaults",
                           !hotkeys::IsDefault());
         }
-        AppendSubmenu(menu, shortcuts, L"Shortcuts");
+        AppendSubmenu(menu, shortcuts, L"Change Keyboard Shortcut");
     }
 
     AppendCommand(menu, ID_SET_JOINWRAPPED, L"Join Wrapped Lines", true,
@@ -680,11 +684,22 @@ HMENU App::BuildMenu() {
         const bool shutterOn = settings::GetBool(settings::key::kShutterSound, true);
         const std::wstring customPath = settings::GetString(settings::key::kShutterSoundPath);
 
+        const int tone = capture::shutter::CurrentTone();
+
         HMENU shutter = ::CreatePopupMenu();
         if (shutter) {
             AppendCommand(shutter, ID_SHUTTER_OFF, L"Off", true, !shutterOn);
-            AppendCommand(shutter, ID_SHUTTER_BUILTIN, L"Built-in Shutter", true,
-                          shutterOn && customPath.empty());
+            AppendSeparator(shutter);
+            // The five built-ins are listed flat rather than behind another
+            // submenu: picking a sound means comparing them, and comparing
+            // them means being able to run down the list. Choosing one plays
+            // it, so the list auditions itself.
+            for (int i = 0; i < capture::shutter::kToneCount; ++i) {
+                AppendCommand(shutter, ID_TONE_BASE + i,
+                              capture::shutter::ToneName(i), true,
+                              shutterOn && customPath.empty() && tone == i);
+            }
+            AppendSeparator(shutter);
             AppendCommand(shutter, ID_SHUTTER_CUSTOM,
                           customPath.empty()
                               ? std::wstring(L"Custom Sound\u2026")
@@ -758,6 +773,26 @@ HMENU App::BuildMenu() {
                           std::wstring(L"Quality: ")
                               + video::QualityShortTitle(video::CurrentQuality()));
 
+            // File size, which is a different axis from Quality: Quality
+            // scales the picture down, this changes how many bits are spent on
+            // whatever size that is. Both end up smaller; only one of them
+            // makes the video blurry when you zoom in.
+            HMENU compression = ::CreatePopupMenu();
+            for (int i = 0; i < 3; ++i) {
+                const auto value = static_cast<video::Compression>(i);
+                AppendCommand(compression, ID_COMPRESSION_BASE + i,
+                              video::CompressionTitle(value), true,
+                              value == video::CurrentCompression());
+            }
+            AppendSeparator(compression);
+            AppendCommand(compression, ID_VID_HEVC,
+                          L"Use H.265 When Available", true, video::UsesHevc());
+            AppendHeader(compression, L"H.265 halves the size again,");
+            AppendHeader(compression, L"but older players can't open it.");
+            AppendSubmenu(videoMenu, compression,
+                          std::wstring(L"File Size: ")
+                              + video::CompressionShortTitle(video::CurrentCompression()));
+
             AppendSeparator(videoMenu);
             AppendCommand(videoMenu, ID_VID_CURSOR, L"Capture Mouse Cursor", true,
                           video::CapturesCursor());
@@ -827,6 +862,7 @@ HMENU App::BuildMenu() {
         &&  editor_settings::IsDefault()
         &&  hotkeys::IsDefault()
         &&  settings::GetString(settings::key::kShutterSoundPath).empty()
+        &&  settings::GetInt(settings::key::kShutterTone, 0) == 0
         &&  settings::GetString(settings::key::kOcrEngine).empty()
         &&  lastText_.empty();
     const int totalFiles = screenshotCount + textImageCount + videoCount;
@@ -917,6 +953,24 @@ void App::OnCommand(int command) {
         video::SetQuality(static_cast<video::Quality>(command - ID_QUALITY_BASE));
         return;
     }
+    if (command >= ID_COMPRESSION_BASE && command < ID_COMPRESSION_BASE + 3) {
+        video::SetCompression(static_cast<video::Compression>(command - ID_COMPRESSION_BASE));
+        return;
+    }
+    if (command >= ID_TONE_BASE && command < ID_TONE_BASE + capture::shutter::kToneCount) {
+        const int tone = command - ID_TONE_BASE;
+        settings::SetInt(settings::key::kShutterTone, tone);
+        // Choosing a built-in tone is also what switches back off a custom
+        // sound, and back on if the shutter was muted — otherwise picking a
+        // sound from the list would appear to do nothing. The custom file
+        // itself is left alone on disk.
+        settings::Remove(settings::key::kShutterSoundPath);
+        settings::SetBool(settings::key::kShutterSound, true);
+        // Play the tone directly rather than the configured shutter: this is
+        // the audition, and it should be the sound that was just clicked.
+        capture::shutter::PlayTone(tone);
+        return;
+    }
     if (command >= ID_DELAY_BASE && command < ID_DELAY_BASE + 6) {
         ApplyStartup(true, kStartupDelayChoices[command - ID_DELAY_BASE]);
         return;
@@ -995,14 +1049,19 @@ void App::OnCommand(int command) {
         settings::SetBool(settings::key::kShutterSound, false);
         return;
 
-    case ID_SHUTTER_BUILTIN:
-        settings::SetBool(settings::key::kShutterSound, true);
-        // Clearing the path is what selects the built-in sound; the custom
-        // file itself is left alone on disk.
-        settings::Remove(settings::key::kShutterSoundPath);
-    settings::Remove(settings::key::kOcrEngine);
-        capture::PreviewShutter();
-        return;
+    // ID_SHUTTER_BUILTIN is gone: the five named tones replaced the single
+    // "Built-in Shutter" row, and each of them does what it did.
+    //
+    // Worth recording why it is not simply left in place as a sixth way to get
+    // the same result. Its body had picked up a stray line —
+    //
+    //     settings::Remove(settings::key::kOcrEngine);
+    //
+    // — misindented, from a bad paste, with no business being there. Choosing
+    // a shutter sound silently reset the text-recognition engine to Auto.
+    // Nothing reported it because both settings are invisible until you go
+    // looking, and the menu redraws from the registry, so the check mark moved
+    // and looked deliberate. Deleting the case removes the bug with it.
 
     case ID_SHUTTER_CUSTOM:
         ChooseShutterSound();
@@ -1038,6 +1097,7 @@ void App::OnCommand(int command) {
 
     case ID_VID_CURSOR: video::SetCapturesCursor(!video::CapturesCursor()); return;
     case ID_VID_CLICKS: video::SetCapturesClicks(!video::CapturesClicks()); return;
+    case ID_VID_HEVC:   video::SetUsesHevc(!video::UsesHevc()); return;
     case ID_AUDIO_NONE: video::SetAudioDeviceId(L""); return;
 
     case ID_STARTUP_OFF: ApplyStartup(false, 0); return;
@@ -1506,6 +1566,7 @@ void App::Sanitize() {
     settings::Remove(settings::key::kJoinWrappedLines);
     settings::Remove(settings::key::kShutterSound);
     settings::Remove(settings::key::kShutterSoundPath);
+    settings::Remove(settings::key::kShutterTone);
     settings::Remove(settings::key::kOcrEngine);
     settings::Remove(settings::key::kSaveCaptures);
     settings::Remove(settings::key::kStartupDelay);

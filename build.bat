@@ -43,6 +43,21 @@ if errorlevel 1 (
 
 if not exist "%OUT%" mkdir "%OUT%"
 
+rem The short commit hash, so a build from a working tree identifies itself as
+rem "v1.5.0 (808fa04)" rather than as the same version string every build
+rem produces. build.bat never builds a release, so SNIPTEXT_IS_RELEASE stays 0
+rem here and the hash is always shown. "local" when git has nothing to say.
+rem The dirty check is guarded on the hash having worked. With no git on PATH
+rem the `git diff` below returns 9009 (command not found), which would
+rem otherwise mark the build dirty and produce "v1.5.0 (local+)" — a dirty
+rem marker on a machine that has no repository to be dirty.
+set BUILDSHA=local
+for /f "usebackq tokens=*" %%i in (`git --no-optional-locks rev-parse --short HEAD 2^>nul`) do set BUILDSHA=%%i
+if not "%BUILDSHA%"=="local" (
+    git --no-optional-locks diff --quiet HEAD >nul 2>&1
+    if errorlevel 1 set BUILDSHA=!BUILDSHA!+
+)
+
 rem /MT  - static runtime, so the finished exe is one self-contained file
 rem /W4 /WX - a warning in a program meant to run for weeks is usually a bug
 rem        that has not happened yet
@@ -52,7 +67,8 @@ rem /MANIFEST:NO (on the link line) - the manifest is embedded by
 rem        SnipText.rc; letting the linker generate a second one makes
 rem        CVTRES fail with CVT1100, duplicate resource
 set CFLAGS=/nologo /std:c++17 /EHsc /GR- /W4 /WX /permissive- /utf-8 /O2 /GL /MT ^
-    /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /DNOMINMAX /I"%ROOT%src"
+    /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /DNOMINMAX /I"%ROOT%src" ^
+    /DSNIPTEXT_BUILD_SHA="\"%BUILDSHA%\"" /DSNIPTEXT_IS_RELEASE=0
 
 rem uuid.lib carries the FOLDERID_* GUID definitions; msimg32.lib carries
 rem AlphaBlend. CMake links both implicitly, cl.exe from a command line does

@@ -43,4 +43,28 @@ void PlayShutter();
 // on/off setting. Used by the menu's Preview item.
 void PreviewShutter();
 
+// --- the built-in tones ----------------------------------------------------
+//
+// Five of them, all synthesised from one parameterised generator rather than
+// five hand-written loops, so adding a sixth is a row in a table.
+//
+// Each is built on first use and then kept, so choosing a tone costs about
+// 18 KB once and nothing thereafter. A tone never played is never built.
+namespace shutter {
+
+inline constexpr int kToneCount = 5;
+
+// 0 Classic · 1 SLR Camera · 2 Aperture · 3 Soft Click · 4 Snap
+const wchar_t* ToneName(int tone);
+
+// The tone the settings currently select, clamped into range — a registry
+// value edited by hand can say 97.
+int CurrentTone();
+
+// Plays one tone regardless of the on/off setting or any custom sound. Used
+// by the menu so that moving down the list auditions each one.
+void PlayTone(int tone);
+
+} // namespace shutter
+
 } // namespace capture

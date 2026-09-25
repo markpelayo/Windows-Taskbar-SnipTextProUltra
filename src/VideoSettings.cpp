@@ -92,6 +92,60 @@ const wchar_t* QualityShortTitle(Quality quality) {
     }
 }
 
+// --- compression -----------------------------------------------------------
+//
+// Smaller is the default. That is a change of behaviour, and it is deliberate:
+// the old fixed multiplier was tuned to be safe for any content, and screen
+// recording is not any content. A desktop is mostly unchanged from frame to
+// frame, which is the case H.264 handles best, so the bits that setting spent
+// were going into encoding a static background very precisely.
+
+Compression CurrentCompression() {
+    const std::wstring stored = settings::GetString(settings::key::kVideoCompression, L"smaller");
+    if (stored == L"balanced") return Compression::Balanced;
+    if (stored == L"detailed") return Compression::Detailed;
+    return Compression::Smaller;
+}
+
+void SetCompression(Compression value) {
+    const wchar_t* name = L"smaller";
+    if (value == Compression::Balanced) name = L"balanced";
+    if (value == Compression::Detailed) name = L"detailed";
+    settings::SetString(settings::key::kVideoCompression, name);
+}
+
+double CompressionScale(Compression value) {
+    switch (value) {
+    // 1.0 is what every recording before this used, so Balanced is not a new
+    // setting to be judged on its own — it is the old behaviour, kept for
+    // anyone who was happy with it.
+    case Compression::Balanced: return 1.0;
+    case Compression::Detailed: return 1.6;
+    default:                    return 0.55;
+    }
+}
+
+double CurrentCompressionScale() { return CompressionScale(CurrentCompression()); }
+
+const wchar_t* CompressionTitle(Compression value) {
+    switch (value) {
+    case Compression::Balanced: return L"Balanced — the previous default";
+    case Compression::Detailed: return L"Detailed — for fine text and gradients";
+    default:                    return L"Smaller — about half the size";
+    }
+}
+
+const wchar_t* CompressionShortTitle(Compression value) {
+    switch (value) {
+    case Compression::Balanced: return L"Balanced";
+    case Compression::Detailed: return L"Detailed";
+    default:                    return L"Smaller";
+    }
+}
+
+bool UsesHevc()          { return settings::GetBool(settings::key::kVideoHevc, false); }
+void SetUsesHevc(bool v) { settings::SetBool(settings::key::kVideoHevc, v); }
+
 // --- cursor and clicks -----------------------------------------------------
 
 bool CapturesCursor()            { return settings::GetBool(settings::key::kVideoCursor, true); }
@@ -180,6 +234,8 @@ const Microphone* SelectedMicrophone() {
 bool IsDefault() {
     return FrameRate() == kDefaultFrameRate
         && CurrentQuality() == Quality::High
+        && CurrentCompression() == Compression::Smaller
+        && !UsesHevc()
         && CapturesCursor()
         && CapturesClicks()
         && AudioDeviceId().empty();
@@ -188,6 +244,8 @@ bool IsDefault() {
 void RestoreDefaults() {
     settings::Remove(settings::key::kVideoFrameRate);
     settings::Remove(settings::key::kVideoQuality);
+    settings::Remove(settings::key::kVideoCompression);
+    settings::Remove(settings::key::kVideoHevc);
     settings::Remove(settings::key::kVideoCursor);
     settings::Remove(settings::key::kVideoClicks);
     settings::Remove(settings::key::kVideoAudioDevice);

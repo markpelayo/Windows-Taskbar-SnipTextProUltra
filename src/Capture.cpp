@@ -64,18 +64,28 @@ std::unique_ptr<Bitmap> GrabVirtualDesktop(RECT* bounds) {
 
 namespace {
 
-// --- the built-in shutter --------------------------------------------------
+// --- the built-in shutters -------------------------------------------------
 //
 // A real camera shutter is two transients about 70 ms apart — the mirror
 // going up, then the blades closing — each a short noise burst with a fast
 // decay and a little low-frequency body behind it. Synthesising that is a few
 // lines and sounds right; the alternative was a system alias that says
 // "error" to anyone listening.
+//
+// There are five of them now, and they are all the same generator driven by
+// the table below rather than five copies of the loop. That is not only less
+// code: it is the only way five sounds stay consistent in level and length as
+// any of them is adjusted, and it makes a sixth a single row.
+//
+// On the "macOS-like" one, plainly: Apple's screenshot sound is their audio
+// asset and is not something to copy into this binary. Tone 2 is an original
+// synthesis with a similar *character* — bright, tight, a quick two-stage
+// click rather than a heavy mechanical thunk. It is a family resemblance, not
+// a reproduction.
 
 constexpr int   kSampleRate = 44100;
 constexpr int   kChannels   = 1;
 constexpr int   kBitsPerSample = 16;
-constexpr double kDurationSeconds = 0.20;
 
 // Deterministic, so the sound is identical on every machine and every run.
 // rand() would be neither, and seeding it would disturb the caller's.
@@ -87,40 +97,84 @@ struct Noise {
     }
 };
 
-std::vector<BYTE> BuildShutterWav() {
-    const int frames = static_cast<int>(kSampleRate * kDurationSeconds);
+// One transient: when it starts, how loud, and how fast it dies away.
+struct Voice { double at; double amplitude; double decay; };
+
+struct Recipe {
+    const wchar_t* name;
+    double duration;      // seconds
+    double brightness;    // one-pole coefficient, 0..1; higher is brighter
+    double noiseAmount;   // how much of the snap is filtered noise
+    double bodyHz;        // the low tone that makes it read as mechanical
+    double bodyDecay;
+    double bodyAmount;
+    double gain;          // peak sample value, out of 32767
+    int    voiceCount;
+    Voice  voices[3];
+};
+
+// Tone 0 reproduces the original sound exactly — same voices, same
+// coefficients, same order of noise draws. Anyone who liked it keeps it.
+const Recipe kRecipes[] = {
+    // 0 — Classic. The original: SLR-ish, medium weight, two stages 72 ms apart.
+    { L"Classic",     0.20, 0.45, 0.85, 190.0, 0.010, 0.30, 26000.0, 2,
+      { { 0.000, 1.00, 0.013 }, { 0.072, 0.72, 0.020 } } },
+
+    // 1 — SLR Camera. Heavier and darker, with a third quieter transient for
+    // the mirror dropping back. This is the "proper camera" one.
+    { L"SLR Camera",  0.30, 0.28, 0.80, 118.0, 0.020, 0.50, 26000.0, 3,
+      { { 0.000, 1.00, 0.016 }, { 0.095, 0.88, 0.030 }, { 0.150, 0.34, 0.014 } } },
+
+    // 2 — Aperture. Bright and tight, the two stages only 36 ms apart so they
+    // read as one quick "k-chk" rather than two separate knocks.
+    { L"Aperture",    0.16, 0.78, 0.92, 320.0, 0.005, 0.16, 24000.0, 2,
+      { { 0.000, 1.00, 0.008 }, { 0.036, 0.58, 0.011 } } },
+
+    // 3 — Soft Click. One quiet tick, for open-plan offices and recordings
+    // where a full shutter on every capture is too much.
+    { L"Soft Click",  0.10, 0.34, 0.60, 230.0, 0.008, 0.26, 14000.0, 1,
+      { { 0.000, 0.85, 0.011 } } },
+
+    // 4 — Snap. A single crisp high click with almost no body: the shortest
+    // possible "that happened".
+    { L"Snap",        0.09, 0.88, 1.00, 430.0, 0.004, 0.10, 25000.0, 1,
+      { { 0.000, 1.00, 0.006 } } },
+};
+
+static_assert(sizeof(kRecipes) / sizeof(kRecipes[0]) == shutter::kToneCount,
+              "kToneCount and the recipe table have to agree");
+
+std::vector<BYTE> BuildShutterWav(const Recipe& recipe) {
+    const int frames = static_cast<int>(kSampleRate * recipe.duration);
     std::vector<INT16> samples(static_cast<size_t>(frames), 0);
 
     Noise noise;
     double lowpass = 0.0;   // one-pole, takes the fizz off the noise
 
-    // (start seconds, amplitude, decay time constant)
-    struct Click { double at; double amplitude; double decay; };
-    const Click clicks[2] = { { 0.000, 1.00, 0.013 },
-                              { 0.072, 0.72, 0.020 } };
-
     for (int i = 0; i < frames; ++i) {
         const double t = static_cast<double>(i) / kSampleRate;
         double value = 0.0;
 
-        for (const Click& click : clicks) {
+        for (int v = 0; v < recipe.voiceCount; ++v) {
+            const Voice& click = recipe.voices[v];
             if (t < click.at) continue;
             const double age = t - click.at;
             const double envelope = std::exp(-age / click.decay);
 
             // The snap: filtered noise.
             const double raw = noise.Next();
-            lowpass += (raw - lowpass) * 0.45;
-            value += lowpass * envelope * click.amplitude * 0.85;
+            lowpass += (raw - lowpass) * recipe.brightness;
+            value += lowpass * envelope * click.amplitude * recipe.noiseAmount;
 
             // The thunk: a fast-decaying low tone underneath, which is what
             // makes it read as mechanical rather than as static.
-            const double body = std::sin(2.0 * 3.14159265358979 * 190.0 * age);
-            value += body * std::exp(-age / 0.010) * click.amplitude * 0.30;
+            const double body = std::sin(2.0 * 3.14159265358979 * recipe.bodyHz * age);
+            value += body * std::exp(-age / recipe.bodyDecay)
+                          * click.amplitude * recipe.bodyAmount;
         }
 
         value = (std::max)(-1.0, (std::min)(1.0, value));
-        samples[static_cast<size_t>(i)] = static_cast<INT16>(value * 26000.0);
+        samples[static_cast<size_t>(i)] = static_cast<INT16>(value * recipe.gain);
     }
 
     // A 10 ms fade at the end, so stopping mid-cycle doesn't click.
@@ -166,13 +220,28 @@ std::vector<BYTE> BuildShutterWav() {
     return wav;
 }
 
-// Built once and intentionally never destroyed. PlaySound with SND_MEMORY
-// plays asynchronously straight out of this buffer from winmm's own thread,
-// so it has to outlive not just the call but the process's static-destruction
-// phase — quitting right after a capture would otherwise free it mid-sound.
-const std::vector<BYTE>& ShutterWav() {
-    static const std::vector<BYTE>* wav = new std::vector<BYTE>(BuildShutterWav());
-    return *wav;
+// Built on first use and intentionally never destroyed. PlaySound with
+// SND_MEMORY plays asynchronously straight out of this buffer from winmm's own
+// thread, so it has to outlive not just the call but the process's
+// static-destruction phase — quitting right after a capture would otherwise
+// free it mid-sound.
+//
+// Lazily, one slot per tone: a tone that is never chosen is never generated,
+// so the usual cost is one buffer of about 18 KB for the whole run rather than
+// five. Touched only from the UI thread.
+const std::vector<BYTE>& ShutterWav(int tone) {
+    static const std::vector<BYTE>* cache[shutter::kToneCount] = {};
+    if (tone < 0 || tone >= shutter::kToneCount) tone = 0;
+    if (!cache[tone]) {
+        cache[tone] = new std::vector<BYTE>(BuildShutterWav(kRecipes[tone]));
+    }
+    return *cache[tone];
+}
+
+void PlayBuiltIn(int tone) {
+    const std::vector<BYTE>& wav = ShutterWav(tone);
+    if (wav.empty()) { ::MessageBeep(MB_OK); return; }
+    ::PlaySoundW(reinterpret_cast<LPCWSTR>(wav.data()), nullptr, SND_MEMORY | SND_ASYNC);
 }
 
 void PlayConfiguredShutter() {
@@ -193,9 +262,7 @@ void PlayConfiguredShutter() {
         }
     }
 
-    const std::vector<BYTE>& wav = ShutterWav();
-    if (wav.empty()) { ::MessageBeep(MB_OK); return; }
-    ::PlaySoundW(reinterpret_cast<LPCWSTR>(wav.data()), nullptr, SND_MEMORY | SND_ASYNC);
+    PlayBuiltIn(shutter::CurrentTone());
 }
 
 } // namespace
@@ -207,5 +274,27 @@ void PlayShutter() {
 void PreviewShutter() {
     PlayConfiguredShutter();
 }
+
+namespace shutter {
+
+const wchar_t* ToneName(int tone) {
+    if (tone < 0 || tone >= kToneCount) tone = 0;
+    return kRecipes[tone].name;
+}
+
+int CurrentTone() {
+    const int tone = settings::GetInt(settings::key::kShutterTone, 0);
+    // Clamped rather than trusted: this comes out of the registry, where a
+    // person with regedit open can put anything at all, and an out-of-range
+    // index would read off the end of the table.
+    if (tone < 0 || tone >= kToneCount) return 0;
+    return tone;
+}
+
+void PlayTone(int tone) {
+    PlayBuiltIn(tone);
+}
+
+} // namespace shutter
 
 } // namespace capture

@@ -6,7 +6,82 @@ adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **The hint bar smeared a trail across the screen while dragging a
+  selection.** The overlay repaints the union of the old and new selection
+  rectangles, grown by a fixed 90 px to take in the border, the handles and
+  the size readout. The hint bar — *Drag to select · Space to pick a window ·
+  Esc to cancel* — is 560 px wide and centred on the selection, so for any
+  selection narrower than 380 px it stuck out past that region at both ends,
+  and the parts sticking out were never repainted. The Record button had the
+  same problem, and both are worse than a fixed padding can fix: each one
+  flips to the other side of the selection when it runs out of room, moving an
+  arbitrary distance in a single step. Both rectangles are now asked for
+  before and after the selection changes and included explicitly.
+
+- **Choosing a shutter sound silently reset Text Recognition to Auto.** The
+  handler for *Built-in Shutter* had picked up a stray
+  `settings::Remove(kOcrEngine)` from a bad paste. Nothing reported it because
+  both settings are invisible until you open the menu, and the menu redraws
+  from the registry, so the check mark moved and looked deliberate. The menu
+  row that carried it is gone, and the line with it.
+
+### Added
+
+- **Five built-in shutter sounds** instead of one: Classic (the existing
+  sound, unchanged and still the default), SLR Camera, Aperture, Soft Click
+  and Snap. Choosing one plays it, so the list auditions itself. All five come
+  from one parameterised synthesiser rather than five copies of the loop, and
+  each is generated on first use — a tone you never pick is never built, so
+  the cost stays one ~18 KB buffer for the run.
+
+  On "make it sound like macOS": Apple's screenshot sound is their audio asset
+  and is not something to copy into this binary. *Aperture* is an original
+  synthesis with a similar character — bright and tight, a quick two-stage
+  click rather than a heavy mechanical thunk. A family resemblance, not a
+  reproduction.
+
+- **File Size** under Video Settings: Smaller (new default), Balanced (the
+  previous behaviour) and Detailed, plus an opt-in **Use H.265 When
+  Available**. Screen content is mostly unchanged from frame to frame and
+  compresses far better than camera footage, so the old fixed bitrate was
+  spending bits encoding a static desktop very precisely.
+
+- **Dev builds identify themselves.** A build from a working tree now reads
+  `v1.5.0 (808fa04)` in the menu title and the log, with a trailing `+` when
+  the tree had uncommitted changes; a tagged release still reads `v1.5.0`.
+  During a round of UI changes the version number is identical on every build
+  and so cannot answer "is this the thing I just changed?" — the question
+  behind the v1.2.0 and v1.3.0 stale-tag mess.
+
+### Changed
+
+- *Shortcuts* is now **Change Keyboard Shortcut**.
+
+- **CI runs the fast build on every push and the slow one only on tags.**
+  Every commit used to wait about twenty minutes for a full static Tesseract
+  build via vcpkg before anything was checked. The dependency-free build and
+  the tests now run first and always; the Tesseract build runs on `v*` tags
+  and on a manual dispatch. One step decides which binary the run ships, so a
+  release cannot quietly attach the dependency-free one.
+
+### Not done — and why
+
+- **MKV and AVI recording.** Neither is possible here, and neither would help.
+  Media Foundation picks a media sink from the file extension, and the sinks
+  Windows ships are MPEG-4 (`.mp4`, `.m4v`, `.3gp`) and ASF (`.wmv`, `.asf`).
+  There is an MKV *source* — Windows 10 can play Matroska — but no MKV sink,
+  and no AVI sink in either direction. Writing either means embedding a
+  third-party muxer, and a static FFmpeg is tens of megabytes against this
+  program's entire budget.
+
+  More to the point, a container does not compress anything: it is an index
+  and a wrapper around streams that are already encoded. Remuxing the same
+  H.264 stream from MP4 to MKV changes the file by a few kilobytes over an
+  entire recording. MKV files are often smaller because they were *encoded*
+  differently, not because of the container. The codec and the bitrate are
+  what set the size, so those are what the new File Size menu exposes.
 
 ## [1.5.0] — 2026-09-26
 

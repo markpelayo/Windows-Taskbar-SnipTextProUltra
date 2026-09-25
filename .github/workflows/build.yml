@@ -40,18 +40,41 @@ jobs:
             exit 1
           }
 
-      # Tesseract and Leptonica, static. Cached because a cold build of both
-      # takes the better part of twenty minutes and they change roughly never.
-      # vcpkg.json at the repo root puts vcpkg in manifest mode, so the
-      # dependencies are installed by the CMake toolchain at configure time
-      # and land in build/vcpkg_installed — not in C:/vcpkg/installed. The
-      # binary cache is what actually saves the twenty-minute cold build of
-      # Tesseract.
+      # --- the fast path, on every push --------------------------------------
+      #
+      # The dependency-free configuration: nothing but the Windows SDK, which
+      # is what build.bat produces and what almost every commit touches. It
+      # takes a couple of minutes, so ordinary work gets ordinary feedback.
+      #
+      # This used to run AFTER the Tesseract build, which meant every commit —
+      # a menu label, a comment — waited on a twenty-minute vcpkg build before
+      # anything was checked at all. It runs first and always now, and the
+      # expensive path below is gated on tags.
+      - name: Build (dependency-free)
+        run: |
+          cmake -B build -A x64
+          cmake --build build --config Release
+
+      # The normaliser is the one piece whose regressions are silent: wrong
+      # output still looks like plausible text. It does not depend on
+      # Tesseract, so it runs on the fast path where it is useful.
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      # --- the slow path, tags only ------------------------------------------
+      #
+      # Tesseract and Leptonica, static, and the trained model. This is what
+      # ships, so it has to pass before a release exists — but it has no
+      # business running on a commit that nobody is going to download.
+      #
+      # If you need it on a branch, run the workflow by hand: workflow_dispatch
+      # sets RUN_FULL below.
       - name: Cache vcpkg
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         uses: actions/cache@v4
         with:
           path: |
-            build/vcpkg_installed
+            build-full/vcpkg_installed
             ~/AppData/Local/vcpkg/archives
           key: vcpkg-x64-static-${{ hashFiles('vcpkg.json') }}
           restore-keys: vcpkg-x64-static-
@@ -61,12 +84,15 @@ jobs:
       # history. The shipped exe still carries it internally and still never
       # touches the network.
       - name: Fetch the trained model
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         run: pwsh scripts/fetch-tessdata.ps1 -RequirePinned
 
-      - name: Configure
+      - name: Configure (with Tesseract)
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         run: >
-          cmake -B build -A x64 -DCMAKE_BUILD_TYPE=Release
+          cmake -B build-full -A x64 -DCMAKE_BUILD_TYPE=Release
           -DSNIPTEXT_WITH_TESSERACT=ON
+          -DSNIPTEXT_RELEASE=${{ startsWith(github.ref, 'refs/tags/v') && 'ON' || 'OFF' }}
           -DVCPKG_TARGET_TRIPLET=x64-windows-static
           -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
 
@@ -78,30 +104,43 @@ jobs:
       # where a bare semicolon separates statements, so an unquoted
       # /fileLoggerParameters:...;Verbosity=normal is parsed as two commands
       # and PowerShell tries to run "Verbosity=normal" as a program.
-      - name: Build
-        run: cmake --build build --config Release -- /fileLogger '/fileLoggerParameters:LogFile=build\msbuild.log;Verbosity=normal'
+      - name: Build (with Tesseract)
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        run: cmake --build build-full --config Release -- /fileLogger '/fileLoggerParameters:LogFile=build-full\msbuild.log;Verbosity=normal'
 
       - name: Upload the build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-log
-          path: build/msbuild.log
+          path: build-full/msbuild.log
           if-no-files-found: ignore
 
-      # The default configuration builds with nothing but the Windows SDK and
-      # is what build.bat produces. Without this, a break in the
-      # no-Tesseract path — a missing source file, say — is invisible until
-      # somebody tries it.
-      - name: Build the dependency-free configuration
+      # --- whichever binary this run produced --------------------------------
+      #
+      # A tag ships the Tesseract build; anything else ships the fast one. One
+      # step decides which, so nothing below has to repeat the condition — and
+      # more to the point, a release can never quietly attach the
+      # dependency-free binary because a path was wrong.
+      - name: Locate the binary
+        id: exe
         run: |
-          cmake -B build-plain -A x64 -DSNIPTEXT_BUILD_TESTS=OFF
-          cmake --build build-plain --config Release
-
-      # The normaliser is the one piece whose regressions are silent: wrong
-      # output still looks like plausible text.
-      - name: Test
-        run: ctest --test-dir build -C Release --output-on-failure
+          $full = "build-full/Release/SnipTextProUltra.exe"
+          $fast = "build/Release/SnipTextProUltra.exe"
+          $isTag = "${{ github.ref }}".StartsWith("refs/tags/v")
+          if ($isTag) {
+            if (-not (Test-Path $full)) {
+              Write-Error "This is a tag, so the release must be the Tesseract build, and $full is not there."
+              exit 1
+            }
+            $exe = $full
+          } elseif (Test-Path $full) {
+            $exe = $full
+          } else {
+            $exe = $fast
+          }
+          Write-Host "Shipping $exe"
+          "path=$exe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       # An unsigned binary cannot prove where it came from, so a checksum is
       # published beside it. It is not a signature and does not pretend to be
@@ -109,7 +148,7 @@ jobs:
       # file this run produced.
       - name: Checksum
         run: |
-          $exe = "build/Release/SnipTextProUltra.exe"
+          $exe = "${{ steps.exe.outputs.path }}"
           $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
           "$hash  SnipTextProUltra.exe" | Out-File -Encoding ascii "$exe.sha256"
           Write-Host "SHA256: $hash"
@@ -119,8 +158,8 @@ jobs:
         with:
           name: SnipTextProUltra
           path: |
-            build/Release/SnipTextProUltra.exe
-            build/Release/SnipTextProUltra.exe.sha256
+            ${{ steps.exe.outputs.path }}
+            ${{ steps.exe.outputs.path }}.sha256
           if-no-files-found: error
 
       # --- release, tags only ------------------------------------------------
@@ -160,6 +199,6 @@ jobs:
           name: ${{ github.ref_name }}
           body_path: ${{ steps.notes.outputs.path }}
           files: |
-            build/Release/SnipTextProUltra.exe
-            build/Release/SnipTextProUltra.exe.sha256
+            ${{ steps.exe.outputs.path }}
+            ${{ steps.exe.outputs.path }}.sha256
           fail_on_unmatched_files: true

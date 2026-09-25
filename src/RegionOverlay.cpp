@@ -17,7 +17,10 @@ constexpr int kGripSize          = 10;   // drawn size of a handle
 constexpr int kGripHitInflate    = 6;    // grown so the handles are catchable
 constexpr int kBorderWidth       = 2;
 constexpr int kNewRectDeadZone   = 4;    // a shaky click must not wipe the selection
-constexpr int kInvalidatePadding = 90;   // covers border, handles, readout and hint
+// Covers the border, the handles and the readout — everything anchored within
+// a few pixels of the selection. NOT the hint bar or the Record button, which
+// SetSelection invalidates explicitly; see the note there.
+constexpr int kInvalidatePadding = 90;
 constexpr int kReadoutPadding    = 6;
 constexpr int kButtonWidth       = 110;
 constexpr int kButtonHeight      = 32;
@@ -592,15 +595,48 @@ RECT RegionOverlay::ClampToDesktop(RECT rect) const {
 
 void RegionOverlay::SetSelection(HWND hwnd, const RECT& selection) {
     // Invalidate the union of the old and new rectangles, grown enough to
-    // cover the border, the handles, the readout above and the controls
-    // below. Repainting the whole desktop on every mouse-move is the
-    // difference between a selection that feels immediate and one that drags.
-    const RECT before = selection_;
+    // cover the border, the handles and the readout above. Repainting the
+    // whole desktop on every mouse-move is the difference between a selection
+    // that feels immediate and one that drags.
+    //
+    // The padding covers the border, the grips and the readout, because all
+    // three are anchored within a few pixels of the selection. It does NOT
+    // cover the hint bar or the Record button, and assuming it did was a bug:
+    //
+    //   - The hint bar is kHintWidth (560) wide and centred on the selection.
+    //     Any selection narrower than kHintWidth - 2 * kInvalidatePadding —
+    //     380 px, which is most of them — leaves the bar sticking out past the
+    //     dirty rectangle at both ends. Those ends are never repainted, so the
+    //     bar smears a trail behind it as the selection moves.
+    //   - Both the bar and the button clamp against the screen edges, and both
+    //     flip to the other side of the selection when there is no room. A
+    //     flip moves them an arbitrary distance in one step, which no fixed
+    //     padding can predict.
+    //
+    // So ask the geometry where the chrome is, before and after, instead of
+    // padding and hoping. Two extra calls per mouse-move against arithmetic
+    // this cheap does not measurably cost anything, and unlike a larger
+    // padding it is exact for every selection size and screen position.
+    const RECT beforeSelection = selection_;
+    const bool hadSelection    = hasSelection_;
+    const RECT beforeHint      = HintRect();
+    const bool hadButton       = (style_ == Style::Adjustable) && hadSelection;
+    const RECT beforeButton    = hadButton ? RecordButtonRect() : RECT{};
+
     selection_    = selection;
     hasSelection_ = true;
 
-    RECT dirty = util::InflateRect(util::UnionRect(before, selection_),
+    RECT dirty = util::InflateRect(util::UnionRect(beforeSelection, selection_),
                                    kInvalidatePadding, kInvalidatePadding);
+
+    // util::UnionRect is a plain min/max — unlike ::UnionRect it does not
+    // ignore an empty rectangle, so an unguarded RECT{} here would drag the
+    // dirty region all the way out to the origin and repaint the desktop.
+    dirty = util::UnionRect(dirty, beforeHint);
+    dirty = util::UnionRect(dirty, HintRect());
+    if (hadButton)                      dirty = util::UnionRect(dirty, beforeButton);
+    if (style_ == Style::Adjustable)    dirty = util::UnionRect(dirty, RecordButtonRect());
+
     ::InvalidateRect(hwnd, &dirty, FALSE);
 }
 

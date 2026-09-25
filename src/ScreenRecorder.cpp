@@ -100,6 +100,11 @@ struct ScreenRecorder::WorkerConfig {
     RECT         region{};
     int          frameRate = 30;
     double       scale     = 1.0;
+    // Read once on the UI thread when the recording starts, not on the worker:
+    // the settings can be changed from the menu mid-recording, and a bitrate
+    // that changes halfway through is not something the encoder can honour.
+    double       bitrateScale = 1.0;
+    bool         useHevc      = false;
     bool         drawCursor = true;
     bool         drawClicks = true;
     std::wstring audioDeviceId;
@@ -328,6 +333,8 @@ std::wstring ScreenRecorder::Start(const RECT& region) {
     config->region        = target;
     config->frameRate     = video::FrameRate();
     config->scale         = scale;
+    config->bitrateScale  = video::CurrentCompressionScale();
+    config->useHevc       = video::UsesHevc();
     config->drawCursor    = video::CapturesCursor();
     config->drawClicks    = video::CapturesClicks();
     config->audioDeviceId = video::AudioDeviceId();
@@ -581,7 +588,8 @@ DWORD WINAPI ScreenRecorder::WorkerEntry(void* parameter) {
         // 15 fps to a 4K screen at 60.
         const double pixelRate = static_cast<double>(width) * height * config->frameRate;
         UINT32 bitrate = static_cast<UINT32>((std::min)(40000000.0,
-                                                        (std::max)(1500000.0, pixelRate * 0.12)));
+                                                        (std::max)(1500000.0,
+                                                                   pixelRate * 0.12 * config->bitrateScale)));
 
         ComPtr<IMFSinkWriter> writer;
         DWORD videoStream = 0;
@@ -595,47 +603,96 @@ DWORD WINAPI ScreenRecorder::WorkerEntry(void* parameter) {
             attributes->SetUINT32(MF_SINK_WRITER_DISABLE_THROTTLING, TRUE);
         }
 
-        HRESULT hr = ::MFCreateSinkWriterFromURL(config->outputPath.c_str(), nullptr,
-                                                 attributes.Get(), &writer);
-        if (FAILED(hr) || !writer) {
-            report(std::wstring(), L"Couldn't create the movie file.");
-            return 0;
-        }
-
         // --- video stream ---
         {
-            ComPtr<IMFMediaType> outputType;
-            ::MFCreateMediaType(&outputType);
-            outputType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
-            outputType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_H264);
-            outputType->SetUINT32(MF_MT_AVG_BITRATE, bitrate);
-            outputType->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
-            ::MFSetAttributeSize(outputType.Get(), MF_MT_FRAME_SIZE, width, height);
-            ::MFSetAttributeRatio(outputType.Get(), MF_MT_FRAME_RATE, config->frameRate, 1);
-            ::MFSetAttributeRatio(outputType.Get(), MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
+            // HEVC first when it was asked for, then H.264, because whether an
+            // HEVC encoder exists depends on the GPU and on whether the HEVC
+            // Video Extensions are installed, and there is no way to ask
+            // besides trying.
+            //
+            // Where the "trying" happens is the subtle part, and getting it
+            // wrong makes the fallback silently useless. AddStream only
+            // registers the target format with the *media sink*, and the MPEG-4
+            // sink accepts HEVC unconditionally — it does not go looking for an
+            // encoder, so it succeeds on a machine that cannot encode HEVC at
+            // all. The encoder MFT is not resolved until SetInputMediaType.
+            // A fallback wrapped around AddStream alone would therefore always
+            // think HEVC had worked, and the failure would surface later as
+            // "the encoder refused the capture format" — losing the recording,
+            // which is the one outcome this must never produce.
+            //
+            // So the attempt covers the whole sequence through
+            // SetInputMediaType. A stream cannot be removed from a sink writer
+            // once added, which is why the writer itself is rebuilt for the
+            // second attempt rather than reused.
+            //
+            // The bitrate drops with HEVC, because encoding HEVC at H.264's
+            // bitrate produces a better-looking file of the same size, and the
+            // point of the setting was a smaller one.
+            auto tryCodec = [&](bool hevc) -> bool {
+                writer.Reset();
+                videoStream = 0;
 
-            if (FAILED(writer->AddStream(outputType.Get(), &videoStream))) {
-                report(std::wstring(), L"This machine has no H.264 encoder available.");
+                if (FAILED(::MFCreateSinkWriterFromURL(config->outputPath.c_str(), nullptr,
+                                                       attributes.Get(), &writer))
+                    || !writer) {
+                    return false;
+                }
+
+                ComPtr<IMFMediaType> outputType;
+                if (FAILED(::MFCreateMediaType(&outputType)) || !outputType) return false;
+                outputType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+                outputType->SetGUID(MF_MT_SUBTYPE,
+                                    hevc ? MFVideoFormat_HEVC : MFVideoFormat_H264);
+                outputType->SetUINT32(MF_MT_AVG_BITRATE,
+                                      hevc ? static_cast<UINT32>(bitrate * 0.6) : bitrate);
+                outputType->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+                ::MFSetAttributeSize(outputType.Get(), MF_MT_FRAME_SIZE, width, height);
+                ::MFSetAttributeRatio(outputType.Get(), MF_MT_FRAME_RATE, config->frameRate, 1);
+                ::MFSetAttributeRatio(outputType.Get(), MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
+
+                if (FAILED(writer->AddStream(outputType.Get(), &videoStream))) return false;
+
+                ComPtr<IMFMediaType> inputType;
+                if (FAILED(::MFCreateMediaType(&inputType)) || !inputType) return false;
+                inputType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+                inputType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
+                inputType->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+                // A positive stride means top-down rows, which is how our DIB
+                // sections are laid out. Leaving it unset gets a bottom-up
+                // interpretation and a vertically mirrored recording.
+                inputType->SetUINT32(MF_MT_DEFAULT_STRIDE, static_cast<UINT32>(width * 4));
+                ::MFSetAttributeSize(inputType.Get(), MF_MT_FRAME_SIZE, width, height);
+                ::MFSetAttributeRatio(inputType.Get(), MF_MT_FRAME_RATE, config->frameRate, 1);
+                ::MFSetAttributeRatio(inputType.Get(), MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
+
+                // This is where a missing encoder actually reports itself.
+                return SUCCEEDED(writer->SetInputMediaType(videoStream, inputType.Get(),
+                                                           nullptr));
+            };
+
+            bool usingHevc = false;
+            if (config->useHevc) {
+                usingHevc = tryCodec(true);
+                if (!usingHevc) {
+                    logging::Write(L"recorder: no usable HEVC encoder here, using H.264");
+                }
+            }
+
+            if (!usingHevc && !tryCodec(false)) {
+                writer.Reset();
+                // A half-built writer leaves a zero-byte file behind, which
+                // then shows up in the videos folder as a recording that will
+                // not open.
+                ::DeleteFileW(config->outputPath.c_str());
+                report(std::wstring(), L"This machine has no usable H.264 encoder.");
                 return 0;
             }
 
-            ComPtr<IMFMediaType> inputType;
-            ::MFCreateMediaType(&inputType);
-            inputType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
-            inputType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
-            inputType->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
-            // A positive stride means top-down rows, which is how our DIB
-            // sections are laid out. Leaving it unset gets a bottom-up
-            // interpretation and a vertically mirrored recording.
-            inputType->SetUINT32(MF_MT_DEFAULT_STRIDE, static_cast<UINT32>(width * 4));
-            ::MFSetAttributeSize(inputType.Get(), MF_MT_FRAME_SIZE, width, height);
-            ::MFSetAttributeRatio(inputType.Get(), MF_MT_FRAME_RATE, config->frameRate, 1);
-            ::MFSetAttributeRatio(inputType.Get(), MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
-
-            if (FAILED(writer->SetInputMediaType(videoStream, inputType.Get(), nullptr))) {
-                report(std::wstring(), L"The encoder refused the capture format.");
-                return 0;
-            }
+            LOG_DEBUG(util::Format(L"recorder: %s at %u kbps, %dx%d @ %d fps",
+                                   usingHevc ? L"HEVC" : L"H.264",
+                                   (usingHevc ? static_cast<UINT32>(bitrate * 0.6) : bitrate) / 1000,
+                                   width, height, config->frameRate));
         }
 
         // --- audio stream, best effort only ---

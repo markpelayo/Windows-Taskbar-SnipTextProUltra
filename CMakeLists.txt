@@ -74,6 +74,48 @@ if(SNIPTEXT_WITH_TESSERACT)
     endif()
 endif()
 
+# --- which build is this? ---------------------------------------------------
+#
+# A released binary says "v1.5.0". A build from a working tree says
+# "v1.5.0 (808fa04)", because during a round of UI changes the version number
+# is the same on every build and is therefore useless for answering "is the
+# thing you are looking at the thing I just changed?" — the question that cost
+# real time on v1.2.0 and v1.3.0, when a stale commit was tagged and nothing
+# on screen could have revealed it.
+#
+# CI passes -DSNIPTEXT_RELEASE=ON on tag builds only.
+option(SNIPTEXT_RELEASE "This is a tagged release build" OFF)
+
+set(SNIPTEXT_BUILD_SHA "")
+find_package(Git QUIET)
+if(GIT_FOUND)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" --no-optional-locks rev-parse --short HEAD
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        OUTPUT_VARIABLE SNIPTEXT_BUILD_SHA
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+    # A dirty tree is a different binary from the commit it claims to be, and
+    # saying so is the entire point of showing the hash at all.
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" --no-optional-locks diff --quiet HEAD
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        RESULT_VARIABLE SNIPTEXT_DIRTY
+        ERROR_QUIET)
+    # Guarded on the hash having worked. git can be installed and still have
+    # nothing to say — an export rather than a checkout, say — in which case
+    # rev-parse fails, diff fails too, and an unguarded append would produce a
+    # version reading "1.5.0 (+)": a dirty marker on a hash that is not there.
+    if(NOT SNIPTEXT_DIRTY EQUAL 0 AND NOT SNIPTEXT_BUILD_SHA STREQUAL "")
+        set(SNIPTEXT_BUILD_SHA "${SNIPTEXT_BUILD_SHA}+")
+    endif()
+endif()
+# Never empty: resource.h pastes this straight into a string literal, so an
+# empty value would render as "1.5.0 ()".
+if(SNIPTEXT_BUILD_SHA STREQUAL "")
+    set(SNIPTEXT_BUILD_SHA "local")
+endif()
+
 add_executable(SnipText WIN32 ${SOURCES})
 
 # The CMake target stays "SnipText" so the generated project names are short;
@@ -84,6 +126,13 @@ target_include_directories(SnipText PRIVATE src)
 
 target_compile_definitions(SnipText PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
+    # The backslashes are required, not decorative. Written as
+    # SNIPTEXT_BUILD_SHA="${...}" the quotes are consumed by CMake's own
+    # argument handling before the compiler sees them, and the macro arrives as
+    # the bare token 808fa04 — which then fails to compile, or worse, compiles
+    # as an identifier. Escaped, the macro is a string literal as intended.
+    SNIPTEXT_BUILD_SHA=\"${SNIPTEXT_BUILD_SHA}\"
+    SNIPTEXT_IS_RELEASE=$<IF:$<BOOL:${SNIPTEXT_RELEASE}>,1,0>
 )
 
 if(SNIPTEXT_WITH_TESSERACT)

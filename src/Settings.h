@@ -26,6 +26,9 @@ inline constexpr const wchar_t* kJoinWrappedLines = L"joinWrappedLines";
 // "auto" (default), "windows" or "tesseract".
 inline constexpr const wchar_t* kOcrEngine        = L"ocrEngine";
 inline constexpr const wchar_t* kShutterSound     = L"shutterSound";
+// Which built-in tone: 0..4, see capture::shutter. Absent means 0, Classic,
+// which is the sound this app has always made.
+inline constexpr const wchar_t* kShutterTone      = L"shutterTone";
 // Absent or empty means the built-in shutter; otherwise a path to a .wav.
 inline constexpr const wchar_t* kShutterSoundPath = L"shutterSoundPath";
 inline constexpr const wchar_t* kSaveCaptures     = L"saveCaptures";
@@ -38,6 +41,9 @@ inline constexpr const wchar_t* kVideoFolder      = L"videoFolderPath";
 
 inline constexpr const wchar_t* kVideoFrameRate   = L"videoFrameRate";
 inline constexpr const wchar_t* kVideoQuality     = L"videoQuality";
+// "smaller" (default), "balanced" or "detailed" — a bitrate multiplier.
+inline constexpr const wchar_t* kVideoCompression = L"videoCompression";
+inline constexpr const wchar_t* kVideoHevc        = L"videoUseHevc";
 inline constexpr const wchar_t* kVideoCursor      = L"videoCaptureCursor";
 inline constexpr const wchar_t* kVideoClicks      = L"videoCaptureClicks";
 inline constexpr const wchar_t* kVideoAudioDevice = L"videoAudioDeviceId";

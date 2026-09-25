@@ -136,7 +136,7 @@ In any region capture: drag to select, **Space** switches to click-a-whole-windo
 
 ### Changing them
 
-**Settings → Shortcuts** lists all six with their current bindings. Pick one and a small window appears; press the combination you want and Enter to save.
+**Settings → Change Keyboard Shortcut** lists all six with their current bindings. Pick one and a small window appears; press the combination you want and Enter to save.
 
 Anything the keyboard can produce works, including a bare function key — press `F9` and that is the binding, no modifier required. **Delete** unbinds a shortcut entirely, leaving the action reachable only from the menu. **Esc** cancels without changing anything, and **Reset to Defaults** puts all six back.
 
@@ -161,7 +161,7 @@ SnipTextProUltra  ·  v1.3.0  ·  by markpelayo
   Record Region…                  Ctrl+Shift+5
   Record Full Screen              Ctrl+Shift+6
 ──────────────────────
-  Shortcuts              ▸
+  Change Keyboard Shortcut ▸
   Join Wrapped Lines     ✓
   Shutter Sound          ✓ ▸
   Auto-Save Images
@@ -185,7 +185,11 @@ SnipTextProUltra  ·  v1.3.0  ·  by markpelayo
 
 *Show Saved Files* is greyed out when all three folders are empty, so it tells you there is nothing there rather than opening onto three dead entries.
 
-**Shutter Sound** carries its own submenu: *Off*, *Built-in Shutter*, *Custom Sound…* for a `.wav` of your own, and *Preview*.
+**Shutter Sound** carries its own submenu: *Off*, five built-in tones, *Custom Sound…* for a `.wav` of your own, and *Preview*.
+
+The five are **Classic** (the default), **SLR Camera**, **Aperture**, **Soft Click** and **Snap**. Choosing one plays it, so you can run down the list and compare. All five are synthesised rather than shipped as audio files, which is what keeps the executable a single self-contained binary with no `.wav` beside it; each is generated the first time you pick it, so a tone you never choose costs nothing.
+
+On *Aperture*: people ask for "the macOS screenshot sound". Apple's is their audio asset and isn't something to copy into this binary. *Aperture* is an original synthesis with a similar character — bright and tight, a quick two-stage click rather than a heavy mechanical thunk. A family resemblance, not a reproduction.
 
 Each section is just its commands, and everything those commands produced lives together under **Show Saved Files**. The command names carry the section, so there are no headers repeating what the row beneath already says.
 
@@ -269,7 +273,27 @@ Stopping a recording removes all three.
 
 Quitting mid-recording stops it first and waits up to three seconds for the encoder to finish writing the MP4 index — exiting before that leaves an unplayable file.
 
-**Video Settings** lives in the menu rather than behind a gear button, so every setting in the app is in one place: frame rate (15/24/30/60), quality, capture mouse cursor, capture mouse clicks, and audio input.
+**Video Settings** lives in the menu rather than behind a gear button, so every setting in the app is in one place: frame rate (15/24/30/60), quality, file size, capture mouse cursor, capture mouse clicks, and audio input.
+
+**Quality** and **File Size** are different axes, and it is worth knowing which one you want. Quality scales the picture down — 75% or 50% of the captured size — so the file shrinks and the video gets blurrier when you zoom in. File Size leaves the resolution alone and changes how many bits are spent on it:
+
+| | |
+|---|---|
+| **Smaller** (default) | About half the size of the old default |
+| **Balanced** | What every recording before v1.6 used |
+| **Detailed** | For fine text and gradients |
+
+Smaller is the default rather than a compromise. A desktop barely changes from frame to frame, which is the case H.264 handles best, so the old fixed bitrate was spending most of its budget encoding a static background very precisely.
+
+**Use H.265 When Available** halves the size again. It is off by default and should stay off unless you know where the file is going: H.265 needs a reasonably modern player, and a recording that won't open on the machine you sent it to isn't a smaller file, it's a broken one. If the machine has no HEVC encoder the recorder falls back to H.264 on its own, so switching it on can never cost you a recording.
+
+### Why there is no MKV or AVI option
+
+Two separate reasons, and the second is the one that matters.
+
+Media Foundation picks a media sink from the file extension, and the sinks Windows ships are MPEG-4 (`.mp4`, `.m4v`, `.3gp`) and ASF (`.wmv`, `.asf`). There is an MKV *source* — Windows 10 can play Matroska — but no MKV sink, and no AVI sink in either direction. Writing either one means embedding a third-party muxer, and a static FFmpeg is tens of megabytes against this program's entire budget.
+
+But a container doesn't compress anything. It's an index and a wrapper around streams that are already encoded. Remuxing the same H.264 stream from MP4 to MKV changes the file by a few kilobytes of header across an entire recording — well under a tenth of a percent. MKV files are often smaller than MP4 files you've seen, but that's because they were *encoded* differently, not because of the container. What sets the size is the codec and the bitrate, which is what File Size and H.265 control.
 
 ---
 

@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.6.1] — 2026-09-26
+
 ### Fixed
 
 - **The mouse pointer strobed on screen for the whole of a recording.** The

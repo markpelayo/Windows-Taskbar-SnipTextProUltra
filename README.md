@@ -262,6 +262,8 @@ It is for the times when pointing at something is weaker than showing it. Instea
 
 Either way the piece lands exactly on top of where it came from, so nothing appears to happen until you drag it — which is the point. What you do next says whether it was a copy or a move.
 
+You do not have to remember the Shift part: while Lift is the selected tool, the canvas shows *Drag to copy a piece · Shift-drag to cut it out* along the bottom. It appears only for this tool, because Lift is the only one with a modifier, and it disappears while you are dragging — by then the choice is already made.
+
 A lifted piece is an ordinary mark: select it, drag it, resize it from its handles, undo it. **The capture underneath is never modified**, so nothing is destroyed and every lift is reversible, including the Shift one — the blanked patch is part of the mark, not a change to the pixels.
 
 On Shift: the fill is the most common colour in a two-pixel ring around the region, which is exact on a flat background and visibly a patch on a gradient or a photo. That is why plain drag, which never leaves a hole, is the default.

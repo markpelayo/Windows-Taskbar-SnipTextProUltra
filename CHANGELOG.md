@@ -69,6 +69,13 @@ adheres to [Semantic Versioning](https://semver.org).
   source with a colour sampled from the ring of pixels around it, making it a
   cut.
 
+  While Lift is the selected tool the canvas carries a hint along the bottom —
+  *Drag to copy a piece · Shift-drag to cut it out* — because a modifier
+  nobody knows about is a feature that does not exist. It shows only for this
+  tool, which is the only one with a modifier, and hides during a drag. The
+  alternative was an eighth toolbar button, which the editor's minimum width
+  cannot take.
+
   It is an ordinary annotation, not an edit: it is selectable, movable,
   resizable and undoable, and **the capture underneath is never modified**.
   That is also why it costs nothing — the piece references the pixels already

@@ -347,6 +347,10 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
             CommitTextEntry();
             SetCurrentTool(static_cast<Tool>(id - IDC_TOOL_FIRST));
             RefreshToolbarState();
+            // Repainted because the canvas now shows something that depends
+            // on the selected tool — the Lift hint. Before that, changing
+            // tools changed nothing on the canvas and this was unnecessary.
+            ::InvalidateRect(canvas_, nullptr, FALSE);
             ReturnFocusToCanvas();
             return 0;
         }
@@ -811,6 +815,41 @@ void EditorWindow::PaintCanvas(HDC dc) {
                 graphics.DrawEllipse(&ring, left, top,
                                      static_cast<REAL>(kHandleSize), static_cast<REAL>(kHandleSize));
             }
+        }
+
+        // Lift is the only tool with a modifier, and a modifier nobody knows
+        // about is a feature that does not exist. Every other tool does one
+        // thing and needs no explanation, so rather than a permanent status
+        // bar taking space from all seven, the hint appears only while the
+        // tool it describes is selected, and only while nothing is being
+        // dragged — by the time a drag is under way the choice has been made,
+        // and the label would just sit under the cursor.
+        //
+        // The alternative was a second toolbar button, "Lift" and "Cut". That
+        // is more discoverable and costs an eighth button, which the editor's
+        // minimum width cannot currently take. This says the same thing for
+        // no width at all.
+        if (currentTool_ == Tool::Lift && !hasDraft_) {
+            const wchar_t* hint = L"Drag to copy a piece  ·  Shift-drag to cut it out";
+
+            Gdiplus::FontFamily family(L"Segoe UI");
+            Font font(&family, 12.0f, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+            RectF measured;
+            graphics.MeasureString(hint, -1, &font,
+                                   Gdiplus::PointF(0.0f, 0.0f), &measured);
+
+            const REAL padX = 10.0f, padY = 5.0f;
+            const REAL boxWidth  = measured.Width + padX * 2;
+            const REAL boxHeight = measured.Height + padY * 2;
+            const REAL boxLeft   = (static_cast<REAL>(width) - boxWidth) / 2.0f;
+            const REAL boxTop    = static_cast<REAL>(height) - boxHeight - 12.0f;
+
+            SolidBrush backdrop(Color(170, 0, 0, 0));
+            graphics.FillRectangle(&backdrop, boxLeft, boxTop, boxWidth, boxHeight);
+
+            SolidBrush ink(Color(255, 255, 255, 255));
+            graphics.DrawString(hint, -1, &font,
+                                Gdiplus::PointF(boxLeft + padX, boxTop + padY), &ink);
         }
     }
 

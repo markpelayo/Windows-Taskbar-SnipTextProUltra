@@ -133,30 +133,28 @@ void AppendTitleRow(HMENU menu) {
     // information the program running on that platform does not need — and it
     // made this row the widest in the menu, which set the width of every row
     // beneath it.
-    // The tab is the whole trick, and it is worth explaining because the
-    // obvious fix — deleting characters — is the wrong one.
+    // Two things here are deliberate, and both were arrived at by trying the
+    // alternative first.
     //
-    // Windows splits a menu label at a tab: what precedes it goes in the left
-    // column, what follows is right-aligned in a second column. That second
-    // column is what holds Ctrl+Shift+1 and friends, and the menu's width is
-    // (widest left entry) + (widest right entry).
+    // NOT tabbed. Windows splits a menu label at a tab and right-aligns what
+    // follows into the accelerator column, which does narrow the menu — and
+    // looks wrong, because the name then sits in a column of Ctrl+Shift+N and
+    // reads as though it were one of them. Tried, reverted.
     //
-    // Without a tab this row was a single 45-character LEFT entry, against a
-    // longest command label of 28 ("ScreenshotToText Full Screen"). So the
-    // title alone pushed the shortcut column roughly a hundred pixels right,
-    // and every row below it inherited a menu that wide.
+    // Single spaces around the separators, and no "by". This row is the
+    // widest label in the menu, and a Win32 popup is sized as
+    // (widest label) + (widest accelerator), so its length alone sets how wide
+    // every row below it is drawn. Seven characters off the row is about
+    // forty-five pixels off the menu.
     //
-    // Moving the author into the right column costs nothing at all:
-    // "markpelayo" is narrower than "Ctrl+Shift+1", which is already setting
-    // that column's width, and what is left on the left is 27 characters —
-    // just inside the 28 the command labels demand anyway. Nothing is lost
-    // from the row and the dead space disappears.
-    //
-    // A dev build widens this again, because SNIPTEXT_VERSION_DISPLAY carries
-    // the commit hash. That is confined to dev builds by construction, and
-    // knowing which build is on screen is worth more than its width.
-    const std::wstring title = L"SnipTextProUltra  ·  v" SNIPTEXT_VERSION_DISPLAY
-                               L"\tmarkpelayo";
+    // There is a floor, which is worth knowing before trimming further: at 29
+    // characters "Sanitize and Restore Default…" becomes the widest label and
+    // takes over, so anything cut below that buys nothing. This row is at 38,
+    // so it is still the constraint — the remaining width is the price of
+    // keeping the row a readable sentence, which is a deliberate trade and not
+    // an oversight.
+    const std::wstring title = L"SnipTextProUltra · v" SNIPTEXT_VERSION_DISPLAY
+                               L" · markpelayo";
     ::AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(ID_ABOUT), title.c_str());
 }
 

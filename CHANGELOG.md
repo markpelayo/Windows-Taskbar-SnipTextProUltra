@@ -48,21 +48,19 @@ adheres to [Semantic Versioning](https://semver.org).
   compresses far better than camera footage, so the old fixed bitrate was
   spending bits encoding a static desktop very precisely.
 
-- **The menu is narrower**, by roughly the width of the empty gap between the
-  commands and their shortcuts.
+- **The menu is about 45 px narrower.** A Win32 popup is sized as *widest
+  label + widest accelerator*, and the title row was the widest label at 45
+  characters, against 29 for the longest command. So that one row was setting
+  the width of every row beneath it. Dropping "by" and the doubled spaces
+  around the separators takes it to 38.
 
-  The title row was the cause, though not for the reason it looks like — there
-  was no stray whitespace in it. Windows splits a menu label at a tab: what
-  precedes the tab is a left-column entry, what follows is right-aligned in a
-  second column, and the menu's width is *widest left entry + widest right
-  entry*. The title row had no tab, so all 45 characters of
-  `SnipTextProUltra · v1.5.0 · by markpelayo` counted as one left-column
-  entry, against a longest command label of 29. That single row pushed the
-  shortcut column about 100 px right and every row below inherited it.
+  Worth recording for anyone tempted to trim it further: there is a floor at
+  29, where `Sanitize and Restore Default…` becomes the widest label and takes
+  over. Below that, cutting characters from the title buys nothing.
 
-  `markpelayo` now sits after a tab, in the column that already existed and
-  was already wider than it — `Ctrl+Shift+1` sets that width, not the name.
-  Nothing was removed from the row, and the gap is gone.
+  Also tried and reverted: moving `markpelayo` after a tab, into the
+  accelerator column. It is narrower still, and it looks wrong — the name
+  lands in a column of `Ctrl+Shift+N` and reads as though it were one of them.
 
 - **Lift**, a seventh tool in the annotation editor, after *Text*. Drag a
   rectangle over any part of the capture and that region becomes a piece you

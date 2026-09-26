@@ -4,7 +4,7 @@
 // clears it a moment later. Windows has no such surface, and a notification
 // balloon is both heavyweight and a thing the user can be asked to grant
 // permission for. So this is a small borderless window above the taskbar,
-// shown for 1.6 seconds and then gone.
+// shown for 3 seconds and then gone — long enough to read a sentence, which is what these messages are.
 //
 // One window is created lazily and reused for the life of the process; it
 // costs nothing while hidden.

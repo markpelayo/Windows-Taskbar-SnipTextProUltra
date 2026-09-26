@@ -6,7 +6,72 @@ adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **The mouse pointer strobed on screen for the whole of a recording.** The
+  recorder's per-frame `BitBlt` passed `CAPTUREBLT`, which tells GDI to include
+  layered windows — and to do that, the system takes the cursor down and puts
+  it back around the blt. Once, for a screenshot, that is imperceptible, which
+  is why `Capture.cpp` still uses it. Thirty times a second it is a visible
+  flicker.
+
+  The give-away was that the recorded frames were always fine: the flicker
+  existed only on the real desktop, never in the file, which is what made it
+  look like a display driver problem. The cost of dropping the flag is
+  layered-window fidelity in recordings, which is a much smaller problem than
+  a pointer that flashes throughout them.
+
+- **The Lift button was missing from the editor on small captures.** The
+  minimum window size was raised when the seventh tool was added, but only for
+  *resizing* — the window CREATION path had its own copy of the old literal, so
+  any capture small enough to hit the floor opened one button short. Both now
+  come from one derived constant, and the conversion from client size to frame
+  size is DPI-aware, which it was not: `AdjustWindowRectEx` reports non-client
+  metrics at 96 DPI regardless of the display, so on a scaled monitor the
+  client area could still be dragged under the minimum.
+
+### Added
+
+- **Full-screen recordings now get the green dashed frame.** A region covering
+  the whole monitor has no outside to put a border in, so the frame was created,
+  positioned off the edge of the desktop, and never seen — leaving the corner
+  pill as the only indicator.
+
+  For that case the frame is now drawn just inside the screen edges and hidden
+  from the capture with `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`, the
+  mechanism Windows provides for exactly this. It needs Windows 10 version
+  2004; on anything older the frame stays outside and full screen has no frame,
+  as before.
+
+  Two guards, because a border wrongly believed to be hidden would be recorded
+  into every video: the test is whether the region covers **all four** monitor
+  edges rather than any of them, and the affinity is read back and required to
+  match exactly — `WDA_EXCLUDEFROMCAPTURE` is `WDA_MONITOR` plus a bit, so an
+  older build could accept the call and black the window out instead.
+
+  The same mechanism keeps the Stop pill out of the video when it has to sit
+  inside the recorded area, which until now was an accepted limitation.
+
+### Changed
+
+- **Confirmations last 3 seconds instead of 1.6, and say what happened.**
+  These are the only feedback the program gives, there being no notification
+  banner anywhere in it, and 1.6 seconds was long enough to notice a message
+  but not to read one. Every message was rewritten as a sentence:
+
+  | was | is |
+  |---|---|
+  | `reset` | `Sanitized and restored to defaults` |
+  | `98 chars copied` | `Copied 98 characters to the clipboard` |
+  | `copied` | `Copied 98 characters again` |
+  | `no text found` | `No text found in that capture` |
+  | `copy failed` | `Found the text, but the clipboard refused it` |
+  | `saved …mp4` | `Recording saved · …mp4` |
+  | `⚠ capture failed` | `⚠ The capture failed` |
+
+  The box now also clamps its width to the screen and ellipsises the end
+  rather than the middle, since the longest message carries a generated file
+  name.
 
 ## [1.6.0] — 2026-09-26
 

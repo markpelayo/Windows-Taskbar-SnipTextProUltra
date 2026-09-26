@@ -23,6 +23,63 @@ constexpr int kPillPadding = 12;
 constexpr int kPillGap     = 8;   // between the frame and the pill
 constexpr int kPillDotGap  = 8;   // between the dot and the text
 
+// --- keeping the indicator out of the recording ----------------------------
+//
+// The region frame solves this geometrically: it is drawn OUTSIDE the recorded
+// rectangle, so it cannot be captured. Full screen has no outside, which is
+// why there was no frame during a full-screen recording at all — the window
+// was created, positioned off the edge of the desktop, and never seen.
+//
+// SetWindowDisplayAffinity with WDA_EXCLUDEFROMCAPTURE is the mechanism
+// Windows provides for precisely this, and the documentation names this exact
+// use case: "windows that show video recording controls, so that the controls
+// are not included in the capture." The window keeps rendering on the physical
+// monitor and disappears from anything that captures the screen.
+//
+// Windows 10 version 2004 (build 19041) and later. On anything older the call
+// fails, and the caller has to fall back to the geometric guarantee rather
+// than assume it worked — a frame we *think* is excluded but is not would be
+// burned into every recording.
+#ifndef WDA_EXCLUDEFROMCAPTURE
+#define WDA_EXCLUDEFROMCAPTURE 0x00000011
+#endif
+
+bool ExcludeFromCapture(HWND hwnd) {
+    if (!hwnd) return false;
+    // Resolved dynamically. The function has existed in user32 since Windows 7,
+    // but importing it statically would make the whole program refuse to start
+    // on anything older, to buy a cosmetic feature — and this program has no
+    // other reason to require a particular build.
+    using SetAffinity = BOOL (WINAPI*)(HWND, DWORD);
+    static SetAffinity setAffinity = []() -> SetAffinity {
+        HMODULE user32 = ::GetModuleHandleW(L"user32.dll");
+        return user32 ? reinterpret_cast<SetAffinity>(
+                            ::GetProcAddress(user32, "SetWindowDisplayAffinity"))
+                      : nullptr;
+    }();
+    if (!setAffinity) return false;
+    if (!setAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)) return false;
+
+    // Read it back, and insist on the exact value. WDA_EXCLUDEFROMCAPTURE is
+    // 0x11, which is WDA_MONITOR (0x01) with an extra bit set, so a build that
+    // does not know the newer flag could plausibly accept the call and apply
+    // WDA_MONITOR instead — which blacks the window out of the capture rather
+    // than removing it, putting a black band in the video. That is the exact
+    // outcome the fallback exists to avoid, so it is not worth inferring from
+    // a BOOL.
+    using GetAffinity = BOOL (WINAPI*)(HWND, DWORD*);
+    static GetAffinity getAffinity = []() -> GetAffinity {
+        HMODULE user32 = ::GetModuleHandleW(L"user32.dll");
+        return user32 ? reinterpret_cast<GetAffinity>(
+                            ::GetProcAddress(user32, "GetWindowDisplayAffinity"))
+                      : nullptr;
+    }();
+    if (!getAffinity) return false;
+
+    DWORD applied = 0;
+    return getAffinity(hwnd, &applied) && applied == WDA_EXCLUDEFROMCAPTURE;
+}
+
 HFONT PillFont() {
     static HFONT font = nullptr;
     if (!font) {
@@ -139,20 +196,69 @@ void RecordingIndicator::Show(const RECT& region, std::function<void()> onStop) 
     }
 
     // --- the frame ---
-    // The window is the region grown by the border thickness, and is then
+    // Normally the window is the region GROWN by the border thickness, then
     // shaped down to the dashes themselves (see BuildDashRegion). Every pixel
     // it owns is therefore green and sits strictly outside the recorded
     // rectangle: it cannot end up in the video, and it cannot cover what is
-    // being recorded.
-    const RECT outer = util::InflateRect(region_, kBorderThickness, kBorderThickness);
-    const int outerWidth  = util::RectWidth(outer);
-    const int outerHeight = util::RectHeight(outer);
+    // being recorded. That is a geometric guarantee and needs nothing from the
+    // OS.
+    //
+    // It also cannot work for a full-screen recording, because there is no
+    // outside — the grown rectangle falls off the edge of the desktop and the
+    // frame is simply never visible. That was the state of things: full-screen
+    // recordings had no frame, only the pill in the corner.
+    //
+    // So: if the region already reaches the edge of its monitor, try to place
+    // the frame just INSIDE the region instead, and rely on
+    // WDA_EXCLUDEFROMCAPTURE to keep it out of the file. Only if that
+    // succeeds. If the affinity call fails — anything before Windows 10
+    // 2004 — fall back to the outside placement, which means no visible frame
+    // for full screen, exactly as before. A frame burned into every recording
+    // is far worse than no frame.
+    RECT desktop{};
+    MONITORINFO frameMonitor{};
+    frameMonitor.cbSize = sizeof(frameMonitor);
+    if (::GetMonitorInfoW(::MonitorFromRect(&region_, MONITOR_DEFAULTTONEAREST),
+                          &frameMonitor)) {
+        desktop = frameMonitor.rcMonitor;
+    }
+
+    // ALL four edges, not any of them. "Any" would catch every region merely
+    // snapped to a screen edge — dragged to x=0, or the size of a maximised
+    // window — and move its frame inside the capture on all four sides, when
+    // the geometric placement was still perfectly good on the other three.
+    // That is a regression for ordinary region recordings, and the question
+    // being asked here is only ever "is this the whole monitor".
+    const bool coversMonitor = !::IsRectEmpty(&desktop)
+                             && region_.left   <= desktop.left
+                             && region_.top    <= desktop.top
+                             && region_.right  >= desktop.right
+                             && region_.bottom >= desktop.bottom;
+
+    RECT outer = util::InflateRect(region_, kBorderThickness, kBorderThickness);
+    bool insideRegion = false;
 
     frame_ = ::CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT,
         kFrameClass, L"", WS_POPUP,
-        outer.left, outer.top, outerWidth, outerHeight,
+        outer.left, outer.top, util::RectWidth(outer), util::RectHeight(outer),
         nullptr, nullptr, ::GetModuleHandleW(nullptr), this);
+
+    if (frame_ && coversMonitor) {
+        if (ExcludeFromCapture(frame_)) {
+            outer        = region_;   // the dashes now sit inside the capture
+            insideRegion = true;
+            ::SetWindowPos(frame_, nullptr, outer.left, outer.top,
+                           util::RectWidth(outer), util::RectHeight(outer),
+                           SWP_NOZORDER | SWP_NOACTIVATE);
+        } else {
+            logging::Write(L"recorder: this build of Windows can't hide a window from "
+                           L"screen capture, so a full-screen recording has no frame");
+        }
+    }
+
+    const int outerWidth  = util::RectWidth(outer);
+    const int outerHeight = util::RectHeight(outer);
 
     if (frame_) {
         ScopedRegion dashes = BuildDashRegion(outerWidth, outerHeight, kBorderThickness);
@@ -177,11 +283,26 @@ void RecordingIndicator::Show(const RECT& region, std::function<void()> onStop) 
         kPillClass, L"", WS_POPUP,
         pillRect.left, pillRect.top, util::RectWidth(pillRect), util::RectHeight(pillRect),
         nullptr, nullptr, ::GetModuleHandleW(nullptr), this);
-    if (pill_) ::ShowWindow(pill_, SW_SHOWNA);
+    if (pill_) {
+        // Always, not only when the pill has to sit inside the region. It is
+        // free when it is not needed, and it fixes a case that was previously
+        // just logged and accepted: a region with no room beside it put the
+        // Stop button into the recording.
+        const bool pillHidden = ExcludeFromCapture(pill_);
+        ::ShowWindow(pill_, SW_SHOWNA);
 
-    if (pillInsideCapture_) {
-        logging::Write(L"recorder: no room beside the region, so the Stop pill sits "
-                       L"inside it and will appear in the video");
+        if (pillInsideCapture_ && !pillHidden) {
+            logging::Write(L"recorder: no room beside the region, so the Stop pill sits "
+                           L"inside it and will appear in the video");
+        }
+    }
+
+    // Guarded: the frame can have been destroyed above when it could not be
+    // shaped, and logging "frame outside the region" two lines after "leaving
+    // it off" is worse than logging nothing.
+    if (frame_) {
+        logging::Write(util::Format(L"recorder: indicator frame %s the region",
+                                    insideRegion ? L"inside" : L"outside"));
     }
 }
 

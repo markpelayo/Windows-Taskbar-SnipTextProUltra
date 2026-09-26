@@ -761,8 +761,29 @@ DWORD WINAPI ScreenRecorder::WorkerEntry(void* parameter) {
                 HDC target = frame->MemoryDC();
                 WindowDC screen(nullptr);
                 if (target && screen) {
+                    // SRCCOPY alone. NOT SRCCOPY | CAPTUREBLT, and this is the
+                    // whole reason the mouse pointer used to strobe while
+                    // recording.
+                    //
+                    // CAPTUREBLT tells GDI to include layered windows in the
+                    // result, and to do that it has the system take the cursor
+                    // down and put it back around the blt. Once, for a
+                    // screenshot, that is imperceptible — which is why
+                    // Capture.cpp still uses it and should. Thirty times a
+                    // second it is a visible flicker on the real desktop, for
+                    // as long as the recording runs.
+                    //
+                    // Note the symptom was on SCREEN, not in the file: the
+                    // recorded frames were always fine, which is what made it
+                    // look like a display driver problem rather than ours.
+                    //
+                    // What this costs: layered windows are no longer included.
+                    // In practice DWM composites most of what matters into the
+                    // screen DC anyway, and a recording that is missing a
+                    // translucent overlay is a much smaller problem than a
+                    // pointer that flashes throughout it.
                     ::BitBlt(target, 0, 0, sourceWidth, sourceHeight, screen.get(),
-                             config->region.left, config->region.top, SRCCOPY | CAPTUREBLT);
+                             config->region.left, config->region.top, SRCCOPY);
                     if (config->drawCursor) DrawCursorInto(target, config->region);
                     if (config->drawClicks) DrawClickHighlight(target, config->region);
                     frame->MakeOpaque();

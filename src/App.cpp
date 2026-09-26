@@ -1093,7 +1093,8 @@ void App::OnCommand(int command) {
     case ID_TEXT_FULL:    ScreenshotToText(capture::Mode::FullScreen); return;
     case ID_TEXT_SHOW:    MediaFolder::TextImages().Reveal(); return;
     case ID_TEXT_COPYLAST:
-        if (!lastText_.empty() && clipboard::CopyText(hwnd_, lastText_)) toast::Show(L"copied");
+        if (!lastText_.empty() && clipboard::CopyText(hwnd_, lastText_))
+            toast::Show(util::Format(L"Copied %zu characters again", lastText_.size()));
         return;
 
     case ID_REC_REGION:   BeginRecording(true); return;
@@ -1265,13 +1266,14 @@ void App::Screenshot(capture::Mode mode) {
         if (copied) {
             logging::Write(util::Format(L"screenshot: copied %dx%d to the clipboard (%s)",
                                         width, height, capture::ModeLabel(mode)));
-            toast::Show(util::Format(L"copied %d × %d", width, height));
+            toast::Show(util::Format(L"Screenshot copied to the clipboard · %d × %d",
+                                     width, height));
         } else {
             // Another process can hold the clipboard open, and then the shot
             // exists nowhere the user can reach unless auto-save happened to
             // catch it. Silence here would look exactly like success.
             logging::Write(L"screenshot: the clipboard refused the image");
-            toast::Show(L"couldn't copy — the clipboard is busy");
+            toast::Show(L"Couldn’t copy — another program is holding the clipboard");
         }
         return;
     }
@@ -1370,7 +1372,7 @@ void App::OnOcrFinished(OcrOutcome* raw) {
 
     if (outcome->text.empty()) {
         logging::Write(L"capture produced no readable text");
-        toast::Show(L"no text found");
+        toast::Show(L"No text found in that capture");
         return;
     }
 
@@ -1382,8 +1384,10 @@ void App::OnOcrFinished(OcrOutcome* raw) {
     // last" can retry it.
     lastText_ = outcome->text;
 
-    toast::Show(copied ? util::Format(L"%zu chars copied", outcome->text.size())
-                       : std::wstring(L"copy failed"));
+    toast::Show(copied
+                    ? util::Format(L"Copied %zu characters to the clipboard",
+                                   outcome->text.size())
+                    : std::wstring(L"Found the text, but the clipboard refused it"));
     logging::Write(util::Format(L"copied %zu chars from %zu lines (%s)",
                    outcome->text.size(), outcome->lineCount,
                    capture::ModeLabel(outcome->mode)));
@@ -1532,7 +1536,7 @@ void App::OnRecordingFinished(const std::wstring& path, const std::wstring& fail
         return;
     }
     if (path.empty()) return;
-    toast::Show(L"saved " + util::LastPathComponent(path));
+    toast::Show(L"Recording saved · " + util::LastPathComponent(path));
 }
 
 // --- settings actions ------------------------------------------------------
@@ -1707,11 +1711,11 @@ void App::Sanitize() {
     lastText_.clear();   // the last OCR result is captured content too
 
     logging::Write(L"sanitize: settings restored to defaults");
-    toast::Show(L"reset");
+    toast::Show(L"Sanitized and restored to defaults");
 }
 
 void App::ReportFailure(const std::wstring& message) {
-    toast::Show(L"⚠ capture failed");
+    toast::Show(L"⚠ The capture failed");
     ::SetForegroundWindow(hwnd_);
     ::MessageBoxW(hwnd_, message.c_str(), L"SnipText couldn't capture",
                   MB_OK | MB_ICONWARNING);

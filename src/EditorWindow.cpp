@@ -59,6 +59,29 @@ constexpr int kToolWidth     = 62;
 constexpr int kSwatchWidth   = 52;
 constexpr int kSliderWidth   = 140;
 
+// The narrowest the window may be without clipping a toolbar button off the
+// right edge. Derived, because a literal here is a number that has to be
+// remembered every time a button is added — and is not, which is how the Lift
+// button went missing on small captures: the minimum size was raised for
+// resizing but the CREATION size still had its own copy of the old literal,
+// so any capture small enough to hit the floor opened one button short.
+//
+// The bottom bar is the widest row: padding, swatch, slider, then one button
+// per tool, each followed by a 6px gap.
+constexpr int kMinContentWidth = kBarPadding
+                               + kSwatchWidth + 6
+                               + kSliderWidth + 6
+                               + kToolCount * (kToolWidth + 6)
+                               + kBarPadding;
+
+// The whole client area, bars included — the same thing the width constant
+// means. Defining it as the CANVAS height instead is what let the two floors
+// disagree: creation added the two bars on top of 380 and so floored the
+// client at 468, while the resize minimum used 380 as the entire client and
+// left the canvas 292px.
+constexpr int kMinCanvasHeight  = 380;
+constexpr int kMinContentHeight = kMinCanvasHeight + kBarHeight * 2;
+
 // Chrome is drawn in view units, not image units, so handles stay a usable
 // size on a canvas that has been scaled down.
 constexpr int    kHandleSize    = 9;
@@ -185,12 +208,24 @@ bool EditorWindow::Create() {
         (std::min)(availableWidth * 0.8 / (std::max)(1, image_->Width()),
                    (availableHeight * 0.8 - 160) / (std::max)(1, image_->Height())));
 
-    const int contentWidth  = (std::max)(620, static_cast<int>(image_->Width() * fit));
-    const int contentHeight = (std::max)(380, static_cast<int>(image_->Height() * fit))
-                            + kBarHeight * 2;
+    // Both floors come from the shared constants, so the size the window
+    // OPENS at and the size it can be RESIZED to agree by construction. They
+    // did not before, and the creation path was the one with the stale number.
+    const int contentWidth  = (std::max)(kMinContentWidth,
+                                         static_cast<int>(image_->Width() * fit));
+    const int contentHeight = (std::max)(kMinContentHeight,
+                                         static_cast<int>(image_->Height() * fit)
+                                             + kBarHeight * 2);
 
+    // ...ForDpi, not the plain one. AdjustWindowRectEx reports non-client
+    // metrics at 96 DPI regardless of the actual display, and this process is
+    // Per-Monitor-V2 — so on a 150% monitor the real caption and border are
+    // larger than it claims and the client area comes out short. There is no
+    // window yet to ask about, so this is the system DPI; WM_GETMINMAXINFO
+    // below asks the window itself once there is one.
     RECT frameRect{ 0, 0, contentWidth, contentHeight };
-    ::AdjustWindowRectEx(&frameRect, WS_OVERLAPPEDWINDOW, FALSE, 0);
+    ::AdjustWindowRectExForDpi(&frameRect, WS_OVERLAPPEDWINDOW, FALSE, 0,
+                               ::GetDpiForSystem());
 
     hwnd_ = ::CreateWindowExW(
         0, kFrameClass, baseTitle_.c_str(), WS_OVERLAPPEDWINDOW,
@@ -296,19 +331,18 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
 
     case WM_GETMINMAXINFO: {
         auto* info = reinterpret_cast<MINMAXINFO*>(lParam);
-        // Derived, not guessed. The bottom row is the widest thing in the
-        // window — swatch, slider, then one button per tool, each followed by
-        // a 6px gap — and a minimum narrower than that row silently clips the
-        // last tool button off the right edge. It was a literal 620, which was
-        // eight pixels of slack with six tools and would have been sixteen
-        // short with seven.
-        constexpr int kBottomRowWidth = kBarPadding
-                                      + kSwatchWidth + 6
-                                      + kSliderWidth + 6
-                                      + kToolCount * (kToolWidth + 6)
-                                      + kBarPadding;
-        info->ptMinTrackSize.x = (std::max)(620, kBottomRowWidth);
-        info->ptMinTrackSize.y = 380;
+
+        // Same two constants the creation path uses — but converted from a
+        // CLIENT size to a FRAME size first, which is the units this message
+        // is in. Assigning the client minimum directly would leave the border
+        // and title bar unaccounted for, so the client area could still be
+        // squeezed about sixteen pixels under the minimum and clip the last
+        // tool button after all: the same bug, quieter.
+        RECT frame{ 0, 0, kMinContentWidth, kMinContentHeight };
+        ::AdjustWindowRectExForDpi(&frame, WS_OVERLAPPEDWINDOW, FALSE, 0,
+                                   ::GetDpiForWindow(hwnd));
+        info->ptMinTrackSize.x = util::RectWidth(frame);
+        info->ptMinTrackSize.y = util::RectHeight(frame);
         return 0;
     }
 

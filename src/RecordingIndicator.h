@@ -2,10 +2,19 @@
 //
 // Two windows, and the split between them is deliberate:
 //
-//   The frame   A green dashed border drawn strictly OUTSIDE the captured
-//               rectangle. It says *what* is being recorded, it is painted
-//               once and then costs nothing, and because it sits outside the
-//               capture it never appears in the resulting video.
+//   The frame   A green dashed border that says *what* is being recorded. It
+//               is painted once and then costs nothing.
+//
+//               For a region it is drawn strictly OUTSIDE the captured
+//               rectangle, so it cannot appear in the video — a geometric
+//               guarantee that needs nothing from the OS.
+//
+//               A full-screen region has no outside, so there the border is
+//               drawn just INSIDE the screen edges and kept out of the video
+//               by SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE), which
+//               needs Windows 10 2004. The affinity is read back and checked
+//               rather than assumed; if it did not take, the frame stays
+//               outside and full screen has no frame, as it did before.
 //
 //   The pill    A small "● 00:24  Stop" button. It says *that* a recording is
 //               running, carries the elapsed time, and stops it in one click.

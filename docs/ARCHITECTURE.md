@@ -270,6 +270,14 @@ A custom `.wav` overrides it. If that file has gone missing the built-in sound p
 
 Media Foundation's sink writer over an MP4 sink: H.264 video, AAC audio when a microphone is selected. Frames come from `BitBlt` on a worker thread, paced against wall-clock time rather than a fixed sleep, so a slow frame does not make the recording drift behind real time.
 
+### Why the recorder's BitBlt is SRCCOPY and not SRCCOPY | CAPTUREBLT
+
+The screenshot path in `Capture.cpp` uses `CAPTUREBLT`, which tells GDI to include layered windows. The recorder deliberately does not, and the reason is a symptom that looks like a driver bug: to include layered windows, the system takes the mouse cursor down and puts it back around the blt. Once, for a screenshot, that is imperceptible. Thirty times a second it makes the real pointer strobe on the desktop for as long as the recording runs.
+
+The give-away is that the recorded frames were always fine — the flicker was only ever on screen, never in the file, which is what makes it hard to attribute.
+
+What this costs is layered-window fidelity in recordings. In practice DWM composites most of what matters into the screen DC anyway, and a recording missing a translucent overlay is a far smaller problem than a pointer that flashes throughout it.
+
 ### The state machine cannot wedge
 
 A recorder that can wedge is worse than one that occasionally fails. The failure mode is a timer counting up, a Stop that does nothing, and no way to start again short of quitting.
@@ -290,13 +298,20 @@ The first version put a blinking icon in the notification area and nothing else,
 
 The replacement is two windows, split by what each is for.
 
-**The frame** says *what* is being recorded: a green dashed border around the region. It is sized to the region grown by the border thickness, and then the exact region is punched out of it with `SetWindowRgn`. What remains occupies only pixels **outside** the recorded rectangle, which buys two things at once — it cannot appear in the video, and it cannot cover the thing being recorded. It is `WS_EX_LAYERED | WS_EX_TRANSPARENT` and answers `HTTRANSPARENT`, so clicks pass straight through.
+**The frame** says *what* is being recorded: a green dashed border around the region. It is sized to the region grown by the border thickness, and then the exact region is punched out of it with `SetWindowRgn`. What remains occupies only pixels **outside** the recorded rectangle, which buys two things at once — it cannot appear in the video, and it cannot cover the thing being recorded. It is `WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT` and answers `HTTRANSPARENT`, so clicks pass straight through. (It is *not* layered, which matters when reading the recorder: layering was never what kept it out of the video.)
+
+**Full screen is the exception**, because a region that is the whole monitor has no outside — the grown rectangle falls off the edge of the desktop and the frame is never seen. For that case only, the frame is placed *inside* the region and kept out of the video by `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`, which is the mechanism Windows provides for exactly this and whose documentation names this use case.
+
+Two guards on that, because a frame wrongly believed to be excluded would be burned into every recording:
+
+- The test is whether the region covers **all four** monitor edges, not any of them. "Any" would catch every region merely snapped to a screen edge and move its frame inside the capture on all four sides.
+- The affinity is **read back** with `GetWindowDisplayAffinity` and required to equal `WDA_EXCLUDEFROMCAPTURE` exactly. That flag is `0x11`, which is `WDA_MONITOR` (`0x01`) plus a bit, so a build predating Windows 10 2004 could plausibly accept the call and apply `WDA_MONITOR` instead — putting a black band in the video rather than nothing. If the read-back disagrees, the frame stays outside and a full-screen recording simply has no frame, as before.
 
 It is also painted exactly once. A static border costs nothing to keep on screen, which is why the dashes do not march.
 
 The dashes are filled rectangles rather than a dashed pen: a pen's dash pattern is defined along the path, so drawing the four sides as one rectangle leaves the dashes meeting raggedly at the corners. The corners are drawn solid for the same reason.
 
-**The pill** says *that* it is recording, and stops it: `● 00:24  Stop`, placed below the frame, or above it if there is no room below. Both of those are outside the recorded rectangle. A full-screen recording has no outside, so it goes in the bottom-left corner of the region and the log records that it will be in the video — an honest line beats a surprise.
+**The pill** says *that* it is recording, and stops it: `● 00:24  Stop`, placed below the frame, or above it if there is no room below. Both of those are outside the recorded rectangle. When there is no room outside — a full-screen recording, or a region hard against the edges — it goes in the bottom-left corner of the region, and `WDA_EXCLUDEFROMCAPTURE` keeps it out of the video there too. On a build too old for that flag it does appear, and the log says so; an honest line beats a surprise.
 
 Two details:
 

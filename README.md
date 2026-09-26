@@ -310,8 +310,12 @@ The overlay is hidden before the first frame is grabbed, so it never appears in 
 
 Two things appear the moment a recording starts:
 
-- **A green dashed frame** around the recorded area, so there is never any doubt about what is being captured. It is drawn strictly *outside* the captured rectangle, which means it never appears in the resulting video — and it is painted once and then costs nothing.
-- **A Stop pill** — `● 00:24  Stop` — placed just outside the frame. It carries the elapsed time, its dot pulses once a second, and one click stops the recording. It is also placed outside the captured area wherever there is room; on a full-screen recording there is nowhere outside, so it sits in the bottom-left corner and *does* appear in the video. The log says so when that happens.
+- **A green dashed frame** around the recorded area, so there is never any doubt about what is being captured. For a region it is drawn strictly *outside* the captured rectangle, so it cannot appear in the video. It is painted once and then costs nothing.
+- **A Stop pill** — `● 00:24  Stop` — placed just outside the frame. It carries the elapsed time, its dot pulses once a second, and one click stops the recording.
+
+**Full-screen recordings get the frame too**, which they previously did not. A region covering the whole monitor has no outside to put a border in, so for that case the frame is drawn just *inside* the screen edges and hidden from the capture with `SetWindowDisplayAffinity` — the Windows mechanism intended for exactly this, whose own documentation gives "windows that show video recording controls" as the example. It needs **Windows 10 version 2004 or later**; on anything older the frame stays outside, which means a full-screen recording has no frame, exactly as before. The program checks that the flag really took effect rather than assuming it, because a border wrongly believed to be hidden would be recorded into every video.
+
+The same mechanism keeps the Stop pill out of the video when it has to sit inside the recorded area — which used to be an accepted limitation noted in the log.
 
 A red square also appears in the notification area as a second way to stop. It is not the indicator, though — Windows 11 collapses the notification area behind a chevron by default, so anything that lives only there is invisible to most people.
 

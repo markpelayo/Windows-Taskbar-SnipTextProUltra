@@ -149,7 +149,7 @@ If another program already owns a combination, `RegisterHotKey` refuses it. That
 ## The menu
 
 ```
-SnipTextProUltra  ·  v1.3.0  ·  by markpelayo
+SnipTextProUltra  ·  v1.5.0             markpelayo
 ──────────────────────
   Screenshot a Region…            Ctrl+Shift+1
   Screenshot Full Screen          Ctrl+Shift+2
@@ -195,6 +195,19 @@ On *Aperture*: people ask for "the macOS screenshot sound". Apple's is their aud
 Each section is just its commands, and everything those commands produced lives together under **Show Saved Files**. The command names carry the section, so there are no headers repeating what the row beneath already says.
 
 The first row names the program, its version and its author, so a screenshot of the menu is enough to tell someone which build you are on. It is also a command: clicking it opens the repository.
+
+
+### Why the author sits in the shortcut column
+
+Windows splits a menu label at a tab: what comes before it goes in the left column, what comes after is right-aligned in a second column — the one holding `Ctrl+Shift+1`. The menu's width is then *widest left entry + widest right entry*.
+
+The title row originally had no tab, so all 45 characters of `SnipTextProUltra · v1.5.0 · by markpelayo` counted as one left-column entry, against a longest command label of 29. That one row was pushing the shortcut column about 100 px right, and every row below inherited a menu that wide.
+
+Putting `markpelayo` after a tab moves it into a column that already exists and is wider than it, so it costs nothing: `Ctrl+Shift+1` was already setting that width. What remains on the left is 27 characters — inside the 29 the command labels demand anyway.
+
+Worth knowing if you shorten it further: there is a floor. Below about 29 characters the title stops being the widest row and the commands take over, so trimming past that point buys no width at all.
+
+A build from a working tree is wider, because the title carries the commit hash there — `v1.5.0 (49f8c74)`. Released builds show the version alone.
 
 ---
 

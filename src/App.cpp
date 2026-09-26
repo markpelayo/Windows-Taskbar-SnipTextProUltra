@@ -133,8 +133,30 @@ void AppendTitleRow(HMENU menu) {
     // information the program running on that platform does not need — and it
     // made this row the widest in the menu, which set the width of every row
     // beneath it.
+    // The tab is the whole trick, and it is worth explaining because the
+    // obvious fix — deleting characters — is the wrong one.
+    //
+    // Windows splits a menu label at a tab: what precedes it goes in the left
+    // column, what follows is right-aligned in a second column. That second
+    // column is what holds Ctrl+Shift+1 and friends, and the menu's width is
+    // (widest left entry) + (widest right entry).
+    //
+    // Without a tab this row was a single 45-character LEFT entry, against a
+    // longest command label of 28 ("ScreenshotToText Full Screen"). So the
+    // title alone pushed the shortcut column roughly a hundred pixels right,
+    // and every row below it inherited a menu that wide.
+    //
+    // Moving the author into the right column costs nothing at all:
+    // "markpelayo" is narrower than "Ctrl+Shift+1", which is already setting
+    // that column's width, and what is left on the left is 27 characters —
+    // just inside the 28 the command labels demand anyway. Nothing is lost
+    // from the row and the dead space disappears.
+    //
+    // A dev build widens this again, because SNIPTEXT_VERSION_DISPLAY carries
+    // the commit hash. That is confined to dev builds by construction, and
+    // knowing which build is on screen is worth more than its width.
     const std::wstring title = L"SnipTextProUltra  ·  v" SNIPTEXT_VERSION_DISPLAY
-                               L"  ·  by markpelayo";
+                               L"\tmarkpelayo";
     ::AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(ID_ABOUT), title.c_str());
 }
 

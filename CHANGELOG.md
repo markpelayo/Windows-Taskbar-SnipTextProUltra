@@ -48,6 +48,22 @@ adheres to [Semantic Versioning](https://semver.org).
   compresses far better than camera footage, so the old fixed bitrate was
   spending bits encoding a static desktop very precisely.
 
+- **The menu is narrower**, by roughly the width of the empty gap between the
+  commands and their shortcuts.
+
+  The title row was the cause, though not for the reason it looks like — there
+  was no stray whitespace in it. Windows splits a menu label at a tab: what
+  precedes the tab is a left-column entry, what follows is right-aligned in a
+  second column, and the menu's width is *widest left entry + widest right
+  entry*. The title row had no tab, so all 45 characters of
+  `SnipTextProUltra · v1.5.0 · by markpelayo` counted as one left-column
+  entry, against a longest command label of 29. That single row pushed the
+  shortcut column about 100 px right and every row below inherited it.
+
+  `markpelayo` now sits after a tab, in the column that already existed and
+  was already wider than it — `Ctrl+Shift+1` sets that width, not the name.
+  Nothing was removed from the row, and the gap is gone.
+
 - **Lift**, a seventh tool in the annotation editor, after *Text*. Drag a
   rectangle over any part of the capture and that region becomes a piece you
   can drag somewhere else in the same image — for when pointing at something

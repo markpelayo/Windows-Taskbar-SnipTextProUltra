@@ -153,7 +153,18 @@ HBITMAP RecordingDotBitmap() {
     // and this needs premultiplied. A filled circle with a one-pixel soft edge
     // is four lines of arithmetic; converting afterwards would be more.
     const double centre = (size - 1) / 2.0;
-    const double radius = size * 0.34;   // smaller than the gutter, like a check mark
+
+    // As a fraction of the gutter. 0.34 matched the visual weight of a check
+    // mark, which turned out to be too discreet for something whose whole job
+    // is to catch the eye; 0.44 nearly fills the gutter, leaving about a pixel
+    // for the anti-aliased edge to land in.
+    //
+    // This is the ceiling for a dot that costs nothing. Going bigger means a
+    // bitmap wider than SM_CXMENUCHECK, and Windows grows the row to fit it —
+    // so that one row ends up taller than the eleven around it, which reads as
+    // a layout bug rather than as emphasis.
+    constexpr double kDotFraction = 0.44;
+    const double radius = size * kDotFraction;
     BYTE* pixels = static_cast<BYTE*>(bits);
 
     for (int y = 0; y < size; ++y) {

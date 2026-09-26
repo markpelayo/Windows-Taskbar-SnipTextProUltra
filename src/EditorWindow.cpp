@@ -338,9 +338,18 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
         // and title bar unaccounted for, so the client area could still be
         // squeezed about sixteen pixels under the minimum and clip the last
         // tool button after all: the same bug, quieter.
+        // hwnd_, not hwnd: OnFrameMessage is a member and takes no window
+        // handle — FrameProc has already resolved it and stored it.
+        //
+        // The fallback is not decoration. GetDpiForWindow returns 0 for a
+        // handle it does not like, and AdjustWindowRectExForDpi given 0 does
+        // not fail loudly — it produces a minimum size that is quietly wrong,
+        // which is the same class of bug this whole change is fixing.
+        const UINT dpi = hwnd_ ? ::GetDpiForWindow(hwnd_) : ::GetDpiForSystem();
+
         RECT frame{ 0, 0, kMinContentWidth, kMinContentHeight };
         ::AdjustWindowRectExForDpi(&frame, WS_OVERLAPPEDWINDOW, FALSE, 0,
-                                   ::GetDpiForWindow(hwnd));
+                                   dpi ? dpi : USER_DEFAULT_SCREEN_DPI);
         info->ptMinTrackSize.x = util::RectWidth(frame);
         info->ptMinTrackSize.y = util::RectHeight(frame);
         return 0;

@@ -48,6 +48,22 @@ adheres to [Semantic Versioning](https://semver.org).
   compresses far better than camera footage, so the old fixed bitrate was
   spending bits encoding a static desktop very precisely.
 
+- **After a Screenshot**, below *Shutter Sound*, with two states named the
+  same way *Text Layout* is:
+  - **Open the Editor** (default) — unchanged behaviour.
+  - **Copy to Clipboard and Close** — the capture goes straight to the
+    clipboard and nothing opens. Shutter, a confirmation with the pixel size,
+    and you can paste.
+
+  Auto-Save applies either way: with both on, the shot is written to disk
+  *and* put on the clipboard, and still nothing opens. Only the two Screenshot
+  commands are affected — *Screenshot to Text* never opened the editor.
+
+  A failed clipboard write says so rather than failing silently. Another
+  process can hold the clipboard open, and with the editor skipped there is
+  nowhere else the capture survives unless Auto-Save happened to catch it, so
+  silence would be indistinguishable from success.
+
 - **Dev builds identify themselves.** A build from a working tree now reads
   `v1.5.0 (808fa04)` in the menu title and the log, with a trailing `+` when
   the tree had uncommitted changes; a tagged release still reads `v1.5.0`.
@@ -63,6 +79,8 @@ adheres to [Semantic Versioning](https://semver.org).
   - *Record Region…* → **Screen Record a Region…**
   - *Record Full Screen* → **Screen Record Full Screen**
   - *Video Settings* → **Screen Recording Settings**
+  - *Auto-Save Images* → **Auto-Save Images to Local Machine**, now that
+    "copy to the clipboard" is also a thing a capture can do
 
   The shortcut-picker list uses the same names, so it stays a list of the
   commands rather than a second set of names for them.

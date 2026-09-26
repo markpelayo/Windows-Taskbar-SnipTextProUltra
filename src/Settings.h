@@ -32,6 +32,9 @@ inline constexpr const wchar_t* kShutterTone      = L"shutterTone";
 // Absent or empty means the built-in shutter; otherwise a path to a .wav.
 inline constexpr const wchar_t* kShutterSoundPath = L"shutterSoundPath";
 inline constexpr const wchar_t* kSaveCaptures     = L"saveCaptures";
+// Absent (the default) means a screenshot opens the annotation editor. True
+// means it goes straight to the clipboard and nothing opens.
+inline constexpr const wchar_t* kSkipEditor       = L"screenshotSkipsEditor";
 inline constexpr const wchar_t* kStartupDelay     = L"startupDelaySeconds";
 inline constexpr const wchar_t* kDebugMode        = L"debugMode";
 

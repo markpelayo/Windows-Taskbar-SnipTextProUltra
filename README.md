@@ -164,7 +164,8 @@ SnipTextProUltra  ·  v1.3.0  ·  by markpelayo
   Change Keyboard Shortcut ▸
   Text Layout            ▸
   Shutter Sound          ✓ ▸
-  Auto-Save Images
+  After a Screenshot     ▸
+  Auto-Save Images to Local Machine
   Save Locations         ▸
   Show Saved Files       ▸
   Screen Recording Settings ▸
@@ -219,6 +220,27 @@ The blank lines come from the same measurements: a gap wider than 1.6× the medi
 See [the architecture notes](docs/ARCHITECTURE.md#text-normalisation) for why the obvious approach doesn't work, and `tests/TextNormalizerTests.cpp` for the cases that shaped it.
 
 **Keep Every Line Separate** is the predictable one — verbatim, always. Reach for it when a capture comes back joined, or spaced out, in a way you did not want.
+
+---
+
+## After a Screenshot
+
+By default a Screenshot command opens the annotation editor. **Settings → After a Screenshot** lets you skip it:
+
+| | |
+|---|---|
+| **Open the Editor** (default) | The capture opens for marking up — arrows, boxes, text. |
+| **Copy to Clipboard and Close** | The capture goes straight to the clipboard and nothing opens. `Ctrl+V` anywhere. |
+
+*Copy to Clipboard and Close* is the quick path: shutter sound, a small confirmation above the taskbar with the pixel size, and you're already able to paste. Nothing to close, nothing to dismiss.
+
+Two things worth knowing:
+
+**Auto-Save applies either way.** With both on, the shot is written to disk *and* put on the clipboard, and still nothing opens.
+
+**It only affects the two Screenshot commands.** *Screenshot to Text* never opened the editor, so it is unchanged, and so is recording.
+
+If the clipboard write fails — another program can hold the clipboard open — you get a message saying so rather than silence, because silence would be indistinguishable from success and the capture would be gone.
 
 ---
 
@@ -303,7 +325,7 @@ But a container doesn't compress anything. It's an index and a wrapper around st
 
 ## Where files go
 
-**Auto-Save Images** is off by default. Turn it on and every capture is saved as a PNG, with each capture type in its own folder:
+**Auto-Save Images to Local Machine** is off by default. Turn it on and every capture is saved as a PNG, with each capture type in its own folder:
 
 ```
 %USERPROFILE%\Pictures\SnipText_Screenshot_Images\          ← Screenshot captures

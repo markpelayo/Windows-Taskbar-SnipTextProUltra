@@ -45,6 +45,7 @@ enum : int {
     ID_FOLDER_TEXT_CHOOSE, ID_FOLDER_TEXT_RESET,
     ID_FOLDER_VIDEO_CHOOSE, ID_FOLDER_VIDEO_RESET,
     ID_LAYOUT_REBUILD = 1030, ID_LAYOUT_LINES,
+    ID_AFTER_EDITOR = 1034, ID_AFTER_CLIPBOARD,
     ID_VID_CURSOR = 1040, ID_VID_CLICKS, ID_VID_HEVC,
     ID_SANITIZE = 1050, ID_QUIT, ID_ABOUT,
     ID_STARTUP_OFF = 1060, ID_STARTUP_ON,
@@ -736,7 +737,29 @@ HMENU App::BuildMenu() {
         }
         AppendSubmenu(menu, shutter, L"Shutter Sound", shutterOn);
     }
-    AppendCommand(menu, ID_SET_AUTOSAVE, L"Auto-Save Images", true,
+
+    // What a Screenshot command does once it has the pixels. Two rows rather
+    // than a checkbox for the same reason as Text Layout above: the choice is
+    // between two named behaviours, not between a behaviour and the absence of
+    // one, and "unchecked" would have had to carry "opens the editor" by
+    // implication.
+    //
+    // ScreenshotToText is unaffected — it never opened the editor — so the
+    // title says "a Screenshot" and means the two commands that did.
+    {
+        const bool skipEditor = settings::GetBool(settings::key::kSkipEditor, false);
+        HMENU after = ::CreatePopupMenu();
+        if (after) {
+            AppendCommand(after, ID_AFTER_EDITOR, L"Open the Editor", true, !skipEditor);
+            AppendCommand(after, ID_AFTER_CLIPBOARD, L"Copy to Clipboard and Close",
+                          true, skipEditor);
+            AppendSeparator(after);
+            AppendHeader(after, L"Auto-Save still applies either way.");
+        }
+        AppendSubmenu(menu, after, L"After a Screenshot");
+    }
+
+    AppendCommand(menu, ID_SET_AUTOSAVE, L"Auto-Save Images to Local Machine", true,
                   settings::GetBool(settings::key::kSaveCaptures, false));
 
     // --- where the three capture commands write ---
@@ -882,6 +905,7 @@ HMENU App::BuildMenu() {
         &&  settings::GetBool(settings::key::kJoinWrappedLines, true)
         &&  settings::GetBool(settings::key::kShutterSound, true)
         && !settings::GetBool(settings::key::kSaveCaptures, false)
+        && !settings::GetBool(settings::key::kSkipEditor, false)
         &&  settings::GetInt(settings::key::kStartupDelay, 0) == 0
         && !settings::IsRunAtStartupEnabled()
         &&  video::IsDefault()
@@ -1070,6 +1094,15 @@ void App::OnCommand(int command) {
     case ID_LAYOUT_LINES:
         settings::SetBool(settings::key::kJoinWrappedLines, false);
         return;
+
+    // Set rather than toggled, and the default row removes the value — the
+    // same two rules as Text Layout, for the same two reasons.
+    case ID_AFTER_EDITOR:
+        settings::Remove(settings::key::kSkipEditor);
+        return;
+    case ID_AFTER_CLIPBOARD:
+        settings::SetBool(settings::key::kSkipEditor, true);
+        return;
     case ID_ENGINE_AUTO:
         settings::Remove(settings::key::kOcrEngine);   // absent means the default
         return;
@@ -1192,9 +1225,35 @@ void App::Screenshot(capture::Mode mode) {
     }
 
     if (settings::GetBool(settings::key::kShutterSound, true)) capture::PlayShutter();
+
+    // Auto-save is orthogonal to what happens next: with both on, the shot is
+    // written to disk AND put on the clipboard, and nothing opens.
     if (settings::GetBool(settings::key::kSaveCaptures, false)) {
         std::vector<BYTE> png = image->EncodePng();
         if (!png.empty()) MediaFolder::Screenshots().SaveBytes(png.data(), png.size());
+    }
+
+    if (settings::GetBool(settings::key::kSkipEditor, false)) {
+        const int width  = image->Width();
+        const int height = image->Height();
+
+        // The same call the editor's Ctrl+C makes, so a quick capture and an
+        // unedited one put byte-identical data on the clipboard.
+        const bool copied = image->CopyToClipboard(hwnd_);
+        image.reset();   // the editor is not going to take it
+
+        if (copied) {
+            logging::Write(util::Format(L"screenshot: copied %dx%d to the clipboard (%s)",
+                                        width, height, capture::ModeLabel(mode)));
+            toast::Show(util::Format(L"copied %d × %d", width, height));
+        } else {
+            // Another process can hold the clipboard open, and then the shot
+            // exists nowhere the user can reach unless auto-save happened to
+            // catch it. Silence here would look exactly like success.
+            logging::Write(L"screenshot: the clipboard refused the image");
+            toast::Show(L"couldn't copy — the clipboard is busy");
+        }
+        return;
     }
 
     logging::Write(util::Format(L"screenshot: editor opened %dx%d (%s)",
@@ -1548,7 +1607,7 @@ void App::Sanitize() {
     message += L"These settings return to their defaults:\r\n"
                L"    • the three folder locations\r\n"
                L"    • all six keyboard shortcuts\r\n"
-               L"    • Text Layout, Shutter Sound, Auto-Save Images\r\n"
+               L"    • Text Layout, Shutter Sound, After a Screenshot, Auto-Save\r\n"
                L"    • all Screen Recording Settings\r\n"
                L"    • the annotation tool, colour and stroke width\r\n"
                L"    • Run at Startup (switched off)";
@@ -1608,6 +1667,7 @@ void App::Sanitize() {
     settings::Remove(settings::key::kShutterTone);
     settings::Remove(settings::key::kOcrEngine);
     settings::Remove(settings::key::kSaveCaptures);
+    settings::Remove(settings::key::kSkipEditor);
     settings::Remove(settings::key::kStartupDelay);
     video::RestoreDefaults();
     editor_settings::RestoreDefaults();

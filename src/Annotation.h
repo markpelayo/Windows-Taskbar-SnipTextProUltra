@@ -14,9 +14,24 @@
 
 #include "framework.h"
 
-namespace Gdiplus { class Graphics; }
+// Image as well as Graphics now, because Lift's Draw takes the picture it
+// reads its pixels out of. Forward declarations rather than gdiplus.h: this
+// header is included widely, and Gdiplus::Bitmap collides with our ::Bitmap.
+namespace Gdiplus { class Graphics; class Image; }
 
-enum class Tool { Arrow, Rectangle, Ellipse, Line, Pen, Text };
+// Lift is the odd one out: every other tool draws ink of its own, while Lift
+// re-draws a rectangle of the underlying picture somewhere else. It is still
+// an Annotation rather than a change to the pixels, which is the whole point —
+// it stays movable, resizable and undoable like any other mark, and the
+// original capture is never modified.
+enum class Tool { Arrow, Rectangle, Ellipse, Line, Pen, Text, Lift };
+
+// The toolbar builds its buttons, maps their command IDs back to tools, and
+// sizes its button array from this. It was a literal 6 in four separate
+// places, which is three chances to add a tool and update only some of them —
+// and the failure is quiet: the button simply never appears, or appears and
+// selects the wrong tool.
+inline constexpr int kToolCount = 7;
 
 const wchar_t* ToolKeyValue(Tool tool);     // the persisted string
 const wchar_t* ToolTitle(Tool tool);
@@ -46,6 +61,14 @@ struct Annotation {
     std::vector<PointD> points;               // freehand only
     std::wstring        text;                 // text tool only
 
+    // Lift only. `source` is the rectangle the pixels are read from; start/end
+    // are where they are drawn, so dragging and resizing the mark work on the
+    // destination exactly as they do for a rectangle. `blankSource` fills the
+    // source rectangle with `blankColour` first, turning the copy into a move.
+    RectD    source;
+    bool     blankSource = false;
+    COLORREF blankColour = RGB(255, 255, 255);
+
     // The stroke-width slider doubles as the text-size control, with a floor
     // so a hairline stroke still produces a readable label.
     double FontSize() const { return (std::max)(14.0, lineWidth * 5.0); }
@@ -57,7 +80,13 @@ struct Annotation {
 
     // `scale` maps image pixels to device units and is 1.0 when exporting;
     // `offset` is where the image's top-left corner sits in the target.
-    void Draw(Gdiplus::Graphics& graphics, double scale, PointD offset) const;
+    //
+    // `picture` is the unmodified capture, needed only by Lift, which reads
+    // its pixels back out of it. Passing null is legal and makes a Lift mark
+    // draw nothing rather than crash — the canvas and the export both have the
+    // image to hand, but a future caller might not.
+    void Draw(Gdiplus::Graphics& graphics, double scale, PointD offset,
+              Gdiplus::Image* picture = nullptr) const;
 
     bool HitTest(PointD point, double tolerance, Gdiplus::Graphics* measureWith) const;
 

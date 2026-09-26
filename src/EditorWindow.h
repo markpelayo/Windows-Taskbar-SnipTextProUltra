@@ -11,7 +11,11 @@
 #include "Bitmap.h"
 #include "framework.h"
 
-namespace Gdiplus { class Graphics; }
+// Forward-declared rather than including gdiplus.h here. Gdiplus::Bitmap and
+// our own ::Bitmap have the same unqualified name, and pulling the GDI+
+// headers into every translation unit that touches the editor is how that
+// collision spreads.
+namespace Gdiplus { class Graphics; class Bitmap; }
 
 class EditorWindow {
 public:
@@ -88,6 +92,19 @@ private:
 
     // --- state ---
     std::unique_ptr<Bitmap> image_;
+
+    // The colour to paint over a region that has been lifted away with Shift.
+    // Sampled from the ring of pixels just outside the region, because that is
+    // what the hole should look like if it is to disappear: the background the
+    // region was sitting on. On a flat background it is exact. On a gradient
+    // or a photograph nothing flat can be right, which is why plain drag —
+    // which never leaves a hole — is the default.
+    COLORREF DominantEdgeColour(const RectD& region) const;
+
+    // A GDI+ view of image_'s pixels, shared rather than copied, for Lift to
+    // read from. Null when no mark needs it. Never cached: it borrows the
+    // DIB's buffer and must not outlive it.
+    std::unique_ptr<Gdiplus::Bitmap> PictureForLift() const;
     CloseCallback           onClose_;
 
     HWND hwnd_       = nullptr;
@@ -96,7 +113,7 @@ private:
     HWND slider_     = nullptr;
     HWND textEdit_   = nullptr;
     HWND colourPopup_ = nullptr;
-    HWND toolButtons_[6]{};
+    HWND toolButtons_[kToolCount]{};
     HWND undoButton_ = nullptr;
     HWND redoButton_ = nullptr;
     HWND copyButton_ = nullptr;

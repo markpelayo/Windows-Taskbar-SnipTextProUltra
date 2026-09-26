@@ -759,7 +759,7 @@ HMENU App::BuildMenu() {
         AppendSubmenu(menu, after, L"After a Screenshot");
     }
 
-    AppendCommand(menu, ID_SET_AUTOSAVE, L"Auto-Save Images to Local Machine", true,
+    AppendCommand(menu, ID_SET_AUTOSAVE, L"Auto-Save Images", true,
                   settings::GetBool(settings::key::kSaveCaptures, false));
 
     // --- where the three capture commands write ---

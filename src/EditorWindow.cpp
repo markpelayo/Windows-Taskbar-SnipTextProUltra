@@ -275,7 +275,7 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
                            static_cast<LPARAM>(static_cast<int>(currentLineWidth_)));
         }
 
-        for (int i = 0; i < 6; ++i) {
+        for (int i = 0; i < kToolCount; ++i) {
             Tool tool = static_cast<Tool>(i);
             toolButtons_[i] = MakeButton(hwnd_, ToolTitle(tool), IDC_TOOL_FIRST + i,
                                          BS_AUTOCHECKBOX | BS_PUSHLIKE);
@@ -296,7 +296,18 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
 
     case WM_GETMINMAXINFO: {
         auto* info = reinterpret_cast<MINMAXINFO*>(lParam);
-        info->ptMinTrackSize.x = 620;
+        // Derived, not guessed. The bottom row is the widest thing in the
+        // window — swatch, slider, then one button per tool, each followed by
+        // a 6px gap — and a minimum narrower than that row silently clips the
+        // last tool button off the right edge. It was a literal 620, which was
+        // eight pixels of slack with six tools and would have been sixteen
+        // short with seven.
+        constexpr int kBottomRowWidth = kBarPadding
+                                      + kSwatchWidth + 6
+                                      + kSliderWidth + 6
+                                      + kToolCount * (kToolWidth + 6)
+                                      + kBarPadding;
+        info->ptMinTrackSize.x = (std::max)(620, kBottomRowWidth);
         info->ptMinTrackSize.y = 380;
         return 0;
     }
@@ -332,7 +343,7 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
 
     case WM_COMMAND: {
         const int id = LOWORD(wParam);
-        if (id >= IDC_TOOL_FIRST && id < IDC_TOOL_FIRST + 6) {
+        if (id >= IDC_TOOL_FIRST && id < IDC_TOOL_FIRST + kToolCount) {
             CommitTextEntry();
             SetCurrentTool(static_cast<Tool>(id - IDC_TOOL_FIRST));
             RefreshToolbarState();
@@ -417,7 +428,7 @@ void EditorWindow::LayoutChildren() {
 void EditorWindow::RefreshToolbarState() {
     if (undoButton_) ::EnableWindow(undoButton_, !undoStack_.empty());
     if (redoButton_) ::EnableWindow(redoButton_, !redoStack_.empty());
-    for (int i = 0; i < 6; ++i) {
+    for (int i = 0; i < kToolCount; ++i) {
         if (!toolButtons_[i]) continue;
         ::SendMessageW(toolButtons_[i], BM_SETCHECK,
                        (static_cast<Tool>(i) == currentTool_) ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -629,6 +640,44 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
             return 0;
         }
 
+        if (shape.tool == Tool::Lift) {
+            // The drag picked the region; it has not moved anywhere yet. The
+            // piece is created sitting exactly on top of where it came from,
+            // so the picture looks unchanged until it is dragged away — which
+            // is what makes both variants read correctly:
+            //
+            //   plain drag   the original stays put, and pulling the piece
+            //                aside reveals it still there. A copy.
+            //   Shift-drag   the source is blanked underneath at the moment
+            //                of the lift, hidden by the piece on top of it,
+            //                and pulling the piece aside reveals the hole.
+            //                A cut.
+            //
+            // Clamped to the picture: a selection dragged past the edge would
+            // otherwise ask GDI+ to read pixels that are not there.
+            RectD region = shape.NormalizedRect();
+            const double pictureWidth  = static_cast<double>(image_->Width());
+            const double pictureHeight = static_cast<double>(image_->Height());
+            const double x0 = (std::max)(0.0, (std::min)(region.MinX(), pictureWidth));
+            const double y0 = (std::max)(0.0, (std::min)(region.MinY(), pictureHeight));
+            const double x1 = (std::max)(0.0, (std::min)(region.MaxX(), pictureWidth));
+            const double y1 = (std::max)(0.0, (std::min)(region.MaxY(), pictureHeight));
+            if (x1 - x0 < 1.0 || y1 - y0 < 1.0) {
+                ::InvalidateRect(canvas_, nullptr, FALSE);
+                return 0;
+            }
+            region = RectD{ x0, y0, x1 - x0, y1 - y0 };
+
+            shape.source = region;
+            shape.start  = { region.MinX(), region.MinY() };
+            shape.end    = { region.MaxX(), region.MaxY() };
+
+            if ((::GetKeyState(VK_SHIFT) & 0x8000) != 0) {
+                shape.blankSource = true;
+                shape.blankColour = DominantEdgeColour(region);
+            }
+        }
+
         Snapshot();
         annotations_.push_back(std::move(shape));
         selectedIndex_ = static_cast<int>(annotations_.size()) - 1;
@@ -713,13 +762,23 @@ void EditorWindow::PaintCanvas(HDC dc) {
     }
 
     {
+        // Declared before the Graphics, and this order is load-bearing: GDI+
+        // batches its drawing, so a DrawImage issued here may still be pending
+        // when the scope ends. Destruction runs in reverse order of
+        // declaration, so a picture declared second would be freed FIRST,
+        // leaving the Graphics to flush a read from a destroyed wrapper over
+        // image_'s pixels. Declared first, it is destroyed last.
+        std::unique_ptr<Gdiplus::Bitmap> picture = PictureForLift();
+
         Graphics graphics(target);
         graphics.SetSmoothingMode(SmoothingModeAntiAlias);
         graphics.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);
 
         const PointD offset{ static_cast<double>(rect.left), static_cast<double>(rect.top) };
-        for (const Annotation& annotation : annotations_) annotation.Draw(graphics, scale, offset);
-        if (hasDraft_) draft_.Draw(graphics, scale, offset);
+        for (const Annotation& annotation : annotations_) {
+            annotation.Draw(graphics, scale, offset, picture.get());
+        }
+        if (hasDraft_) draft_.Draw(graphics, scale, offset, picture.get());
 
         // Selection chrome, in view units so it stays usable at any zoom.
         if (selectedIndex_ >= 0 && selectedIndex_ < static_cast<int>(annotations_.size())) {
@@ -1158,6 +1217,11 @@ std::unique_ptr<Bitmap> EditorWindow::Flatten() {
         // MakeOpaque below writes the alpha bytes directly. Leaving the
         // Graphics alive across that would be two writers racing over one
         // buffer.
+        // Before the Graphics, for the lifetime reason spelled out in
+        // PaintCanvas: GDI+ batches, so the view has to outlive the surface
+        // that reads from it.
+        std::unique_ptr<Gdiplus::Bitmap> picture = PictureForLift();
+
         Graphics graphics(output->MemoryDC());
         graphics.SetSmoothingMode(SmoothingModeAntiAlias);
         graphics.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);
@@ -1166,8 +1230,13 @@ std::unique_ptr<Bitmap> EditorWindow::Flatten() {
         // That is the whole payoff of storing annotations in image
         // coordinates: the exported file is full resolution and matches what
         // was on screen.
+        // The Lift source is read from the ORIGINAL capture, which `output`
+        // is a copy of — not from `output` itself. Reading from the surface
+        // being drawn into would make each lift see the results of the ones
+        // before it, so two overlapping lifts would compound instead of both
+        // showing the untouched picture.
         for (const Annotation& annotation : annotations_) {
-            annotation.Draw(graphics, 1.0, PointD{ 0.0, 0.0 });
+            annotation.Draw(graphics, 1.0, PointD{ 0.0, 0.0 }, picture.get());
         }
         // The draft is deliberately excluded: a shape still under the mouse
         // has not been committed.
@@ -1175,6 +1244,96 @@ std::unique_ptr<Bitmap> EditorWindow::Flatten() {
 
     output->MakeOpaque();
     return output;
+}
+
+std::unique_ptr<Gdiplus::Bitmap> EditorWindow::PictureForLift() const {
+    if (!image_ || !image_->Bits()) return nullptr;
+
+    // The house rule, the same one Ocr.cpp follows: GDI batches too, and the
+    // last thing to write these bits was a BitBlt. Read them without flushing
+    // and you can get the buffer as it was before that blt landed.
+    ::GdiFlush();
+
+    // Built only when something actually needs it. Every other tool draws its
+    // own ink, so on a picture with no lifts in it this costs one loop over a
+    // handful of marks and nothing else.
+    bool needed = false;
+    for (const Annotation& annotation : annotations_) {
+        if (annotation.tool == Tool::Lift) { needed = true; break; }
+    }
+    if (!needed && !(hasDraft_ && draft_.tool == Tool::Lift)) return nullptr;
+
+    // Wraps the DIB's own pixels — the constructor taking a scan0 does not
+    // copy. So this is a view, not a second image, and it stays valid only as
+    // long as image_ does, which is why it is never stored.
+    //
+    // The stride is positive because our DIB sections are top-down; a
+    // bottom-up DIB would need a negative stride and a pointer to the last
+    // row, and would silently draw upside down without it.
+    return std::make_unique<Gdiplus::Bitmap>(
+        image_->Width(), image_->Height(), image_->Stride(),
+        PixelFormat32bppRGB,
+        static_cast<BYTE*>(image_->Bits()));
+}
+
+COLORREF EditorWindow::DominantEdgeColour(const RectD& region) const {
+    if (!image_ || !image_->Bits()) return RGB(255, 255, 255);
+    ::GdiFlush();   // as above: these are raw DIB bits GDI last wrote to
+
+    const int width  = image_->Width();
+    const int height = image_->Height();
+    const BYTE* pixels = static_cast<const BYTE*>(image_->Bits());
+    const int stride = image_->Stride();
+
+    const int left   = static_cast<int>(std::floor(region.MinX()));
+    const int top    = static_cast<int>(std::floor(region.MinY()));
+    // Inclusive last column and row. ceil(MaxX) is one PAST the region, so
+    // without the -1 the right and bottom edges would be sampled one pixel
+    // further out than the left and top, and the "two-pixel ring" below would
+    // be lopsided — wrong pixels on exactly the gradient backgrounds where
+    // the sampled colour has to be right.
+    const int right  = static_cast<int>(std::ceil(region.MaxX())) - 1;
+    const int bottom = static_cast<int>(std::ceil(region.MaxY())) - 1;
+
+    // The mode, not the mean. Averaging a border that is mostly white with a
+    // few dark pixels of text gives a grey that matches nothing on screen;
+    // the most common colour gives the actual background, and a stray dark
+    // pixel cannot outvote it.
+    //
+    // Colours are bucketed to 5 bits per channel first. Screenshots are full
+    // of near-identical shades from antialiasing and subpixel rendering, and
+    // counting exact values would split one background across a dozen entries
+    // and let a rarer exact match win.
+    std::unordered_map<unsigned int, int> counts;
+    int best = -1;
+    COLORREF winner = RGB(255, 255, 255);
+
+    auto sample = [&](int x, int y) {
+        if (x < 0 || y < 0 || x >= width || y >= height) return;
+        const BYTE* p = pixels + static_cast<size_t>(y) * stride + static_cast<size_t>(x) * 4;
+        const BYTE b = p[0], g = p[1], r = p[2];
+        const unsigned int key = (static_cast<unsigned int>(r >> 3) << 10)
+                               | (static_cast<unsigned int>(g >> 3) << 5)
+                               |  static_cast<unsigned int>(b >> 3);
+        const int count = ++counts[key];
+        if (count > best) { best = count; winner = RGB(r, g, b); }
+    };
+
+    // A two-pixel ring just outside the region.
+    for (int offset = 1; offset <= 2; ++offset) {
+        for (int x = left - offset; x <= right + offset; ++x) {
+            sample(x, top - offset);
+            sample(x, bottom + offset);
+        }
+        for (int y = top - offset; y <= bottom + offset; ++y) {
+            sample(left - offset, y);
+            sample(right + offset, y);
+        }
+    }
+
+    // Nothing sampled means the region covered the whole picture, edges and
+    // all. White is as good a guess as any and better than a crash.
+    return best < 0 ? RGB(255, 255, 255) : winner;
 }
 
 void EditorWindow::CopyToClipboard() {

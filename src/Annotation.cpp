@@ -82,6 +82,7 @@ const wchar_t* ToolKeyValue(Tool tool) {
     case Tool::Line:      return L"line";
     case Tool::Pen:       return L"pen";
     case Tool::Text:      return L"text";
+    case Tool::Lift:      return L"lift";
     default:              return L"arrow";
     }
 }
@@ -93,6 +94,7 @@ const wchar_t* ToolTitle(Tool tool) {
     case Tool::Line:      return L"Line";
     case Tool::Pen:       return L"Pen";
     case Tool::Text:      return L"Text";
+    case Tool::Lift:      return L"Lift";
     default:              return L"Arrow";
     }
 }
@@ -103,6 +105,7 @@ Tool ToolFromKeyValue(const std::wstring& value) {
     if (value == L"line")      return Tool::Line;
     if (value == L"pen")       return Tool::Pen;
     if (value == L"text")      return Tool::Text;
+    if (value == L"lift")      return Tool::Lift;
     return Tool::Arrow;
 }
 
@@ -136,7 +139,8 @@ RectD Annotation::BoundingBox(Graphics* measureWith) const {
 
 // --- drawing ---------------------------------------------------------------
 
-void Annotation::Draw(Graphics& graphics, double scale, PointD offset) const {
+void Annotation::Draw(Graphics& graphics, double scale, PointD offset,
+                      Gdiplus::Image* picture) const {
     const Color colourValue = ToGdipColour(colour);
     const REAL  width = static_cast<REAL>((std::max)(1.0, lineWidth * scale));
 
@@ -144,6 +148,50 @@ void Annotation::Draw(Graphics& graphics, double scale, PointD offset) const {
     SolidBrush brush(colourValue);
 
     switch (tool) {
+    case Tool::Lift: {
+        // Still being dragged out: there is no source rectangle yet, because
+        // the region is only fixed on mouse-up. Draw a marquee so the drag is
+        // visible — without this the tool looks broken while it is being used,
+        // which is the only moment it matters.
+        if (source.width <= 0.0 || source.height <= 0.0) {
+            Pen marquee(ToGdipColour(colour), 1.0f);
+            marquee.SetDashStyle(DashStyleDash);
+            const RectD box = RectBetween(start, end);
+            const PointF p0 = Map({ box.MinX(), box.MinY() }, scale, offset);
+            const PointF p1 = Map({ box.MaxX(), box.MaxY() }, scale, offset);
+            graphics.DrawRectangle(&marquee, p0.X, p0.Y, p1.X - p0.X, p1.Y - p0.Y);
+            break;
+        }
+        if (!picture) break;   // nothing to read from; see the header
+
+        // The blank goes down first, so that dragging a lifted piece back over
+        // its own source covers the patch rather than being covered by it.
+        if (blankSource) {
+            SolidBrush fill(ToGdipColour(blankColour));
+            const PointF a = Map({ source.MinX(), source.MinY() }, scale, offset);
+            const PointF b = Map({ source.MaxX(), source.MaxY() }, scale, offset);
+            graphics.FillRectangle(&fill, a.X, a.Y, b.X - a.X, b.Y - a.Y);
+        }
+
+        const RectD rect = RectBetween(start, end);
+        const PointF a = Map({ rect.MinX(), rect.MinY() }, scale, offset);
+        const PointF b = Map({ rect.MaxX(), rect.MaxY() }, scale, offset);
+        const RectF destination(a.X, a.Y, b.X - a.X, b.Y - a.Y);
+
+        // NearestNeighbor rather than the default interpolation. At scale 1 —
+        // which is every export, and the common case on screen — it is an
+        // exact copy of the pixels, where a smoothing filter would resample
+        // text into mush. A lifted screenshot region is nearly always text or
+        // UI, and both want their edges kept.
+        const InterpolationMode previous = graphics.GetInterpolationMode();
+        graphics.SetInterpolationMode(InterpolationModeNearestNeighbor);
+        graphics.DrawImage(picture, destination,
+                           static_cast<REAL>(source.x),     static_cast<REAL>(source.y),
+                           static_cast<REAL>(source.width), static_cast<REAL>(source.height),
+                           UnitPixel);
+        graphics.SetInterpolationMode(previous);
+        break;
+    }
     case Tool::Rectangle: {
         pen.SetLineJoin(LineJoinRound);
         const RectD rect = RectBetween(start, end);
@@ -270,6 +318,10 @@ bool Annotation::HitTest(PointD point, double tolerance, Graphics* measureWith) 
         // Text is the one exception: its whole box counts, because a label
         // has no meaningful outline to aim at.
         return Contains(Inset(BoundingBox(measureWith), -tolerance, -tolerance), point);
+    case Tool::Lift:
+        // Same reasoning: a lifted piece is solid, so aiming at its outline
+        // would be aiming at an edge that carries no meaning.
+        return Contains(Inset(NormalizedRect(), -tolerance, -tolerance), point);
     }
     return false;
 }
@@ -285,7 +337,12 @@ std::vector<std::pair<Handle, PointD>> Annotation::Handles() const {
         out.push_back({ Handle::End, end });
         break;
     case Tool::Rectangle:
-    case Tool::Ellipse: {
+    case Tool::Ellipse:
+    // A lifted piece resizes from its destination rectangle, like any other
+    // box. The source rectangle is fixed once the lift is made: changing where
+    // the pixels came from after the fact is a different operation, and not
+    // one you can express by dragging a corner of the thing you are looking at.
+    case Tool::Lift: {
         const RectD r = NormalizedRect();
         out.push_back({ Handle::TopLeft,     { r.MinX(), r.MinY() } });
         out.push_back({ Handle::Top,         { r.MidX(), r.MinY() } });

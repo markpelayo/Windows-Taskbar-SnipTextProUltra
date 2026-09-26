@@ -165,7 +165,7 @@ SnipTextProUltra  ·  v1.3.0  ·  by markpelayo
   Text Layout            ▸
   Shutter Sound          ✓ ▸
   After a Screenshot     ▸
-  Auto-Save Images to Local Machine
+  Auto-Save Images
   Save Locations         ▸
   Show Saved Files       ▸
   Screen Recording Settings ▸
@@ -246,7 +246,24 @@ If the clipboard write fails — another program can hold the clipboard open —
 
 ## The annotation editor
 
-Opened by the Screenshot commands. Tools: **arrow, rectangle, ellipse, line, freehand pen, text**, with a colour swatch and a stroke-width slider (the slider also sets text size).
+Opened by the Screenshot commands. Tools: **arrow, rectangle, ellipse, line, freehand pen, text, lift**, with a colour swatch and a stroke-width slider (the slider also sets text size).
+
+### Lift
+
+Every other tool draws on top of the picture. **Lift** moves the picture itself: drag a rectangle over any part of the capture and that region becomes a piece you can drag somewhere else in the same image.
+
+It is for the times when pointing at something is weaker than showing it. Instead of an arrow saying *this button belongs over there*, put the button over there.
+
+| | |
+|---|---|
+| **drag** | Copy. The original stays where it was; pull the piece aside and it is still there. |
+| **Shift**+drag | Cut. The source is blanked with a colour sampled from the pixels just around it, so pulling the piece aside reveals a patch rather than the original. |
+
+Either way the piece lands exactly on top of where it came from, so nothing appears to happen until you drag it — which is the point. What you do next says whether it was a copy or a move.
+
+A lifted piece is an ordinary mark: select it, drag it, resize it from its handles, undo it. **The capture underneath is never modified**, so nothing is destroyed and every lift is reversible, including the Shift one — the blanked patch is part of the mark, not a change to the pixels.
+
+On Shift: the fill is the most common colour in a two-pixel ring around the region, which is exact on a flat background and visibly a patch on a gradient or a photo. That is why plain drag, which never leaves a hole, is the default.
 
 | | |
 |---|---|
@@ -325,7 +342,7 @@ But a container doesn't compress anything. It's an index and a wrapper around st
 
 ## Where files go
 
-**Auto-Save Images to Local Machine** is off by default. Turn it on and every capture is saved as a PNG, with each capture type in its own folder:
+**Auto-Save Images** is off by default. Turn it on and every capture is saved as a PNG, with each capture type in its own folder:
 
 ```
 %USERPROFILE%\Pictures\SnipText_Screenshot_Images\          ← Screenshot captures

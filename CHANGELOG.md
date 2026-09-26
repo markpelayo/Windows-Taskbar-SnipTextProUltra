@@ -48,6 +48,19 @@ adheres to [Semantic Versioning](https://semver.org).
   compresses far better than camera footage, so the old fixed bitrate was
   spending bits encoding a static desktop very precisely.
 
+- **Lift**, a seventh tool in the annotation editor, after *Text*. Drag a
+  rectangle over any part of the capture and that region becomes a piece you
+  can drag somewhere else in the same image — for when pointing at something
+  is weaker than showing it. Plain drag copies; **Shift**-drag also blanks the
+  source with a colour sampled from the ring of pixels around it, making it a
+  cut.
+
+  It is an ordinary annotation, not an edit: it is selectable, movable,
+  resizable and undoable, and **the capture underneath is never modified**.
+  That is also why it costs nothing — the piece references the pixels already
+  in memory rather than copying them, so it is one blit per repaint and no
+  extra allocation.
+
 - **After a Screenshot**, below *Shutter Sound*, with two states named the
   same way *Text Layout* is:
   - **Open the Editor** (default) — unchanged behaviour.
@@ -79,8 +92,6 @@ adheres to [Semantic Versioning](https://semver.org).
   - *Record Region…* → **Screen Record a Region…**
   - *Record Full Screen* → **Screen Record Full Screen**
   - *Video Settings* → **Screen Recording Settings**
-  - *Auto-Save Images* → **Auto-Save Images to Local Machine**, now that
-    "copy to the clipboard" is also a thing a capture can do
 
   The shortcut-picker list uses the same names, so it stays a list of the
   commands rather than a second set of names for them.

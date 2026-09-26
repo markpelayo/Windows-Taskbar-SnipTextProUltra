@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.6.0] — 2026-09-26
+
 ### Fixed
 
 - **The hint bar smeared a trail across the screen while dragging a

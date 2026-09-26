@@ -17,9 +17,9 @@
 //
 // Still has to be kept in step by hand with VERSION and with
 // SnipText.manifest — see docs/RELEASING.md.
-#define SNIPTEXT_VERSION_COMMA  1,5,0,0
-#define SNIPTEXT_VERSION_STRING "1.5.0.0"
-#define SNIPTEXT_VERSION_WIDE   L"1.5.0"
+#define SNIPTEXT_VERSION_COMMA  1,6,0,0
+#define SNIPTEXT_VERSION_STRING "1.6.0.0"
+#define SNIPTEXT_VERSION_WIDE   L"1.6.0"
 
 // --- which build is this? ---------------------------------------------------
 //

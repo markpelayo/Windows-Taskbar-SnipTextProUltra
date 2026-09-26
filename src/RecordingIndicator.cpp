@@ -332,14 +332,23 @@ RECT RecordingIndicator::ChoosePillPosition(const RECT& region) {
     // time is uncapped minutes, so an hour-long recording reads "120:00" and
     // a box sized for "00:00" would clip it. The layout below has to match
     // PaintPill exactly: padding, dot, gap, text, padding.
-    int width = 170;
+    // Only used if the measuring DC is unavailable, which should not happen —
+    // but a fallback sized for the old "00:00   Stop" layout would leave a
+    // third of the pill empty.
+    int width = 104;
     {
         WindowDC dc(nullptr);
         if (dc) {
             SelectGuard fontGuard(dc.get(), PillFont());
             SIZE dotExtent{}, textExtent{};
             ::GetTextExtentPoint32W(dc.get(), L"●", 1, &dotExtent);
-            const wchar_t* longest = L"000:00   Stop";
+            // The WORST case, not the current one: the elapsed time is
+            // uncapped minutes, so an hour-long recording reads "120:00" and
+            // a box measured for "00:00" would clip it. This string has to
+            // match what PaintPill actually draws — it used to carry
+            // "   Stop" and still would if this line had been missed, leaving
+            // a third of the pill as dead space.
+            const wchar_t* longest = L"000:00";
             ::GetTextExtentPoint32W(dc.get(), longest,
                                     static_cast<int>(::wcslen(longest)), &textExtent);
             width = kPillPadding + dotExtent.cx + kPillDotGap + textExtent.cx + kPillPadding;
@@ -525,12 +534,20 @@ void RecordingIndicator::PaintPill(HWND hwnd) {
     SIZE dotExtent{};
     ::GetTextExtentPoint32W(dc, L"●", 1, &dotExtent);
 
+    // Just the time. The word "Stop" came off once the green frame existed:
+    // the frame says a recording is running, so the pill no longer has to
+    // spell out what it is for, and dropping the word takes about a third off
+    // its width — which matters most on a full-screen recording, where the
+    // pill is sitting over the work rather than beside it.
+    //
+    // It is still the click target. The hand cursor on the window class and
+    // the red border on hover are what say so, which is how a control this
+    // small should say it anyway.
     ::SetTextColor(dc, RGB(240, 240, 240));
     RECT label = client;
     label.left += kPillPadding + dotExtent.cx + kPillDotGap;
     label.right -= kPillPadding;
-    const std::wstring text = elapsed_ + L"   Stop";
-    ::DrawTextW(dc, text.c_str(), -1, &label, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    ::DrawTextW(dc, elapsed_.c_str(), -1, &label, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
     ::EndPaint(hwnd, &paint);
 }

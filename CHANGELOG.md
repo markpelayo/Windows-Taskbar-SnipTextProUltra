@@ -32,6 +32,19 @@ adheres to [Semantic Versioning](https://semver.org).
 
 ### Added
 
+- **The Stop pill is about a third narrower**, now reading `● 00:06` instead
+  of `● 00:06   Stop`. Once the green frame appeared for full-screen
+  recordings, the frame says a recording is running and the pill no longer has
+  to spell out what it is for — and on a full-screen recording it sits over the
+  work for the whole take. It is still one click to stop; the hand cursor and
+  the red hover border say so.
+
+  Considered and rejected: removing it entirely on full screen. The frame and
+  the pill answer different questions — *what* is being recorded versus *how
+  long*, plus the only always-visible way to stop. Falling back to the tray
+  icon would reintroduce the exact problem the pill was built for, since
+  Windows 11 hides the notification area behind a chevron by default.
+
 - **A red dot beside "Stop Recording" in the menu**, so the menu says a
   recording is running at a glance rather than only in words.
 

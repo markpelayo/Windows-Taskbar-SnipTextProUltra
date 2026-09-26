@@ -16,10 +16,15 @@
 //               rather than assumed; if it did not take, the frame stays
 //               outside and full screen has no frame, as it did before.
 //
-//   The pill    A small "● 00:24  Stop" button. It says *that* a recording is
-//               running, carries the elapsed time, and stops it in one click.
-//               Repainted once a second — about 150x34 pixels, which is
-//               nothing.
+//   The pill    A small "● 00:24" button. It carries the elapsed time and
+//               stops the recording in one click. Repainted once a second —
+//               about 100x34 pixels, which is nothing.
+//
+//               It used to read "● 00:24  Stop". The word came off once the
+//               frame appeared for full-screen recordings too: the frame says
+//               a recording is running, so the pill no longer has to say what
+//               it is for, and losing the word takes about a third off a
+//               control that sits over the user's work for the whole take.
 //
 // Why not just the tray icon: on Windows 11 the notification area is
 // collapsed behind a chevron by default, so an indicator that lives only

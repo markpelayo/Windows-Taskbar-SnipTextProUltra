@@ -311,7 +311,7 @@ It is also painted exactly once. A static border costs nothing to keep on screen
 
 The dashes are filled rectangles rather than a dashed pen: a pen's dash pattern is defined along the path, so drawing the four sides as one rectangle leaves the dashes meeting raggedly at the corners. The corners are drawn solid for the same reason.
 
-**The pill** says *that* it is recording, and stops it: `● 00:24  Stop`, placed below the frame, or above it if there is no room below. Both of those are outside the recorded rectangle. When there is no room outside — a full-screen recording, or a region hard against the edges — it goes in the bottom-left corner of the region, and `WDA_EXCLUDEFROMCAPTURE` keeps it out of the video there too. On a build too old for that flag it does appear, and the log says so; an honest line beats a surprise.
+**The pill** says *that* it is recording, and stops it: `● 00:24`, placed below the frame, or above it if there is no room below. Both of those are outside the recorded rectangle. When there is no room outside — a full-screen recording, or a region hard against the edges — it goes in the bottom-left corner of the region, and `WDA_EXCLUDEFROMCAPTURE` keeps it out of the video there too. On a build too old for that flag it does appear, and the log says so; an honest line beats a surprise.
 
 Two details:
 

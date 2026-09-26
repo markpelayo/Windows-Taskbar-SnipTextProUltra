@@ -32,6 +32,18 @@ adheres to [Semantic Versioning](https://semver.org).
 
 ### Added
 
+- **A red dot beside "Stop Recording" in the menu**, so the menu says a
+  recording is running at a glance rather than only in words.
+
+  It is a bitmap rather than a "●" in the label, because a menu draws its text
+  in the system colour and a dot typed into the string comes out black or
+  white with everything else — the one thing a recording dot must not be. It
+  goes in `MENUITEMINFO::hbmpItem`, which puts it in the check-mark gutter,
+  spaced and aligned the way Windows spaces its own check marks and still
+  correct after a theme change. Sized from `SM_CXMENUCHECK`, and drawn with
+  premultiplied alpha, which is what menus expect of a 32-bit bitmap — straight
+  alpha renders as a dark halo.
+
 - **Full-screen recordings now get the green dashed frame.** A region covering
   the whole monitor has no outside to put a border in, so the frame was created,
   positioned off the edge of the desktop, and never seen — leaving the corner

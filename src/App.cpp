@@ -109,6 +109,93 @@ void AppendSeparator(HMENU menu) {
     if (menu) ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 }
 
+// --- the red dot on "Stop Recording" ---------------------------------------
+//
+// A Win32 menu draws its labels in the system text colour, so a "●" typed into
+// the string comes out black or white with everything else — which is the one
+// thing a recording dot must not be. The colour has to come from a bitmap.
+//
+// MENUITEMINFO::hbmpItem is the way to do that without owner-drawing: Windows
+// puts the bitmap in the check-mark gutter to the left of the label, spaced
+// and aligned the way it spaces its own check marks, and keeps doing so if the
+// user changes theme. Owner-drawing one row would mean hand-painting that
+// row's text, highlight and disabled state to match six rows that Windows
+// still draws itself.
+//
+// Alpha is premultiplied because that is what menus expect of a 32-bit
+// hbmpItem; straight alpha renders as a dark halo around the circle.
+HBITMAP RecordingDotBitmap() {
+    static HBITMAP cached = nullptr;
+    static int     cachedSize = 0;
+
+    // The gutter's own width, so the dot is the size Windows would draw a
+    // check mark — which is what makes it look placed rather than pasted.
+    const int size = (std::max)(8, ::GetSystemMetrics(SM_CXMENUCHECK));
+    if (cached && cachedSize == size) return cached;
+    if (cached) { ::DeleteObject(cached); cached = nullptr; }
+
+    BITMAPINFO info{};
+    info.bmiHeader.biSize        = sizeof(info.bmiHeader);
+    info.bmiHeader.biWidth       = size;
+    info.bmiHeader.biHeight      = -size;   // top-down
+    info.bmiHeader.biPlanes      = 1;
+    info.bmiHeader.biBitCount    = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+
+    void* bits = nullptr;
+    HBITMAP bitmap = ::CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!bitmap || !bits) {
+        if (bitmap) ::DeleteObject(bitmap);
+        return nullptr;
+    }
+
+    // Drawn by hand rather than with GDI+, because GDI+ writes straight alpha
+    // and this needs premultiplied. A filled circle with a one-pixel soft edge
+    // is four lines of arithmetic; converting afterwards would be more.
+    const double centre = (size - 1) / 2.0;
+    const double radius = size * 0.34;   // smaller than the gutter, like a check mark
+    BYTE* pixels = static_cast<BYTE*>(bits);
+
+    for (int y = 0; y < size; ++y) {
+        for (int x = 0; x < size; ++x) {
+            const double dx = x - centre;
+            const double dy = y - centre;
+            const double distance = std::sqrt(dx * dx + dy * dy);
+
+            // 1 inside, 0 outside, a linear ramp across the boundary pixel.
+            double coverage = radius + 0.5 - distance;
+            coverage = (std::max)(0.0, (std::min)(1.0, coverage));
+
+            const BYTE alpha = static_cast<BYTE>(coverage * 255.0 + 0.5);
+            BYTE* pixel = pixels + (static_cast<size_t>(y) * size + x) * 4;
+            // Premultiplied: each channel is already scaled by the alpha.
+            pixel[0] = static_cast<BYTE>(45  * coverage + 0.5);   // B
+            pixel[1] = static_cast<BYTE>(45  * coverage + 0.5);   // G
+            pixel[2] = static_cast<BYTE>(255 * coverage + 0.5);   // R
+            pixel[3] = alpha;
+        }
+    }
+
+    cached     = bitmap;
+    cachedSize = size;
+    return cached;
+}
+
+// Kept deliberately narrow: this is the only row that gets one, and the dot
+// says "recording" rather than "this item is selected". Failure is silent
+// because a menu row without its dot is still a working Stop button.
+void SetRecordingDot(HMENU menu, int id) {
+    if (!menu) return;
+    HBITMAP dot = RecordingDotBitmap();
+    if (!dot) return;
+
+    MENUITEMINFOW item{};
+    item.cbSize   = sizeof(item);
+    item.fMask    = MIIM_BITMAP;
+    item.hbmpItem = dot;
+    ::SetMenuItemInfoW(menu, static_cast<UINT>(id), FALSE, &item);
+}
+
 void AppendSubmenu(HMENU parent, HMENU child, const std::wstring& title,
                    bool checked = false, bool enabled = true) {
     // A null child would produce an MF_POPUP item that cannot be opened —
@@ -652,6 +739,7 @@ HMENU App::BuildMenu() {
     if (recording) {
         AppendCommand(menu, ID_REC_STOP,
                       L"Stop Recording (" + ScreenRecorder::Shared().ElapsedText() + L")");
+        SetRecordingDot(menu, ID_REC_STOP);
     } else {
         AppendCommand(menu, ID_REC_REGION,
                       L"Screen Record a Region…"

@@ -317,6 +317,8 @@ Two things appear the moment a recording starts:
 
 The same mechanism keeps the Stop pill out of the video when it has to sit inside the recorded area — which used to be an accepted limitation noted in the log.
 
+The menu also carries a red dot beside **Stop Recording (00:04)** while a recording is running, so opening it tells you at a glance.
+
 A red square also appears in the notification area as a second way to stop. It is not the indicator, though — Windows 11 collapses the notification area behind a chevron by default, so anything that lives only there is invisible to most people.
 
 Stopping a recording removes all three.

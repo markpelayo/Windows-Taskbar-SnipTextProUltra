@@ -251,7 +251,7 @@ void AppendTitleRow(HMENU menu) {
     // so it is still the constraint — the remaining width is the price of
     // keeping the row a readable sentence, which is a deliberate trade and not
     // an oversight.
-    const std::wstring title = L"SnipTextProUltra · v" SNIPTEXT_VERSION_DISPLAY
+    const std::wstring title = L"SnipTextProUltra · " SNIPTEXT_VERSION_DISPLAY
                                L" · markpelayo";
     ::AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(ID_ABOUT), title.c_str());
 }

@@ -119,8 +119,17 @@ endif()
 add_executable(SnipText WIN32 ${SOURCES})
 
 # The CMake target stays "SnipText" so the generated project names are short;
-# the file on disk is SnipTextProUltra.exe.
-set_target_properties(SnipText PROPERTIES OUTPUT_NAME "SnipTextProUltra")
+# the file on disk is SnipTextProUltra_1.6.1.exe.
+#
+# The version in the file name comes from the VERSION file rather than being
+# typed here, so it cannot drift from what the binary reports about itself.
+# Reading it at configure time also means a bumped VERSION changes the output
+# name on the next configure, with nothing else to remember.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" SNIPTEXT_VERSION_FILE)
+string(STRIP "${SNIPTEXT_VERSION_FILE}" SNIPTEXT_VERSION_FILE)
+set(SNIPTEXT_EXE_NAME "SnipTextProUltra_${SNIPTEXT_VERSION_FILE}")
+set_target_properties(SnipText PROPERTIES OUTPUT_NAME "${SNIPTEXT_EXE_NAME}")
+message(STATUS "Output: ${SNIPTEXT_EXE_NAME}.exe")
 
 target_include_directories(SnipText PRIVATE src)
 

@@ -6,7 +6,43 @@ adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **The flyout menu could appear in the capture on a slower machine.** The
+  menu is dismissed and its `HMENU` destroyed before the command runs, but
+  destroying a menu does not put the pixels back — the desktop has to be
+  composited again without it. On a fast machine that happens before the
+  capture; on a slower one it did not, and the row that was just clicked ended
+  up in the screenshot.
+
+  Worse than cosmetic for *ScreenshotToText*, because the row's own text —
+  `ScreenshotToText a Region…   Ctrl+Shift+3` — was then recognised and copied
+  along with everything the user actually wanted.
+
+  The capture now waits on `DwmFlush` before reading the screen. Under DWM the
+  windows underneath never need to repaint, since their content was never
+  destroyed; all that is missing is a new composition without the menu in it,
+  and `DwmFlush` blocks until DWM has finished composing. That is the
+  compositor saying the frame is done rather than a guess about how long it
+  takes — a sleep would have been both too short on the slowest machine it has
+  to work on and wasted time on every machine faster than that.
+
+### Changed
+
+- **The word "Stop" is back in the recording pill**, and stays. Removing it
+  confused *what* with *how*: the green frame says a recording is running, but
+  only the word says this small box is the thing that ends it. A hand cursor
+  and a hover border are discoverable by accident, which is not the same as
+  being discoverable.
+
+- **The version in the menu's title row no longer has a `v`** —
+  `SnipTextProUltra · 1.6.1 · markpelayo`.
+
+- **The executable carries its version**: `SnipTextProUltra_1.6.1.exe`. The
+  name is read from `VERSION` by CMake, by `build.bat` and by CI rather than
+  written in each, so it cannot drift from what the binary reports about
+  itself, and a bumped `VERSION` renames the output with nothing else to
+  remember. `release.sh` now also checks the resource block's copy of it.
 
 ## [1.6.1] — 2026-09-26
 

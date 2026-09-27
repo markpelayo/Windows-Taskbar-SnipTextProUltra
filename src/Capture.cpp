@@ -4,15 +4,59 @@
 #include "Settings.h"
 #include "Util.h"
 
+#include <dwmapi.h>
 #include <mmsystem.h>
 
 namespace capture {
 namespace {
 
+// Waits until the desktop on screen is the desktop we mean to capture.
+//
+// The bug this fixes: the flyout menu is dismissed and its HMENU destroyed
+// before the command runs, but destroying a menu does not put the pixels back
+// — the desktop has to be composited again without it. On a fast machine that
+// happens before the capture; on a slower one it does not, and the menu row
+// that was just clicked ends up in the screenshot. Which is worse than
+// cosmetic for ScreenshotToText, because the row's text gets recognised and
+// copied along with everything else.
+//
+// Under DWM the windows underneath do NOT need to repaint — their content was
+// never destroyed, which is the point of redirected rendering. All that is
+// missing is a new composition without the menu in it. DwmFlush blocks until
+// DWM has finished composing, so waiting on it is exact: it is the compositor
+// telling us the frame is done, not a guess about how long that takes.
+//
+// A sleep was the alternative and would have been wrong in both directions —
+// too short on the slowest machine it needs to work on, and wasted time on
+// every machine faster than that.
+void WaitForDesktopToSettle() {
+    // Our own paint messages first. PM_QS_PAINT so this cannot dispatch input
+    // or a hotkey and re-enter the capture that is already in progress.
+    MSG message;
+    while (::PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE | PM_QS_PAINT)) {
+        ::DispatchMessageW(&message);
+    }
+
+    // Twice: the first returns at the end of the composition already in
+    // flight, which may have begun before the menu went away. The second is
+    // the first one that is guaranteed to postdate it.
+    //
+    // Errors ignored on purpose. DwmFlush fails when composition is off,
+    // which cannot happen on a supported version of Windows — and if it
+    // somehow does, proceeding with the capture beats refusing to take one.
+    ::DwmFlush();
+    ::DwmFlush();
+}
+
 std::unique_ptr<Bitmap> GrabRect(const RECT& bounds) {
     const int width  = util::RectWidth(bounds);
     const int height = util::RectHeight(bounds);
     if (width <= 0 || height <= 0) return nullptr;
+
+    // Before the blt, not after: this is what makes the difference between
+    // capturing the desktop and capturing the desktop plus the menu that was
+    // used to ask for the capture.
+    WaitForDesktopToSettle();
 
     auto image = Bitmap::Create(width, height);
     if (!image) {

@@ -49,6 +49,10 @@ FILE_VERSION="$(tr -d '[:space:]' < VERSION)"
 
 grep -q "\"$VERSION_NUMBER\.0\"" src/resource.h \
     || fail "src/resource.h does not carry $VERSION_NUMBER.0"
+# The executable's file name is built from this one, so a stale value means a
+# release whose OriginalFilename does not match the file it is inside.
+grep -q "SNIPTEXT_VERSION_DOTTED \"$VERSION_NUMBER\"" src/resource.h \
+    || fail "src/resource.h SNIPTEXT_VERSION_DOTTED is not $VERSION_NUMBER"
 grep -q "version=\"$VERSION_NUMBER\.0\"" src/SnipText.manifest \
     || fail "src/SnipText.manifest does not carry $VERSION_NUMBER.0"
 

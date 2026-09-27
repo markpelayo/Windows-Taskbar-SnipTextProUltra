@@ -125,8 +125,15 @@ jobs:
       - name: Locate the binary
         id: exe
         run: |
-          $full = "build-full/Release/SnipTextProUltra.exe"
-          $fast = "build/Release/SnipTextProUltra.exe"
+          # The file name carries the version now, so it is read from VERSION
+          # rather than written here — a literal would silently stop matching
+          # on the next bump, and "no binary found" on a release run is a bad
+          # way to learn that.
+          $version = (Get-Content VERSION -Raw).Trim()
+          $name = "SnipTextProUltra_$version.exe"
+          Write-Host "Looking for $name"
+          $full = "build-full/Release/$name"
+          $fast = "build/Release/$name"
           $isTag = "${{ github.ref }}".StartsWith("refs/tags/v")
           if ($isTag) {
             if (-not (Test-Path $full)) {
@@ -150,7 +157,7 @@ jobs:
         run: |
           $exe = "${{ steps.exe.outputs.path }}"
           $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
-          "$hash  SnipTextProUltra.exe" | Out-File -Encoding ascii "$exe.sha256"
+          "$hash  $(Split-Path $exe -Leaf)" | Out-File -Encoding ascii "$exe.sha256"
           Write-Host "SHA256: $hash"
 
       - name: Upload the build

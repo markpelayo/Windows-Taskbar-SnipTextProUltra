@@ -30,7 +30,7 @@ A **tray icon** sits in the notification area whenever the program is running, s
 
 ### Pinning it
 
-1. Build it (below), then run `build\SnipTextProUltra.exe` once.
+1. Build it (below), then run `build\SnipTextProUltra_1.6.1.exe` once.
 2. Right-click its taskbar button → **Pin to taskbar**.
 
 That's it. The pinned icon is now the app.
@@ -39,7 +39,7 @@ That's it. The pinned icon is now the app.
 
 ## Download
 
-`SnipTextProUltra.exe` is attached to [the latest release](https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/latest). One file, no installer, nothing to put beside it — the binary is statically linked.
+`SnipTextProUltra_<version>.exe` is attached to [the latest release](https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/latest). One file, no installer, nothing to put beside it — the binary is statically linked.
 
 > **Windows will warn you about it.** The executable is not code-signed, so SmartScreen shows *"Windows protected your PC"*. That warning is correct, and worth reading rather than reflexively clicking past: it means Windows cannot tell who published this. The honest answer is that it was published by one person with no certificate.
 >
@@ -50,7 +50,7 @@ That's it. The pinned icon is now the app.
 A `SHA-256` checksum is published beside each release binary. It is not a signature and does not pretend to be one; it only lets you confirm the file you downloaded is the file CI produced:
 
 ```
-Get-FileHash .\SnipTextProUltra.exe -Algorithm SHA256
+Get-FileHash .\SnipTextProUltra_1.6.1.exe -Algorithm SHA256
 ```
 
 ## Requirements
@@ -71,7 +71,7 @@ build.bat run
 
 | | |
 |---|---|
-| `build.bat` | Build into `build\SnipTextProUltra.exe` |
+| `build.bat` | Build into `build\SnipTextProUltra_<version>.exe` |
 | `build.bat run` | Build and launch |
 | `build.bat test` | Build and run the text-normaliser tests |
 | `build.bat clean` | Delete the build folder |
@@ -109,13 +109,13 @@ That downloads the model to a temporary file, prints the line to paste, and dele
 ### Uninstalling
 
 ```
-taskkill /IM SnipTextProUltra.exe /F
+taskkill /IM SnipTextProUltra_*.exe /F
 reg delete "HKCU\Software\markpelayo\SnipText" /f
 reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v SnipText /f
 rmdir /s /q "%LOCALAPPDATA%\SnipText"
 ```
 
-Then delete `SnipTextProUltra.exe` and unpin it. Your captures are left alone — they are in `%USERPROFILE%\Pictures\SnipText_*` and `%USERPROFILE%\Videos\SnipText_Videos`. Delete those yourself if you want them gone.
+Then delete `SnipTextProUltra_<version>.exe` and unpin it. Your captures are left alone — they are in `%USERPROFILE%\Pictures\SnipText_*` and `%USERPROFILE%\Videos\SnipText_Videos`. Delete those yourself if you want them gone.
 
 ---
 

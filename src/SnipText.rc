@@ -35,7 +35,7 @@ BEGIN
             VALUE "FileVersion",      SNIPTEXT_VERSION_STRING
             VALUE "InternalName",     "SnipTextProUltra"
             VALUE "LegalCopyright",   "MIT licence"
-            VALUE "OriginalFilename", "SnipTextProUltra.exe"
+            VALUE "OriginalFilename", "SnipTextProUltra_" SNIPTEXT_VERSION_DOTTED ".exe"
             VALUE "ProductName",      "SnipTextProUltra"
             VALUE "ProductVersion",   SNIPTEXT_VERSION_STRING
         END

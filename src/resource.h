@@ -20,6 +20,9 @@
 #define SNIPTEXT_VERSION_COMMA  1,6,1,0
 #define SNIPTEXT_VERSION_STRING "1.6.1.0"
 #define SNIPTEXT_VERSION_WIDE   L"1.6.1"
+// Narrow, three-part, for the resource block's OriginalFilename, which has to
+// match the name of the file on disk — and that now carries the version.
+#define SNIPTEXT_VERSION_DOTTED "1.6.1"
 
 // --- which build is this? ---------------------------------------------------
 //

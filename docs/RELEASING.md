@@ -102,7 +102,7 @@ in the same commit — it currently tells people verbose is the default.
 
 ## The binary, and what it does not come with
 
-Releases attach `SnipTextProUltra.exe`. It is **not code-signed**, so
+Releases attach `SnipTextProUltra_<version>.exe` — the version is part of the file name, read from `VERSION` by both CMake and `build.bat`, so it cannot drift from what the binary reports about itself. It is **not code-signed**, so
 SmartScreen warns about it, and that warning is accurate — Windows cannot tell
 who published it.
 

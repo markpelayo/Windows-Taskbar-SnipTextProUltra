@@ -240,20 +240,66 @@ namespace {
 // way and nobody else's are.
 constexpr const wchar_t* kMenuWindowClass = L"#32768";
 
+// How long to wait for a fading menu, at most. The Windows menu fade is on
+// the order of 200ms; the ceiling exists so a wedged menu can never hang a
+// capture, not because the wait is expected to reach it.
+constexpr ULONGLONG kFadeCeilingMs = 300;
+
+// A final settle after the window has gone, for the DWM animation of its last
+// rendered frame. Deliberately small: it is paid on every capture on a
+// machine with the effect enabled.
+constexpr DWORD kFadeSettleMs = 30;
+
 BOOL CALLBACK SuppressMenuWindow(HWND hwnd, LPARAM parameter) {
     wchar_t className[32]{};
     if (::GetClassNameW(hwnd, className, 32) == 0) return TRUE;
     if (::wcscmp(className, kMenuWindowClass) != 0) return TRUE;
-    if (!::IsWindowVisible(hwnd)) return TRUE;
 
-    // Excluding is preferred: the window keeps animating exactly as Windows
-    // intends, and simply is not in the capture. Hiding it is the fallback
-    // for a build with no WDA_EXCLUDEFROMCAPTURE, where the alternative is
-    // the menu appearing in the screenshot.
+    // NO IsWindowVisible check, and its absence is the point.
+    //
+    // There used to be one here, added as an obvious optimisation: why bother
+    // with a window that is not on screen? Because during a fade-out it very
+    // likely IS one of those. Windows appears to hide the menu window and let
+    // DWM animate the last surface it rendered, so the window that still
+    // needs excluding reports itself invisible — and that guard skipped
+    // exactly the case the whole function exists for. It is the reason this
+    // did not work the first time.
     if (!ExcludeFromCapture(hwnd)) ::ShowWindow(hwnd, SW_HIDE);
 
     ++*reinterpret_cast<int*>(parameter);
     return TRUE;
+}
+
+// Whether Windows is set to fade menus out after a click — Performance
+// Options > Visual Effects > "Fade out menu items after clicking". On by
+// default.
+//
+// Asked because it decides whether waiting is worth anything at all. With the
+// effect off there is nothing to wait for and a capture must not pay a
+// millisecond; with it on, the wait below is the only thing that can work if
+// the menu window has already been destroyed and what remains is a DWM
+// animation of its last frame — which no amount of excluding or hiding a
+// window can touch.
+bool MenusFadeOut() {
+    BOOL fade = FALSE;
+    if (!::SystemParametersInfoW(SPI_GETMENUFADE, 0, &fade, 0)) return false;
+    return fade != FALSE;
+}
+
+BOOL CALLBACK CountMenuWindow(HWND hwnd, LPARAM parameter) {
+    wchar_t className[32]{};
+    if (::GetClassNameW(hwnd, className, 32) == 0) return TRUE;
+    if (::wcscmp(className, kMenuWindowClass) == 0) {
+        ++*reinterpret_cast<int*>(parameter);
+    }
+    return TRUE;
+}
+
+int OwnMenuWindowCount() {
+    int found = 0;
+    ::EnumThreadWindows(::GetCurrentThreadId(), &CountMenuWindow,
+                        reinterpret_cast<LPARAM>(&found));
+    return found;
 }
 
 } // namespace
@@ -272,13 +318,57 @@ int SuppressOwnMenusForCapture() {
     // half-faded menu. There is nothing to wait for, because the thing has
     // not begun to disappear.
     //
-    // It is also why a delay is the wrong shape of fix. It would have to be
-    // long enough for the slowest machine with the fade enabled, and every
-    // machine without it would pay that for nothing. This costs one window
-    // enumeration, which on the common path finds nothing.
+    // Three things happen here, cheapest first, because the first two may well
+    // be enough and neither costs anything measurable:
+    //
+    //   1. Take any menu window of ours out of the capture, or hide it. Free,
+    //      instant, and correct whenever a window still exists to act on.
+    //   2. If — and only if — Windows says it fades menus out, wait for that
+    //      window to go away. This returns the moment it does, so it costs
+    //      the fade and nothing more, and machines with the effect switched
+    //      off never reach it.
+    //   3. A short bounded settle for the case no window handle can reach at
+    //      all: the menu already destroyed, DWM still dissolving the surface
+    //      it last rendered. Nothing can be excluded or hidden there, so this
+    //      is the only thing left — which is why it exists despite a delay
+    //      being the shape of fix I wanted to avoid.
+    //
+    // A blanket delay is still wrong, and this is not one: it is gated on the
+    // system setting that causes the problem, so the cost falls only on the
+    // machines that have it.
     int found = 0;
     ::EnumThreadWindows(::GetCurrentThreadId(), &SuppressMenuWindow,
                         reinterpret_cast<LPARAM>(&found));
+
+    // Everything above is free and instant. What follows costs time, so it
+    // only runs when Windows says it is fading menus out — the machines that
+    // have the effect switched off pay nothing whatsoever, which was the
+    // whole constraint.
+    if (!MenusFadeOut()) return found;
+
+    // Wait for the menu window to go away, rather than for a guessed
+    // duration. Returns the moment it does, so this costs exactly the fade
+    // and not a millisecond more.
+    //
+    // The pump matters: the menu window belongs to THIS thread, so if USER32
+    // drives the fade from a timer here, a plain Sleep would stall the very
+    // animation being waited on and the ceiling would always be hit. Paint
+    // and sent messages only — dispatching posted messages would include
+    // WM_HOTKEY and could re-enter the capture already in progress.
+    const ULONGLONG deadline = ::GetTickCount64() + kFadeCeilingMs;
+    while (OwnMenuWindowCount() > 0 && ::GetTickCount64() < deadline) {
+        MSG message;
+        while (::PeekMessageW(&message, nullptr, 0, 0,
+                              PM_REMOVE | PM_QS_PAINT | PM_QS_SENDMESSAGE)) {
+            ::DispatchMessageW(&message);
+        }
+        ::Sleep(4);
+    }
+
+    // And a short settle for the case no window handle can reach: the menu
+    // destroyed, DWM still dissolving the surface it last rendered. Bounded,
+    // and still only on machines that have the effect on.
+    ::Sleep(kFadeSettleMs);
     return found;
 }
 

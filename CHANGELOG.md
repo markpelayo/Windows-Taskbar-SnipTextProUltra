@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.7.3] — 2026-09-28
+
 ### Changed
 
 - **The menu-fade wait is gone; captures are instantaneous again.** 1.7.2 slept
@@ -26,6 +30,51 @@ adheres to [Semantic Versioning](https://semver.org).
   of two paths, and the keyboard shortcuts were never affected in the first
   place. The workaround is documented in the README's troubleshooting section:
   use the shortcuts, or untick that one visual effect.
+
+- **Every release CI published was built without whole-program optimisation.**
+  `build.bat` has passed `/GL` and `/LTCG` since the beginning; `CMakeLists.txt`
+  never did, and CI builds with CMake. So anyone building locally got the
+  faster, smaller binary and every downloaded release did not. Fixed, in
+  Release configurations only.
+
+- **The pixel loops are a word at a time instead of a byte at a time.**
+  `MakeOpaque` was one single-byte store per pixel at a stride of four, which
+  the compiler cannot vectorise — 16.6 million scattered writes on a dual-4K
+  grab, measured at 8–25 ms. It runs on every capture, every OCR retry pass
+  and every recorded frame. Same change to the OCR inverter. Both rewrites
+  were verified bit-identical across 200,000 random pixels plus the edge
+  cases.
+
+- **The selection overlay and the editor canvas reuse their paint buffer.**
+  Both allocated a bitmap the size of the repainted area on *every*
+  `WM_MOUSEMOVE`, and the allocation plus first-touch page faults across that
+  area was the largest slice of the per-move cost — worth roughly a fifth to a
+  third of it, more on a slow machine. The buffer is released before a
+  reallocation so a grow never holds two at once.
+
+- **`FillAlpha` created and destroyed a device context and a 1×1 bitmap on
+  every call** — four to six times per paint, in a function whose own comment
+  said one per paint would be wasteful.
+
+- **The menu no longer walks three folders on every open.** It asked all three
+  for their file counts each time, including at launch, and the default
+  folders are Pictures and Videos — which Windows 11 often redirects into
+  OneDrive, where a directory walk is a network round trip. Measured at
+  100–600 ms. Counts are now cached against the directory's last-write time,
+  and counted without building a path per file.
+
+  Two things were needed to keep the counts honest. A zero or never-advancing
+  timestamp — which FAT, exFAT roots and some network redirectors report — is
+  rejected, since keying a cache on a constant would freeze the number for the
+  life of the process. And changes this program makes itself invalidate the
+  cache explicitly rather than waiting for the filesystem, because a
+  directory's timestamp is flushed lazily and waiting would resurrect exactly
+  the stale-count bug the live counts were built to prevent.
+
+### Fixed
+
+- **A GDI bitmap leaked** on the path where `CreateDIBSection` returns a handle
+  with a null pixel pointer.
 
 ## [1.7.2] — 2026-09-28
 

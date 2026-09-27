@@ -250,6 +250,8 @@ constexpr ULONGLONG kFadeCeilingMs = 300;
 // machine with the effect enabled.
 constexpr DWORD kFadeSettleMs = 30;
 
+MenuSuppressionReport g_report;
+
 BOOL CALLBACK SuppressMenuWindow(HWND hwnd, LPARAM parameter) {
     wchar_t className[32]{};
     if (::GetClassNameW(hwnd, className, 32) == 0) return TRUE;
@@ -264,7 +266,12 @@ BOOL CALLBACK SuppressMenuWindow(HWND hwnd, LPARAM parameter) {
     // needs excluding reports itself invisible — and that guard skipped
     // exactly the case the whole function exists for. It is the reason this
     // did not work the first time.
-    if (!ExcludeFromCapture(hwnd)) ::ShowWindow(hwnd, SW_HIDE);
+    if (ExcludeFromCapture(hwnd)) {
+        ++g_report.excluded;
+    } else {
+        ::ShowWindow(hwnd, SW_HIDE);
+        ++g_report.hidden;
+    }
 
     ++*reinterpret_cast<int*>(parameter);
     return TRUE;
@@ -336,15 +343,19 @@ int SuppressOwnMenusForCapture() {
     // A blanket delay is still wrong, and this is not one: it is gated on the
     // system setting that causes the problem, so the cost falls only on the
     // machines that have it.
+    g_report = MenuSuppressionReport{};
+
     int found = 0;
     ::EnumThreadWindows(::GetCurrentThreadId(), &SuppressMenuWindow,
                         reinterpret_cast<LPARAM>(&found));
+    g_report.windowsFound = found;
+    g_report.fadeEnabled  = MenusFadeOut();
 
     // Everything above is free and instant. What follows costs time, so it
     // only runs when Windows says it is fading menus out — the machines that
     // have the effect switched off pay nothing whatsoever, which was the
     // whole constraint.
-    if (!MenusFadeOut()) return found;
+    if (!g_report.fadeEnabled) return found;
 
     // Wait for the menu window to go away, rather than for a guessed
     // duration. Returns the moment it does, so this costs exactly the fade
@@ -355,7 +366,8 @@ int SuppressOwnMenusForCapture() {
     // animation being waited on and the ceiling would always be hit. Paint
     // and sent messages only — dispatching posted messages would include
     // WM_HOTKEY and could re-enter the capture already in progress.
-    const ULONGLONG deadline = ::GetTickCount64() + kFadeCeilingMs;
+    const ULONGLONG started  = ::GetTickCount64();
+    const ULONGLONG deadline = started + kFadeCeilingMs;
     while (OwnMenuWindowCount() > 0 && ::GetTickCount64() < deadline) {
         MSG message;
         while (::PeekMessageW(&message, nullptr, 0, 0,
@@ -363,7 +375,10 @@ int SuppressOwnMenusForCapture() {
             ::DispatchMessageW(&message);
         }
         ::Sleep(4);
+        ++g_report.pollCount;
     }
+    g_report.waitedMs         = static_cast<int>(::GetTickCount64() - started);
+    g_report.windowsAfterWait = OwnMenuWindowCount();
 
     // And a short settle for the case no window handle can reach: the menu
     // destroyed, DWM still dissolving the surface it last rendered. Bounded,
@@ -371,6 +386,8 @@ int SuppressOwnMenusForCapture() {
     ::Sleep(kFadeSettleMs);
     return found;
 }
+
+const MenuSuppressionReport& LastMenuSuppressionReport() { return g_report; }
 
 HMONITOR MonitorUnderCursor() {
     POINT cursor{};

@@ -71,6 +71,29 @@ bool ExcludeFromCapture(HWND hwnd);
 // Returns how many menu windows it found, which is zero on the common path.
 int SuppressOwnMenusForCapture();
 
+// ---------------------------------------------------------------------------
+// TEMPORARY DIAGNOSTIC — remove before the next release.
+//
+// Three attempts at keeping the fading menu out of captures have failed, each
+// for a different reason, and each guess cost a build-and-test cycle. This
+// records what actually happened so the next change is made with facts
+// instead of a fourth theory.
+//
+// Everything here is filled in by SuppressOwnMenusForCapture and read once
+// afterwards. It costs six integers.
+// ---------------------------------------------------------------------------
+struct MenuSuppressionReport {
+    bool fadeEnabled      = false;  // what SPI_GETMENUFADE says
+    int  windowsFound     = 0;      // menu windows of ours, at entry
+    int  excluded         = 0;      // WDA_EXCLUDEFROMCAPTURE succeeded
+    int  hidden           = 0;      // fell back to ShowWindow(SW_HIDE)
+    int  pollCount        = 0;      // iterations of the wait loop
+    int  waitedMs         = 0;      // wall time spent waiting
+    int  windowsAfterWait = 0;      // still there when we gave up or finished
+};
+
+const MenuSuppressionReport& LastMenuSuppressionReport();
+
 // --- DPI and geometry ------------------------------------------------------
 
 // The process is Per-Monitor-V2 aware (see the manifest), so every coordinate

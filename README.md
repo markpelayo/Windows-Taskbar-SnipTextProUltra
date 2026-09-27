@@ -125,10 +125,37 @@ That downloads the model to a temporary file, prints the line to paste, and dele
 taskkill /IM SnipTextProUltra_*.exe /F
 reg delete "HKCU\Software\markpelayo\SnipTextProUltra" /f
 reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v SnipTextProUltra /f
-rmdir /s /q "%LOCALAPPDATA%\SnipTextProUltra"
 ```
 
-Then delete `SnipTextProUltra_<version>.exe` and unpin it. Your captures are left alone — they are in `%USERPROFILE%\Pictures\SnipTextProUltra_*` and `%USERPROFILE%\Videos\SnipTextProUltra_Videos`. Delete those yourself if you want them gone.
+Then delete `SnipTextProUltra_<version>.exe` and unpin it. There is no
+`%LOCALAPPDATA%` folder to remove — the program writes no log and nothing else
+outside the registry key above.
+
+Your captures are left alone — they are in
+`%USERPROFILE%\Pictures\SnipTextProUltra_*` and
+`%USERPROFILE%\Videos\SnipTextProUltra_Videos`. Delete those yourself if you
+want them gone.
+
+### Coming from 1.6.2 or earlier
+
+Everything was named `SnipText` before 1.6.3, and the rename was made without
+migration on purpose. The new version reads none of the old state, so it
+starts at its defaults and leaves the old state behind untouched. To clear it:
+
+```
+reg delete "HKCU\Software\markpelayo\SnipText" /f
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v SnipText /f
+rmdir /s /q "%LOCALAPPDATA%\SnipText"
+```
+
+The second line only matters if Run at Startup was on — otherwise the value is
+not there and the command reports so harmlessly. The third removes the old log
+folder, which nothing recreates now.
+
+Your old captures are in `Pictures\SnipText_Screenshot_Images`,
+`Pictures\SnipText_ScreenshotToText_Images` and `Videos\SnipText_Videos`.
+Rename each to its `SnipTextProUltra_` equivalent to bring them across, or
+delete them — the program will not look in the old folders either way.
 
 ---
 

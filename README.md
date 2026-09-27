@@ -16,7 +16,20 @@ Everything runs locally. OCR is Windows' own `Windows.Media.Ocr`, capture is GDI
 
 One executable, no installer, no third-party dependencies — nothing but the Windows SDK. The binary is statically linked, so there is no runtime to install.
 
-This is version 1.0.0. It builds clean under `/W4 /WX` and has been run on Windows 11 on one machine. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
+This is version 1.6.1. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
+
+### Trying it on sample text
+
+[**docs/text-layout-test.html**](docs/text-layout-test.html) is a page of eight
+deliberately awkward cases — a wrapped paragraph, a three-column table, a
+column of serial numbers, a list, an indented block, a symbol string. Open it
+in a browser and capture each box with *ScreenshotToText a Region*.
+
+It exists to answer one question honestly: **Text Layout** has two settings and
+neither is right for everything, so the page shows you what each does to the
+same text rather than describing it. Each case says what to expect from both,
+which also makes it a regression check — if a column of serial numbers comes
+back joined into one line, that is a bug rather than a preference.
 
 ---
 
@@ -221,6 +234,8 @@ The blank lines come from the same measurements: a gap wider than 1.6× the medi
 See [the architecture notes](docs/ARCHITECTURE.md#text-normalisation) for why the obvious approach doesn't work, and `tests/TextNormalizerTests.cpp` for the cases that shaped it.
 
 **Keep Every Line Separate** is the predictable one — verbatim, always. Reach for it when a capture comes back joined, or spaced out, in a way you did not want.
+
+Rather than choose from a description, see both: **Text Layout → Compare the Two on Sample Text** opens [docs/text-layout-test.html](docs/text-layout-test.html), eight cases covering every place the two diverge. The table case is the one worth deciding on — if three columns come back as one line, the structure is gone and cannot be recovered afterwards.
 
 ---
 

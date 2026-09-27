@@ -44,7 +44,7 @@ enum : int {
     ID_FOLDER_SHOT_CHOOSE = 1020, ID_FOLDER_SHOT_RESET,
     ID_FOLDER_TEXT_CHOOSE, ID_FOLDER_TEXT_RESET,
     ID_FOLDER_VIDEO_CHOOSE, ID_FOLDER_VIDEO_RESET,
-    ID_LAYOUT_REBUILD = 1030, ID_LAYOUT_LINES,
+    ID_LAYOUT_REBUILD = 1030, ID_LAYOUT_LINES, ID_LAYOUT_EXAMPLES,
     ID_AFTER_EDITOR = 1034, ID_AFTER_CLIPBOARD,
     ID_VID_CURSOR = 1040, ID_VID_CLICKS, ID_VID_HEVC,
     ID_SANITIZE = 1050, ID_QUIT, ID_ABOUT,
@@ -68,6 +68,27 @@ const int kStartupDelayChoices[6] = { 5, 10, 15, 20, 30, 60 };
 
 constexpr const wchar_t* kRepositoryUrl =
     L"https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra";
+
+// --- PLACEHOLDER -----------------------------------------------------------
+//
+// The sample page lives at docs/text-layout-test.html in the repository. This
+// URL does not serve it yet, and two things have to be true before it will:
+//
+//   1. GitHub renders a .html file in a repository as SOURCE, not as a page.
+//      A blob link shows the markup; a raw link serves text/plain and shows
+//      the markup too. Neither is useful to someone who wants to see the
+//      examples.
+//   2. Rendering it means publishing it — GitHub Pages or equivalent — which
+//      is a hosting decision, not a code one.
+//
+// There is a third option that needs neither, and it is the one that fits
+// this program: embed the page as a resource, write it to the temp directory
+// on demand, and open that. It stays a single self-contained executable, it
+// works with no network, and it cannot rot when a URL moves. Say the word and
+// it is a small change.
+constexpr const wchar_t* kTextLayoutExamplesUrl =
+    L"https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra"
+    L"/blob/main/docs/text-layout-test.html";
 
 UINT RelaunchMessage() {
     static const UINT message = ::RegisterWindowMessageW(L"SnipTextProUltra.ShowMenu");
@@ -798,11 +819,29 @@ HMENU App::BuildMenu() {
         const bool rebuild = settings::GetBool(settings::key::kJoinWrappedLines, true);
         HMENU layout = ::CreatePopupMenu();
         if (layout) {
+            // Each option carries its own description, directly beneath it.
+            //
+            // The previous version put one footer at the bottom describing
+            // only Rebuild — so selecting "Keep Every Line Separate" left the
+            // menu still explaining the option you had just moved away from,
+            // and the only way to learn what the other one did was to pick it
+            // and take a capture. Describing both means you never have to
+            // choose in order to find out what choosing would do.
+            //
+            // Two rows each rather than one long one: a Win32 menu item is a
+            // single line, and a description wide enough to say this in one
+            // line would set the width of the whole submenu.
             AppendCommand(layout, ID_LAYOUT_REBUILD, L"Rebuild Paragraphs", true, rebuild);
-            AppendCommand(layout, ID_LAYOUT_LINES, L"Keep Every Line Separate", true, !rebuild);
+            AppendHeader(layout, L"      Rejoins sentences that wrapped, and puts");
+            AppendHeader(layout, L"      a blank line between blocks.");
             AppendSeparator(layout);
-            AppendHeader(layout, L"Rebuild rejoins sentences that wrapped,");
-            AppendHeader(layout, L"and puts a blank line between blocks.");
+
+            AppendCommand(layout, ID_LAYOUT_LINES, L"Keep Every Line Separate", true, !rebuild);
+            AppendHeader(layout, L"      One line of text for every line on screen.");
+            AppendHeader(layout, L"      Nothing joined, nothing inserted.");
+            AppendSeparator(layout);
+
+            AppendCommand(layout, ID_LAYOUT_EXAMPLES, L"Compare the Two on Sample Text…");
         }
         AppendSubmenu(menu, layout, L"Text Layout");
     }
@@ -1213,6 +1252,14 @@ void App::OnCommand(int command) {
         return;
     case ID_LAYOUT_LINES:
         settings::SetBool(settings::key::kJoinWrappedLines, false);
+        return;
+
+    case ID_LAYOUT_EXAMPLES:
+        // The only other place this program opens a browser is the title row,
+        // and for the same reason: a Win32 menu cannot hold a hyperlink, so a
+        // command that hands the URL to the shell is the whole mechanism.
+        ::ShellExecuteW(nullptr, L"open", kTextLayoutExamplesUrl,
+                        nullptr, nullptr, SW_SHOWNORMAL);
         return;
 
     // Set rather than toggled, and the default row removes the value — the

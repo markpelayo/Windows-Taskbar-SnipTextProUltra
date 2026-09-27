@@ -35,6 +35,25 @@ adheres to [Semantic Versioning](https://semver.org).
   and a hover border are discoverable by accident, which is not the same as
   being discoverable.
 
+- **The Text Layout submenu describes both options, not one.** It carried a
+  single footer explaining only *Rebuild Paragraphs*, so selecting *Keep Every
+  Line Separate* left the menu still explaining the option you had just moved
+  away from — and the only way to learn what the other one did was to pick it
+  and take a capture. Each option now has its description directly beneath it,
+  so you never have to choose in order to find out what choosing would do.
+
+- **Text Layout → Compare the Two on Sample Text** opens a page of eight
+  deliberately awkward cases: a wrapped paragraph, a three-column table, a
+  column of serial numbers, a list whose items wrap, an indented block, a
+  symbol string. Each says what to expect from both settings, which makes it a
+  regression check as well as an explanation — if a column of serial numbers
+  comes back joined, that is a bug rather than a preference.
+
+  The page is `docs/text-layout-test.html`, and it is also linked from the top
+  of the README. **The menu's URL is a placeholder**: GitHub serves a `.html`
+  file in a repository as source rather than rendering it, so the link will
+  not show the page until it is published somewhere that does.
+
 - **Show Saved Files** sits directly above *Sanitize and Restore Default*
   again, below *Screen Recording Settings* — settings together, then the two
   rows that reach outside the app.

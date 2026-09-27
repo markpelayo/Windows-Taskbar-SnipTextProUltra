@@ -792,9 +792,22 @@ void EditorWindow::PaintCanvas(HDC dc) {
     // Paint through an off-screen bitmap. Drawing the image and every
     // annotation straight to the window would flicker on each mouse-move,
     // and mouse-move is exactly when this runs.
-    auto buffer = Bitmap::Create(width, height);
-    if (!buffer || !buffer->MemoryDC()) return;
-    HDC target = buffer->MemoryDC();
+    // Reused, not reallocated on every mouse-move. Only grows; see
+    // paintBuffer_ in the header. The BitBlt out at the end reads only the
+    // top-left width x height, so a larger buffer is harmless, and FillRect
+    // below clears the part that is used.
+    // Matched exactly to the canvas, not grown to a high-water mark. The
+    // canvas only changes size when the window is resized, so this
+    // reallocates on resize and never during a drag — and unlike a
+    // grow-only buffer it does not stay at the size of the largest the window
+    // has ever been after the user maximises and restores.
+    if (!paintBuffer_ || paintBuffer_->Width() != width ||
+        paintBuffer_->Height() != height) {
+        paintBuffer_.reset();
+        paintBuffer_ = Bitmap::Create(width, height);
+    }
+    if (!paintBuffer_ || !paintBuffer_->MemoryDC()) return;
+    HDC target = paintBuffer_->MemoryDC();
 
     ::FillRect(target, &client, ::GetSysColorBrush(COLOR_APPWORKSPACE));
 

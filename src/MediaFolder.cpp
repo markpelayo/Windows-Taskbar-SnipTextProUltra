@@ -95,7 +95,57 @@ std::vector<std::wstring> MediaFolder::Contents() const {
 }
 
 int MediaFolder::Count() const {
-    return static_cast<int>(Contents().size());
+    const std::wstring directory = Directory();
+
+    // One attribute query rather than a directory walk: sub-millisecond, and
+    // a single round trip even over SMB.
+    // A stamp is only usable if it is actually a stamp. GetFileAttributesExW
+    // succeeding is not enough: FAT and exFAT volume roots have no directory
+    // entry and report zeroed times, and some SMB, WebDAV and MTP redirectors
+    // report zero or a value that never advances. Keyed on a constant, the
+    // cache would freeze the count for the life of the process — the menu
+    // showing a number that never changes and never matches the Sanitize
+    // dialog. A zero stamp means "count every time", which is merely slow.
+    WIN32_FILE_ATTRIBUTE_DATA info{};
+    const bool stamped =
+        ::GetFileAttributesExW(directory.c_str(), GetFileExInfoStandard, &info) != 0 &&
+        (info.ftLastWriteTime.dwLowDateTime | info.ftLastWriteTime.dwHighDateTime) != 0;
+
+    if (stamped && countedFiles_ >= 0 && countedDirectory_ == directory &&
+        info.ftLastWriteTime.dwLowDateTime  == countedStamp_.dwLowDateTime &&
+        info.ftLastWriteTime.dwHighDateTime == countedStamp_.dwHighDateTime) {
+        return countedFiles_;
+    }
+
+    // Counts with the same three filters Contents() uses, deliberately
+    // duplicated rather than calling it: Contents() joins a full path per
+    // entry, which is a couple of thousand heap allocations and a few hundred
+    // kilobytes of churn for a number.
+    int files = 0;
+    const std::wstring pattern = util::JoinPath(directory, L"*");
+
+    WIN32_FIND_DATAW found{};
+    ScopedFind search(::FindFirstFileExW(pattern.c_str(), FindExInfoBasic, &found,
+                                         FindExSearchNameMatch, nullptr, 0));
+    if (search) {
+        do {
+            if (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+            if (found.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN)    continue;
+            if (util::FileExtensionLower(found.cFileName) != extension_) continue;
+            ++files;
+        } while (::FindNextFileW(search.get(), &found));
+    }
+
+    // Only cached when there is a stamp to validate it against. Without one
+    // the next call counts again, which is correct rather than stale.
+    if (stamped) {
+        countedDirectory_ = directory;
+        countedStamp_     = info.ftLastWriteTime;
+        countedFiles_     = files;
+    } else {
+        countedFiles_ = -1;
+    }
+    return files;
 }
 
 std::wstring MediaFolder::NewFilePath() const {
@@ -135,6 +185,9 @@ std::wstring MediaFolder::SaveBytes(const void* data, size_t size) const {
         remaining -= written;
     }
 
+    // We just changed this folder, so say so rather than waiting for the
+    // directory timestamp to catch up — see InvalidateCount in the header.
+    InvalidateCount();
     return path;
 }
 

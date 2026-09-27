@@ -91,6 +91,22 @@ private:
     // --- state ---
     std::unique_ptr<Bitmap> image_;
 
+    // The off-screen buffer PaintCanvas composites into, kept between paints.
+    //
+    // PaintCanvas runs on every WM_MOUSEMOVE while drawing, and allocating a
+    // canvas-sized DIB section each time costs the allocation, the
+    // first-touch page faults over the whole canvas, and the free.
+    //
+    // Sized to match the canvas exactly, so it is reallocated on a resize and
+    // never during a drag. Not grown to a high-water mark: that would keep the
+    // buffer at the largest size the window had ever been, so maximising and
+    // restoring would leave the bigger allocation resident for as long as the
+    // editor stayed open.
+    //
+    // The cost is one canvas-sized bitmap held while an editor window is open,
+    // where before it existed only during a paint.
+    std::unique_ptr<Bitmap> paintBuffer_;
+
     // The colour to paint over a region that has been lifted away with Shift.
     // Sampled from the ring of pixels just outside the region, because that is
     // what the hole should look like if it is to disappear: the background the

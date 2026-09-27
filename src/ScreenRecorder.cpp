@@ -919,8 +919,18 @@ DWORD WINAPI ScreenRecorder::WorkerEntry(void* parameter) {
                 // interval. Writing a fixed duration beside a wall-clock
                 // timestamp would leave the two disagreeing, and the MPEG-4
                 // sink builds its timing table from durations — which is how
-                // the original "plays back too fast" symptom happened. The
-                // first frame has no predecessor, so it gets the nominal one.
+                // the original "plays back too fast" symptom happened.
+                //
+                // Precisely: this is the gap to the frame BEFORE this one,
+                // credited to this sample, because the gap to the next one is
+                // not known yet. In steady state the two are identical; after
+                // a stall the long interval is credited to the frame arriving
+                // after it rather than the one displayed during it. Timestamps
+                // are authoritative and monotonic and the durations still sum
+                // correctly, so playback timing is right — making the
+                // attribution exact would mean buffering a frame, a worse
+                // trade. The first frame has no predecessor, so it gets the
+                // nominal interval.
                 const LONGLONG duration =
                     (frameIndex == 0) ? frameDuration
                                       : (videoTimestamp - previous);

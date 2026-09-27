@@ -282,15 +282,16 @@ double MeanLuminance(const Bitmap& image) {
 std::unique_ptr<Bitmap> MakeInverted(const Bitmap& image) {
     auto out = Bitmap::Create(image.Width(), image.Height());
     if (!out) return nullptr;
-    const BYTE* from = static_cast<const BYTE*>(image.Bits());
-    BYTE* to = static_cast<BYTE*>(out->Bits());
+    // A word at a time, for the same reason as Bitmap::MakeOpaque: three
+    // byte reads and four byte writes per pixel do not vectorise, and this
+    // runs over the whole capture on every inverted OCR pass.
+    //
+    // ~(bgra) flips all four channels including alpha; the OR then forces
+    // alpha back to opaque. Identical output to the four separate stores.
+    const UINT32* from = static_cast<const UINT32*>(image.Bits());
+    UINT32* to = static_cast<UINT32*>(out->Bits());
     const size_t total = static_cast<size_t>(image.Width()) * image.Height();
-    for (size_t i = 0; i < total; ++i) {
-        to[i * 4 + 0] = static_cast<BYTE>(255 - from[i * 4 + 0]);
-        to[i * 4 + 1] = static_cast<BYTE>(255 - from[i * 4 + 1]);
-        to[i * 4 + 2] = static_cast<BYTE>(255 - from[i * 4 + 2]);
-        to[i * 4 + 3] = 255;
-    }
+    for (size_t i = 0; i < total; ++i) to[i] = (~from[i]) | 0xFF000000u;
     return out;
 }
 

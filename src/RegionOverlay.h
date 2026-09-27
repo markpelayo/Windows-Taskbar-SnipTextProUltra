@@ -100,6 +100,24 @@ private:
     Style                   style_ = Style::Instant;
     HWND                    hwnd_  = nullptr;
     std::unique_ptr<Bitmap> frozen_;
+
+    // The off-screen buffer OnPaint composites into, kept between paints
+    // rather than allocated per WM_MOUSEMOVE.
+    //
+    // A drag repaints the union of the old and new selection plus the chrome,
+    // which for a large selection on a 4K screen approaches the whole desktop.
+    // Allocating and freeing that DIB section on every mouse-move costs the
+    // allocation, the first-touch page faults across the entire area, and the
+    // free — measurably the largest slice of the per-move cost on a low-spec
+    // machine.
+    //
+    // Grown to a high-water mark and never shrunk. Because width and height
+    // grow independently, a wide drag followed by a tall one can leave a
+    // buffer larger in area than either paint needed — bounded by the desktop,
+    // and the overlay is stack-scoped for one capture, so nothing survives it.
+    // The old code allocated a comparable buffer on every move anyway; what is
+    // new is holding one for the length of a selection rather than a paint.
+    std::unique_ptr<Bitmap> paintBuffer_;
     RECT                    desktopBounds_{};
 
     RECT     selection_{};

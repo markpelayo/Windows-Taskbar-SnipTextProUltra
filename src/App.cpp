@@ -1729,7 +1729,16 @@ void App::Sanitize() {
     // the files are still on disk is worse than reporting nothing, and that
     // is what discarding this return value produced.
     bool filesRemoved = true;
-    if (!files.empty()) filesRemoved = media::RecycleFiles(files);
+    if (!files.empty()) {
+        filesRemoved = media::RecycleFiles(files);
+
+        // The folders changed behind MediaFolder's back — the files went via
+        // the shell, not through SaveBytes — so the cached counts have to be
+        // dropped explicitly or the menu would keep showing the old numbers.
+        MediaFolder::Screenshots().InvalidateCount();
+        MediaFolder::TextImages().InvalidateCount();
+        MediaFolder::Videos().InvalidateCount();
+    }
 
     // Removal rather than assignment, so the defaults take over cleanly.
     // debugMode is deliberately untouched: it is a developer switch, not a

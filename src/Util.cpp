@@ -193,8 +193,6 @@ std::wstring DisplayPath(const std::wstring& path) {
     return path;
 }
 
-// --- DPI and geometry ------------------------------------------------------
-
 // --- keeping our own windows out of captures -------------------------------
 
 #ifndef WDA_EXCLUDEFROMCAPTURE
@@ -233,24 +231,7 @@ bool ExcludeFromCapture(HWND hwnd) {
     return getAffinity(hwnd, &applied) && applied == WDA_EXCLUDEFROMCAPTURE;
 }
 
-namespace {
-
-// Windows' own class for a popup menu. Menus raised by TrackPopupMenuEx
-// belong to the thread that raised them, so our own menus are findable this
-// way and nobody else's are.
-
-// Whether Windows is set to fade menus out after a click — Performance
-// Options > Visual Effects > "Fade out menu items after clicking". On by
-// default.
-//
-// Asked because it decides whether waiting is worth anything at all. With the
-// effect off there is nothing to wait for and a capture must not pay a
-// millisecond; with it on, the wait below is the only thing that can work if
-// the menu window has already been destroyed and what remains is a DWM
-// animation of its last frame — which no amount of excluding or hiding a
-// window can touch.
-
-} // namespace
+// --- DPI and geometry ------------------------------------------------------
 
 HMONITOR MonitorUnderCursor() {
     POINT cursor{};

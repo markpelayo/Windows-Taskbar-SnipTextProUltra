@@ -40,19 +40,46 @@ bool g_isShowing = false;
 void FillAlpha(HDC dc, const RECT& rect, COLORREF colour, BYTE alpha) {
     if (util::RectWidth(rect) <= 0 || util::RectHeight(rect) <= 0) return;
 
-    ScopedDC source(::CreateCompatibleDC(dc));
-    if (!source) return;
+    // The 1x1 source DC and bitmap are created once for the process, not once
+    // per rectangle. DrawChrome calls this four to six times per paint and
+    // paint runs on every mouse-move, so this was two GDI object creations
+    // and two destructions per call — the comment above claimed one per paint
+    // was wasteful and then made one per rectangle.
+    //
+    // UI thread only, which is why plain statics are safe. Raw handles and
+    // never freed, deliberately, the same way the fonts in this program are:
+    // a Scoped* static would run DeleteDC and DeleteObject during static
+    // destruction, after the process has begun tearing down, and two GDI
+    // objects reclaimed by the OS microseconds later are not worth that
+    // ordering question.
+    static HDC     source = nullptr;
+    static HBITMAP pixel  = nullptr;
+    static void*   bits   = nullptr;
 
-    BITMAPINFO info{};
-    info.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
-    info.bmiHeader.biWidth       = 1;
-    info.bmiHeader.biHeight      = -1;
-    info.bmiHeader.biPlanes      = 1;
-    info.bmiHeader.biBitCount    = 32;
-    info.bmiHeader.biCompression = BI_RGB;
+    if (!source) {
+        source = ::CreateCompatibleDC(dc);
+        if (!source) return;
 
-    void* bits = nullptr;
-    ScopedBitmap pixel(::CreateDIBSection(source.get(), &info, DIB_RGB_COLORS, &bits, nullptr, 0));
+        BITMAPINFO info{};
+        info.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+        info.bmiHeader.biWidth       = 1;
+        info.bmiHeader.biHeight      = -1;
+        info.bmiHeader.biPlanes      = 1;
+        info.bmiHeader.biBitCount    = 32;
+        info.bmiHeader.biCompression = BI_RGB;
+
+        pixel = ::CreateDIBSection(source, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+        if (!pixel || !bits) {
+            // CreateDIBSection can return a handle with a null bits pointer.
+            // DeleteObject(nullptr) is a safe no-op, so this needs no guard.
+            ::DeleteObject(pixel);
+            ::DeleteDC(source);
+            source = nullptr;
+            pixel  = nullptr;
+            bits   = nullptr;
+            return;
+        }
+    }
     if (!pixel || !bits) return;
 
     // AlphaBlend wants premultiplied components.
@@ -62,13 +89,13 @@ void FillAlpha(HDC dc, const RECT& rect, COLORREF colour, BYTE alpha) {
     rgba[2] = static_cast<BYTE>(GetRValue(colour) * alpha / 255);
     rgba[3] = alpha;
 
-    SelectGuard guard(source.get(), pixel.get());
+    SelectGuard guard(source, pixel);
     BLENDFUNCTION blend{ AC_SRC_OVER, 0, alpha, AC_SRC_ALPHA };
     // The source alpha is already baked into the pixel, so SourceConstantAlpha
     // stays at 255 and the per-pixel alpha does the work.
     blend.SourceConstantAlpha = 255;
     ::AlphaBlend(dc, rect.left, rect.top, util::RectWidth(rect), util::RectHeight(rect),
-                 source.get(), 0, 0, 1, 1, blend);
+                 source, 0, 0, 1, 1, blend);
 }
 
 void FillSolid(HDC dc, const RECT& rect, COLORREF colour) {
@@ -333,9 +360,22 @@ void RegionOverlay::OnPaint(HWND hwnd) {
         // This view covers every monitor, and repainting a multi-megapixel
         // composite straight to the screen on each mouse-move is exactly what
         // makes a selection feel sluggish.
-        auto buffer = Bitmap::Create(width, height);
-        if (buffer && buffer->MemoryDC()) {
-            HDC target = buffer->MemoryDC();
+        // Reused, not reallocated. Only grows — see paintBuffer_ in the
+        // header for why that costs nothing in peak memory.
+        if (!paintBuffer_ || paintBuffer_->Width() < width ||
+            paintBuffer_->Height() < height) {
+            const int grownWidth  = (std::max)(width,  paintBuffer_ ? paintBuffer_->Width()  : 0);
+            const int grownHeight = (std::max)(height, paintBuffer_ ? paintBuffer_->Height() : 0);
+            // Released BEFORE the new one is allocated. Assigning over it
+            // would evaluate Create first and hold both — up to twice a
+            // desktop-sized DIB at the instant of a grow, which is worse than
+            // the per-paint allocation this replaced.
+            paintBuffer_.reset();
+            paintBuffer_ = Bitmap::Create(grownWidth, grownHeight);
+        }
+
+        if (paintBuffer_ && paintBuffer_->MemoryDC()) {
+            HDC target = paintBuffer_->MemoryDC();
             ::SetViewportOrgEx(target, -dirty.left, -dirty.top, nullptr);
 
             ::BitBlt(target, dirty.left, dirty.top, width, height,

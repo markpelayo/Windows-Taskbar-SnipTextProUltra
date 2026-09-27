@@ -157,6 +157,25 @@ if(MSVC)
     # run for weeks is usually a bug that has not happened yet.
     target_compile_options(SnipTextProUltra PRIVATE /W4 /WX /permissive- /utf-8 /EHsc /GR-)
 
+    # Whole-program optimisation, in Release only.
+    #
+    # This was missing, and it mattered more than it looks: build.bat has had
+    # /GL and /LTCG since the beginning, CMake did not, and CI builds releases
+    # with CMake — so every published binary was compiled WITHOUT cross-
+    # translation-unit inlining or cross-TU COMDAT folding, while anyone
+    # building locally with build.bat got the faster, smaller one. The two
+    # build files are meant to produce the same binary from one source of
+    # truth; they did not.
+    #
+    # /GL is a Release-only generator expression because it is incompatible
+    # with edit-and-continue and makes a Debug build pointlessly slow to link.
+    #
+    # Note /LTCG implies /OPT:REF, /OPT:ICF and /OPT:LBR, and those are the
+    # linker's defaults without /DEBUG anyway — so passing them explicitly
+    # would be a no-op and is deliberately not done.
+    target_compile_options(SnipTextProUltra PRIVATE $<$<CONFIG:Release>:/GL>)
+    target_link_options(SnipTextProUltra PRIVATE $<$<CONFIG:Release>:/LTCG>)
+
     # /MANIFEST:NO is required, not optional. SnipTextProUltra.rc embeds the manifest
     # as resource 1 so that build.bat and CMake produce an identical binary
     # from one source of truth. The linker also generates a manifest of its

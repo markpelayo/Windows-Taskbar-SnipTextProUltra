@@ -37,8 +37,10 @@ std::unique_ptr<Bitmap> GrabVirtualDesktop(RECT* bounds);
 // rather than silence.
 void PlayShutter();
 
-// Plays whatever the shutter is currently configured to be, ignoring the
-// on/off setting. Used by the menu's Preview item.
+// Plays whatever the shutter is currently configured to be. Identical to
+// PlayShutter by construction, and deliberately so: the on/off setting is
+// checked by the CALLERS of PlayShutter, and Preview simply has no such
+// check — which is what makes it work when the shutter is switched off.
 void PreviewShutter();
 
 // --- the built-in tones ----------------------------------------------------

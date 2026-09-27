@@ -73,7 +73,7 @@ rem /MANIFEST:NO (on the link line) - the manifest is embedded by
 rem        SnipTextProUltra.rc; letting the linker generate a second one makes
 rem        CVTRES fail with CVT1100, duplicate resource
 set CFLAGS=/nologo /std:c++17 /EHsc /GR- /W4 /WX /permissive- /utf-8 /O2 /GL /MT ^
-    /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /DNOMINMAX /I"%ROOT%src" ^
+    /DNDEBUG /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /DNOMINMAX /I"%ROOT%src" ^
     /DSNIPTEXT_BUILD_SHA="\"%BUILDSHA%\"" /DSNIPTEXT_IS_RELEASE=0
 
 rem uuid.lib carries the FOLDERID_* GUID definitions; msimg32.lib carries

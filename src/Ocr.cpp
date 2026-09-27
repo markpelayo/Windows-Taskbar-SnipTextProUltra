@@ -1,6 +1,5 @@
 #include "Ocr.h"
 
-#include "Log.h"
 #include "TesseractOcr.h"
 #include "Util.h"
 
@@ -244,7 +243,6 @@ void BucketIntoRows(std::vector<OcrLine>& observations, std::vector<OcrLine>& ou
     }
 }
 
-
 // --- preparing the image for the engine ------------------------------------
 //
 // Windows.Media.Ocr is a language recogniser, not a shape recogniser: it
@@ -388,8 +386,6 @@ Result RecognizeWithWindows(const Bitmap& image) {
             ::GdiFlush();   // see the note in MakeUpscaled
             scaled->MakeOpaque();
             source = scaled.get();
-            LOG_DEBUG(util::Format(L"ocr: downscaled %dx%d to %dx%d for the engine limit",
-                                   image.Width(), image.Height(), width, height));
         }
     }
 
@@ -528,7 +524,6 @@ Result RecognizeWithWindows(const Bitmap& image) {
     // --- run them, keep whichever read the most --------------------------
     std::vector<OcrLine> observations;
     std::vector<OcrLine> candidate;
-    const wchar_t* winner = L"none";
     size_t best = 0;
     bool anyPassRan = false;
 
@@ -563,12 +558,9 @@ Result RecognizeWithWindows(const Bitmap& image) {
         anyPassRan = true;
 
         const size_t count = characterCount(candidate);
-        LOG_DEBUG(util::Format(L"ocr: pass '%s' read %zu chars on %zu lines",
-                               attempt.name, count, candidate.size()));
         if (count > best) {
             best = count;
             observations = std::move(candidate);
-            winner = attempt.name;
         }
 
         // A first pass that already read a substantial amount is the whole
@@ -584,17 +576,12 @@ Result RecognizeWithWindows(const Bitmap& image) {
         // it". The second is a real failure and the user should be told,
         // rather than shown the benign "no text found".
         if (!anyPassRan) {
-            result.failure = L"Windows text recognition didn't complete. "
-                             L"Try again, and see the log if it keeps happening.";
+            result.failure = L"Windows text recognition didn't complete. Try again.";
         }
-        LOG_DEBUG(L"ocr: no pass found any text");
         return result;
     }
-    LOG_DEBUG(util::Format(L"ocr: kept pass '%s' with %zu chars", winner, best));
 
-    LOG_DEBUG(util::Format(L"ocr: %zu observations", observations.size()));
     BucketIntoRows(observations, result.lines);
-    LOG_DEBUG(util::Format(L"ocr: %zu visual lines after row bucketing", result.lines.size()));
     return result;
 }
 
@@ -621,7 +608,6 @@ Result Recognize(const Bitmap& image, Engine engine) {
         Result result;
         result.failure = raw.failure;
         BucketIntoRows(raw.lines, result.lines);
-        LOG_DEBUG(util::Format(L"ocr: Tesseract produced %zu lines", result.lines.size()));
         return result;
     }
 
@@ -639,24 +625,17 @@ Result Recognize(const Bitmap& image, Engine engine) {
     constexpr size_t kLooksEmpty = 40;
     if (characters >= kLooksEmpty || !tesseract_ocr::IsAvailable()) return windows;
 
-    LOG_DEBUG(util::Format(L"ocr: Windows read only %zu chars, trying Tesseract",
-                           characters));
     tesseract_ocr::Result raw = tesseract_ocr::Recognize(image);
 
     size_t fallbackCharacters = 0;
     for (const OcrLine& line : raw.lines) fallbackCharacters += line.text.size();
 
     if (fallbackCharacters <= characters) {
-        LOG_DEBUG(util::Format(L"ocr: Tesseract read %zu chars, keeping the Windows result",
-                               fallbackCharacters));
         return windows;
     }
 
     Result result;
     BucketIntoRows(raw.lines, result.lines);
-    logging::Write(util::Format(L"ocr: Tesseract read %zu chars where Windows read %zu",
-                                fallbackCharacters, characters));
     return result;
 }
-
 } // namespace ocr

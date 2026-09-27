@@ -45,7 +45,7 @@ fi
 say "Checking the version"
 FILE_VERSION="$(tr -d '[:space:]' < VERSION)"
 [[ "$FILE_VERSION" == "$VERSION_NUMBER" ]] \
-    || fail "VERSION says $FILE_VERSION but you asked for $TAG. Bump VERSION, src/resource.h and src/SnipText.manifest first."
+    || fail "VERSION says $FILE_VERSION but you asked for $TAG. Bump VERSION, src/resource.h and src/SnipTextProUltra.manifest first."
 
 grep -q "\"$VERSION_NUMBER\.0\"" src/resource.h \
     || fail "src/resource.h does not carry $VERSION_NUMBER.0"
@@ -53,8 +53,8 @@ grep -q "\"$VERSION_NUMBER\.0\"" src/resource.h \
 # release whose OriginalFilename does not match the file it is inside.
 grep -q "SNIPTEXT_VERSION_DOTTED \"$VERSION_NUMBER\"" src/resource.h \
     || fail "src/resource.h SNIPTEXT_VERSION_DOTTED is not $VERSION_NUMBER"
-grep -q "version=\"$VERSION_NUMBER\.0\"" src/SnipText.manifest \
-    || fail "src/SnipText.manifest does not carry $VERSION_NUMBER.0"
+grep -q "version=\"$VERSION_NUMBER\.0\"" src/SnipTextProUltra.manifest \
+    || fail "src/SnipTextProUltra.manifest does not carry $VERSION_NUMBER.0"
 
 NOTES="docs/RELEASE-NOTES-$TAG.md"
 [[ -f "$NOTES" ]] || fail "$NOTES is missing — the release body would fall back to the whole changelog"

@@ -39,7 +39,7 @@ public:
     std::vector<std::wstring> Contents() const;
     int                       Count() const;
 
-    // "SnipText 2026-09-24 at 14.07.03.412.png"
+    // "SnipTextProUltra 2026-09-24 at 14.07.03.412.png"
     std::wstring NewFilePath() const;
 
     void Reveal() const;

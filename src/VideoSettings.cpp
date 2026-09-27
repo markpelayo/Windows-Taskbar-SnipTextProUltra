@@ -1,6 +1,5 @@
 #include "VideoSettings.h"
 
-#include "Log.h"
 #include "Settings.h"
 #include "Util.h"
 

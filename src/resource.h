@@ -12,11 +12,11 @@
 #define IDR_TESSDATA_ENG 100
 
 // The version, in the two forms the toolchain needs. Included by both
-// SnipText.rc and App.cpp, so the file properties, the startup log line and
+// SnipTextProUltra.rc and App.cpp, so the file properties and
 // the resource block can never disagree with each other.
 //
 // Still has to be kept in step by hand with VERSION and with
-// SnipText.manifest — see docs/RELEASING.md.
+// SnipTextProUltra.manifest — see docs/RELEASING.md.
 #define SNIPTEXT_VERSION_COMMA  1,6,2,0
 #define SNIPTEXT_VERSION_STRING "1.6.2.0"
 #define SNIPTEXT_VERSION_WIDE   L"1.6.2"
@@ -42,7 +42,7 @@
 // The build system always supplies a non-empty SHA — "local" when git is not
 // there to ask — so that this stays plain string-literal concatenation. A
 // ternary would have produced an expression, and an expression cannot be
-// pasted next to L"..." the way the title row and the log line paste it.
+// pasted next to L"..." the way the title row pastes it.
 #ifndef SNIPTEXT_BUILD_SHA
 #define SNIPTEXT_BUILD_SHA "local"
 #endif

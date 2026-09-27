@@ -4,13 +4,11 @@
 #include <cstdlib>
 
 namespace settings {
-
-const wchar_t* const kRegistryPath = L"Software\\markpelayo\\SnipText";
+const wchar_t* const kRegistryPath = L"Software\\markpelayo\\SnipTextProUltra";
 
 namespace {
-
 constexpr const wchar_t* kRunKeyPath  = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-constexpr const wchar_t* kRunKeyValue = L"SnipText";
+constexpr const wchar_t* kRunKeyValue = L"SnipTextProUltra";
 
 HKEY OpenForRead() {
     HKEY key = nullptr;

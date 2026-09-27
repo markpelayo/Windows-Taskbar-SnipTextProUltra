@@ -120,11 +120,6 @@ std::wstring FileNameTimestamp() {
                   t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond, t.wMilliseconds);
 }
 
-std::wstring LogTimestamp(const SYSTEMTIME& t) {
-    return Format(L"%04d-%02d-%02d %02d:%02d:%02d.%03d",
-                  t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond, t.wMilliseconds);
-}
-
 // --- paths -----------------------------------------------------------------
 
 std::wstring HomeDirectory() {

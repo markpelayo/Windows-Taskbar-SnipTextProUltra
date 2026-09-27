@@ -1,11 +1,9 @@
 #include "Clipboard.h"
 
-#include "Log.h"
 #include "Util.h"
 
 namespace clipboard {
 namespace {
-
 // The clipboard is a shared, contended resource: any process can hold it for
 // a moment. Retrying turns a visible failure into a pause nobody notices.
 bool OpenWithRetry(HWND owner) {
@@ -31,12 +29,10 @@ std::wstring ReadBack(HWND owner) {
     ::CloseClipboard();
     return out;
 }
-
 } // namespace
 
 bool CopyText(HWND owner, const std::wstring& text) {
     if (text.empty()) {
-        logging::Write(L"clipboard: refused to write empty text");
         return false;
     }
 
@@ -59,18 +55,11 @@ bool CopyText(HWND owner, const std::wstring& text) {
     if (!accepted) ::GlobalFree(handle);
     ::CloseClipboard();
 
+    // Read back rather than trusting SetClipboardData: the return value only
+    // says the call was accepted, not that the data survived another process
+    // writing immediately afterwards. A mismatch still counts as success —
+    // something raced us, but our write did land.
     const std::wstring readBack = ReadBack(owner);
-
-    LOG_DEBUG(util::Format(L"clipboard: setData=%d wrote=%zu chars, readBack=%zu chars, sequence=%lu",
-                           accepted ? 1 : 0, text.size(), readBack.size(),
-                           ::GetClipboardSequenceNumber()));
-
-    if (!readBack.empty() && readBack != text) {
-        // A warning only. Something raced us, but the write itself landed.
-        logging::Write(L"clipboard: WARNING read-back differs from what was written");
-    }
-
     return accepted && !readBack.empty();
 }
-
 } // namespace clipboard

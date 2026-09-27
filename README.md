@@ -1,4 +1,4 @@
-# SnipText Pro Ultra for the Windows taskbar
+# SnipTextProUltra for the Windows taskbar
 
 [![build](https://img.shields.io/badge/build-CMake%20%2F%20MSVC-informational)](.github/workflows/build.yml)
 [![platform](https://img.shields.io/badge/platform-Windows%2011%20x64-0078D4)](#requirements)
@@ -123,12 +123,12 @@ That downloads the model to a temporary file, prints the line to paste, and dele
 
 ```
 taskkill /IM SnipTextProUltra_*.exe /F
-reg delete "HKCU\Software\markpelayo\SnipText" /f
-reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v SnipText /f
-rmdir /s /q "%LOCALAPPDATA%\SnipText"
+reg delete "HKCU\Software\markpelayo\SnipTextProUltra" /f
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v SnipTextProUltra /f
+rmdir /s /q "%LOCALAPPDATA%\SnipTextProUltra"
 ```
 
-Then delete `SnipTextProUltra_<version>.exe` and unpin it. Your captures are left alone — they are in `%USERPROFILE%\Pictures\SnipText_*` and `%USERPROFILE%\Videos\SnipText_Videos`. Delete those yourself if you want them gone.
+Then delete `SnipTextProUltra_<version>.exe` and unpin it. Your captures are left alone — they are in `%USERPROFILE%\Pictures\SnipTextProUltra_*` and `%USERPROFILE%\Videos\SnipTextProUltra_Videos`. Delete those yourself if you want them gone.
 
 ---
 
@@ -369,9 +369,9 @@ But a container doesn't compress anything. It's an index and a wrapper around st
 **Auto-Save Images** is off by default. Turn it on and every capture is saved as a PNG, with each capture type in its own folder:
 
 ```
-%USERPROFILE%\Pictures\SnipText_Screenshot_Images\          ← Screenshot captures
-%USERPROFILE%\Pictures\SnipText_ScreenshotToText_Images\    ← Screenshot to Text sources
-%USERPROFILE%\Videos\SnipText_Videos\                       ← recordings
+%USERPROFILE%\Pictures\SnipTextProUltra_Screenshot_Images\          ← Screenshot captures
+%USERPROFILE%\Pictures\SnipTextProUltra_ScreenshotToText_Images\    ← Screenshot to Text sources
+%USERPROFILE%\Videos\SnipTextProUltra_Videos\                       ← recordings
 ```
 
 Each has its own **Folder ▸** submenu, so any of the three can be pointed elsewhere independently. Filenames include milliseconds, because two captures in the same second would otherwise overwrite each other.
@@ -437,7 +437,7 @@ Nobody has profiled it, either. The figures under [Resource usage](#resource-usa
 ```
 src/                  20 source files — see docs/ARCHITECTURE.md for the map
 tests/                the text-normaliser assertions
-assets/SnipText.ico   the application icon
+assets/SnipTextProUltra.ico   the application icon
 build.bat             MSVC build, no CMake needed
 CMakeLists.txt        the same build, for people who prefer CMake
 VERSION               single source of truth for the version number
@@ -454,43 +454,29 @@ docs/RELEASING.md     how a version is cut
 
 ## Troubleshooting
 
-### The log
+SnipTextProUltra writes **no log file**. It reports what it needs to say on
+screen, in the small confirmation above the taskbar, and says nothing when
+there is nothing to say.
 
-```
-notepad "%LOCALAPPDATA%\SnipText\Logs\SnipText.log"
-```
+That is a deliberate change from 1.6.2 and earlier, which wrote a verbose
+trace to `%LOCALAPPDATA%`. The cost is that a bug on a machine nobody can
+reproduce on has no trail to follow; the benefit is that the program leaves
+nothing behind. If a failure ever needs diagnosing, the logging module is in
+the history at tag `v1.6.2` and can be restored.
 
-**While this is still a 1.x shakedown build, verbose logging is on by default**, so the log carries a full per-stage trace of every capture rather than one line each. It self-rotates at 512 KB, so it cannot grow without bound.
+Failures that used to be recorded quietly are now said out loud instead:
 
-Every launch starts with an environment block, which is what makes a log someone sends back self-contained:
+| | |
+|---|---|
+| Auto-save could not write the file | `Couldn't auto-save the screenshot to disk` |
+| The clipboard was held by another program | `Couldn't copy — another program is holding the clipboard` |
+| OCR found nothing | `No text found in that capture` |
+| Sanitize could not remove the files | `Settings restored, but some files couldn't be removed` |
+| Run at Startup could not be changed | `Couldn't set SnipTextProUltra to run at startup` |
+| The Stop button will be in the recording | `No room beside the region — the Stop button will appear in the video` |
+| GDI+ or the window could not start | a message box, because there is no toast yet at that point |
 
-```
-[2026-09-24 14:06:58.031] ———— SnipText launched, log at C:\Users\…\SnipText.log
-[2026-09-24 14:06:58.034] env: SnipText 1.0.0 (x64, built Sep 24 2026 11:02:17)
-[2026-09-24 14:06:58.036] env: Windows 11 10.0 build 26100
-[2026-09-24 14:06:58.041] env: display 0 [primary] 3840x2160 at (0,0), 192 dpi (200%)
-[2026-09-24 14:06:58.042] env: display 1           1920x1080 at (3840,0), 96 dpi (100%)
-[2026-09-24 14:06:58.043] env: virtual desktop 5760x2160 at (0,0), DPI awareness PerMonitorV2 (correct)
-[2026-09-24 14:06:58.088] env: OCR engine available
-[2026-09-24 14:06:58.089] env: screenshots  -> C:\Users\…\Pictures\SnipText_Screenshot_Images
-```
-
-**If you are reporting a bug, paste that block.** It answers the three questions that otherwise take a round trip: which Windows build, what the display layout is, and whether an OCR language is installed at all.
-
-To go quiet on one machine without rebuilding:
-
-```
-reg add "HKCU\Software\markpelayo\SnipText" /v debugMode /t REG_DWORD /d 0 /f
-```
-
-then quit and relaunch. Set it to `1` to force it back on.
-
-> **Reverting this later.** Verbose-by-default and the environment block are
-> temporary. Flip `kVerboseByDefault` to `false` in `src/Log.h` and delete the
-> `WriteStartupDiagnostics()` call in `App::Run()`. Nothing else depends on
-> either.
-
-**A hotkey does nothing.** Something else owns that combination. The log names it at startup; the menu item still works.
+**A hotkey does nothing.** Something else owns that combination — Windows gives the shortcut to whoever registered it first. Pick a different one under **Settings → Change Keyboard Shortcut**; the menu item itself still works either way.
 
 **"Screenshot to Text" says no language is installed.** Add one under Settings → Time & language → Language & region. Windows OCR only recognises languages you have installed.
 

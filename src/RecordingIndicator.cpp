@@ -1,12 +1,11 @@
 #include "RecordingIndicator.h"
 
-#include "Log.h"
+#include "Toast.h"
 #include "Util.h"
 
 namespace {
-
-constexpr const wchar_t* kFrameClass = L"SnipTextRecordingFrame";
-constexpr const wchar_t* kPillClass  = L"SnipTextRecordingPill";
+constexpr const wchar_t* kFrameClass = L"SnipTextProUltraRecordingFrame";
+constexpr const wchar_t* kPillClass  = L"SnipTextProUltraRecordingPill";
 
 // Thick enough to be unmissable in peripheral vision, thin enough not to
 // swallow the content next to the recorded area.
@@ -187,7 +186,6 @@ void RecordingIndicator::Show(const RECT& region, std::function<void()> onStop) 
         const ATOM frameAtom = ::RegisterClassExW(&frame);
         const ATOM pillAtom  = ::RegisterClassExW(&pill);
         if (!frameAtom || !pillAtom) {
-            logging::Write(L"recorder: couldn't register the indicator windows");
             if (frameAtom) ::UnregisterClassW(kFrameClass, ::GetModuleHandleW(nullptr));
             if (pillAtom)  ::UnregisterClassW(kPillClass, ::GetModuleHandleW(nullptr));
             return;
@@ -236,7 +234,6 @@ void RecordingIndicator::Show(const RECT& region, std::function<void()> onStop) 
                              && region_.bottom >= desktop.bottom;
 
     RECT outer = util::InflateRect(region_, kBorderThickness, kBorderThickness);
-    bool insideRegion = false;
 
     frame_ = ::CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT,
@@ -245,15 +242,17 @@ void RecordingIndicator::Show(const RECT& region, std::function<void()> onStop) 
         nullptr, nullptr, ::GetModuleHandleW(nullptr), this);
 
     if (frame_ && coversMonitor) {
+        // If the affinity call fails — anything before Windows 10 2004 — the
+        // frame simply stays outside, which for a full-monitor region means
+        // no visible frame, exactly as before. Silent by necessity now that
+        // there is no log: a frame believed hidden but actually captured
+        // would be burned into every recording, so the check stays strict
+        // and the fallback stays the safe direction.
         if (ExcludeFromCapture(frame_)) {
-            outer        = region_;   // the dashes now sit inside the capture
-            insideRegion = true;
+            outer = region_;   // the dashes now sit inside the capture
             ::SetWindowPos(frame_, nullptr, outer.left, outer.top,
                            util::RectWidth(outer), util::RectHeight(outer),
                            SWP_NOZORDER | SWP_NOACTIVATE);
-        } else {
-            logging::Write(L"recorder: this build of Windows can't hide a window from "
-                           L"screen capture, so a full-screen recording has no frame");
         }
     }
 
@@ -270,7 +269,6 @@ void RecordingIndicator::Show(const RECT& region, std::function<void()> onStop) 
         } else {
             // Unshaped, this window is an opaque slab over the whole
             // recording. No indicator is better than a covered picture.
-            logging::Write(L"recorder: couldn't shape the indicator frame, leaving it off");
             ::DestroyWindow(frame_);
             frame_ = nullptr;
         }
@@ -285,24 +283,22 @@ void RecordingIndicator::Show(const RECT& region, std::function<void()> onStop) 
         nullptr, nullptr, ::GetModuleHandleW(nullptr), this);
     if (pill_) {
         // Always, not only when the pill has to sit inside the region. It is
-        // free when it is not needed, and it fixes a case that was previously
-        // just logged and accepted: a region with no room beside it put the
+        // free when it is not needed, and it fixes a case that used to be
+        // accepted as a limitation: a region with no room beside it put the
         // Stop button into the recording.
+        //
         const bool pillHidden = ExcludeFromCapture(pill_);
         ::ShowWindow(pill_, SW_SHOWNA);
 
+        // Said out loud rather than written to a log nobody opens. This is
+        // the one case where the indicator ends up in the finished file: no
+        // room beside the region, and a build too old for
+        // WDA_EXCLUDEFROMCAPTURE to hide it. Finding that out afterwards, in
+        // the recording, is the bad outcome.
         if (pillInsideCapture_ && !pillHidden) {
-            logging::Write(L"recorder: no room beside the region, so the Stop pill sits "
-                           L"inside it and will appear in the video");
+            toast::Show(L"No room beside the region \u2014 the Stop button "
+                        L"will appear in the video");
         }
-    }
-
-    // Guarded: the frame can have been destroyed above when it could not be
-    // shaped, and logging "frame outside the region" two lines after "leaving
-    // it off" is worse than logging nothing.
-    if (frame_) {
-        logging::Write(util::Format(L"recorder: indicator frame %s the region",
-                                    insideRegion ? L"inside" : L"outside"));
     }
 }
 

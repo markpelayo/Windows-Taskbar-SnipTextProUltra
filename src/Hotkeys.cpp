@@ -1,11 +1,9 @@
 #include "Hotkeys.h"
 
-#include "Log.h"
 #include "Settings.h"
 #include "Util.h"
 
 namespace hotkeys {
-
 const Action kAllActions[kActionCount] = {
     Action::ScreenshotRegion, Action::ScreenshotFullScreen,
     Action::TextRegion,       Action::TextFullScreen,
@@ -13,8 +11,7 @@ const Action kAllActions[kActionCount] = {
 };
 
 namespace {
-
-constexpr const wchar_t* kWindowClass = L"SnipTextHotkeyCapture";
+constexpr const wchar_t* kWindowClass = L"SnipTextProUltraHotkeyCapture";
 
 // One registry value per action, named by index so the set is obvious when
 // you look at the key in regedit.
@@ -343,16 +340,13 @@ void Register(HWND owner) {
 
         // MOD_NOREPEAT: a held key should fire once, not open a crosshair per
         // repeat tick.
-        if (!::RegisterHotKey(owner, static_cast<int>(action),
-                              binding.modifiers | MOD_NOREPEAT, binding.key)) {
-            // The action is deliberately still reachable from the menu. A
-            // dialog at startup about a shortcut the user can neither see nor
-            // fix would be worse than a log line.
-            logging::Write(util::Format(L"hotkey: %s is already taken by another program, "
-                                        L"%s is menu-only this session",
-                                        Describe(binding).c_str(),
-                                        ActionTitle(action)));
-        }
+        // The return value is deliberately ignored. A shortcut another
+        // program already owns cannot be registered, and there is nothing
+        // useful to do about it at startup: the action stays reachable from
+        // the menu, and Change Keyboard Shortcut is where it gets fixed. A
+        // dialog here would fire before the user has any context for it.
+        ::RegisterHotKey(owner, static_cast<int>(action),
+                         binding.modifiers | MOD_NOREPEAT, binding.key);
     }
 }
 
@@ -377,7 +371,6 @@ bool CaptureBinding(HWND owner, Action action, Binding* result) {
         description.hCursor       = ::LoadCursorW(nullptr, IDC_ARROW);
         description.lpszClassName = kWindowClass;
         if (!::RegisterClassExW(&description)) {
-            logging::Write(L"hotkey: couldn't create the capture window");
             return false;
         }
         registered = true;

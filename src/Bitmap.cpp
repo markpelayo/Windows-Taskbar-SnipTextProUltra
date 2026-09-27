@@ -1,6 +1,5 @@
 #include "Bitmap.h"
 
-#include "Log.h"
 #include "Util.h"
 
 #include <shlwapi.h>   // SHCreateMemStream
@@ -190,7 +189,6 @@ std::vector<BYTE> Bitmap::EncodePng() const {
 
     CLSID encoder{};
     if (!PngEncoderClsid(&encoder)) {
-        logging::Write(L"image: no PNG encoder available");
         return out;
     }
 

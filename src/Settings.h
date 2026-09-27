@@ -1,6 +1,6 @@
 // Settings.h — the registry-backed equivalent of UserDefaults.
 //
-// Everything lives under HKCU\Software\markpelayo\SnipText. The macOS
+// Everything lives under HKCU\Software\markpelayo\SnipTextProUltra. The macOS
 // original leans on "registered defaults": a value that was never written
 // reads as its default, and "restore to default" means *removing* the value
 // rather than writing the default back. That distinction is load-bearing —
@@ -13,8 +13,7 @@
 #include "framework.h"
 
 namespace settings {
-
-extern const wchar_t* const kRegistryPath;   // Software\markpelayo\SnipText
+extern const wchar_t* const kRegistryPath;   // Software\markpelayo\SnipTextProUltra
 
 // --- keys ------------------------------------------------------------------
 namespace key {
@@ -36,7 +35,6 @@ inline constexpr const wchar_t* kSaveCaptures     = L"saveCaptures";
 // means it goes straight to the clipboard and nothing opens.
 inline constexpr const wchar_t* kSkipEditor       = L"screenshotSkipsEditor";
 inline constexpr const wchar_t* kStartupDelay     = L"startupDelaySeconds";
-inline constexpr const wchar_t* kDebugMode        = L"debugMode";
 
 inline constexpr const wchar_t* kScreenshotFolder = L"screenshotFolderPath";
 inline constexpr const wchar_t* kTextImageFolder  = L"textImageFolderPath";

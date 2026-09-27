@@ -2,7 +2,7 @@
 //
 // How this behaves as a Windows app, and why:
 //
-// SnipText is a pinnable taskbar program, like Snipping Tool. Pinning on
+// SnipTextProUltra is a pinnable taskbar program, like Snipping Tool. Pinning on
 // Windows pins a shortcut to the executable, so "clicking the icon" means
 // launching it. The first launch stays resident to hold the global hotkeys;
 // every later launch finds the running instance, tells it to show its menu,
@@ -43,11 +43,6 @@ private:
     App& operator=(const App&) = delete;
 
     struct OcrOutcome;
-
-    // TEMPORARY, part of the 1.x shakedown — see the note in Log.h. Records
-    // the Windows build, the display layout and whether OCR is available, so
-    // a log someone sends back is self-contained.
-    static void WriteStartupDiagnostics();
 
     bool CreateHiddenWindow();
     void RegisterHotkeys();

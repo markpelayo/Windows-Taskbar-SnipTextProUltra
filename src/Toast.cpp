@@ -4,8 +4,7 @@
 
 namespace toast {
 namespace {
-
-constexpr const wchar_t* kWindowClass = L"SnipTextToast";
+constexpr const wchar_t* kWindowClass = L"SnipTextProUltraToast";
 constexpr UINT_PTR kDismissTimer = 1;
 // Three seconds. 1.6 was long enough to notice the message and not long
 // enough to read it — the difference matters because these are the only
@@ -156,13 +155,13 @@ void Show(const std::wstring& message) {
     // leaves an over-wide box overhanging the right edge instead of the left,
     // which is the same amount of lost text in the other direction. Messages
     // are full sentences now and the longest carries a generated file name —
-    // "Recording saved · SnipText 2026-09-26 at 09.49.23.984.mp4" — so on a
+    // "Recording saved · SnipTextProUltra 2026-09-26 at 09.49.23.984.mp4" — so on a
     // narrow display this is reachable rather than theoretical.
     const int maxWidth = (std::max)(120, util::RectWidth(work) - kMargin * 2);
     const int width    = (std::min)(maxWidth, static_cast<int>(extent.cx) + kPaddingX * 2);
     // Clamped to the work area. The messages are full sentences now, and the
     // longest of them carries a file name of whatever length the clock
-    // produced — "Recording saved · SnipText 2026-09-26 at 09.49.23.984.mp4".
+    // produced — "Recording saved · SnipTextProUltra 2026-09-26 at 09.49.23.984.mp4".
     // Unclamped, a long one runs off the left edge of the screen and the
     // beginning of the message, which is the part that says what happened, is
     // the part that disappears.

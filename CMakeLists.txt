@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
-project(SnipText VERSION 1.0.0 LANGUAGES CXX)
+project(SnipTextProUltra VERSION 1.0.0 LANGUAGES CXX)
 
 # Windows only, by construction: every source file in here is Win32.
 if(NOT WIN32)
-    message(FATAL_ERROR "SnipText is a Windows program. Build it on Windows with MSVC.")
+    message(FATAL_ERROR "SnipTextProUltra is a Windows program. Build it on Windows with MSVC.")
 endif()
 
 set(CMAKE_CXX_STANDARD 17)
@@ -24,7 +24,6 @@ set(SOURCES
     src/EditorSettings.cpp
     src/EditorWindow.cpp
     src/Hotkeys.cpp
-    src/Log.cpp
     src/MediaFolder.cpp
     src/Ocr.cpp
     src/RecordingIndicator.cpp
@@ -36,7 +35,7 @@ set(SOURCES
     src/Toast.cpp
     src/Util.cpp
     src/VideoSettings.cpp
-    src/SnipText.rc
+    src/SnipTextProUltra.rc
 )
 
 # --- the optional second OCR engine ----------------------------------------
@@ -116,9 +115,9 @@ if(SNIPTEXT_BUILD_SHA STREQUAL "")
     set(SNIPTEXT_BUILD_SHA "local")
 endif()
 
-add_executable(SnipText WIN32 ${SOURCES})
+add_executable(SnipTextProUltra WIN32 ${SOURCES})
 
-# The CMake target stays "SnipText" so the generated project names are short;
+# The CMake target stays "SnipTextProUltra" so the generated project names are short;
 # the file on disk is SnipTextProUltra_1.6.2.exe.
 #
 # The version in the file name comes from the VERSION file rather than being
@@ -128,12 +127,12 @@ add_executable(SnipText WIN32 ${SOURCES})
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" SNIPTEXT_VERSION_FILE)
 string(STRIP "${SNIPTEXT_VERSION_FILE}" SNIPTEXT_VERSION_FILE)
 set(SNIPTEXT_EXE_NAME "SnipTextProUltra_${SNIPTEXT_VERSION_FILE}")
-set_target_properties(SnipText PROPERTIES OUTPUT_NAME "${SNIPTEXT_EXE_NAME}")
+set_target_properties(SnipTextProUltra PROPERTIES OUTPUT_NAME "${SNIPTEXT_EXE_NAME}")
 message(STATUS "Output: ${SNIPTEXT_EXE_NAME}.exe")
 
-target_include_directories(SnipText PRIVATE src)
+target_include_directories(SnipTextProUltra PRIVATE src)
 
-target_compile_definitions(SnipText PRIVATE
+target_compile_definitions(SnipTextProUltra PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
     # The backslashes are required, not decorative. Written as
     # SNIPTEXT_BUILD_SHA="${...}" the quotes are consumed by CMake's own
@@ -147,32 +146,32 @@ target_compile_definitions(SnipText PRIVATE
 if(SNIPTEXT_WITH_TESSERACT)
     # This reaches the resource compiler as well as the C++ one — CMake
     # expands a target's COMPILE_DEFINITIONS into the RC command line, which
-    # is how UNICODE already gets there — and that is what makes SnipText.rc
+    # is how UNICODE already gets there — and that is what makes SnipTextProUltra.rc
     # embed the model.
-    target_compile_definitions(SnipText PRIVATE SNIPTEXT_WITH_TESSERACT)
-    target_link_libraries(SnipText PRIVATE Tesseract::libtesseract leptonica)
+    target_compile_definitions(SnipTextProUltra PRIVATE SNIPTEXT_WITH_TESSERACT)
+    target_link_libraries(SnipTextProUltra PRIVATE Tesseract::libtesseract leptonica)
 endif()
 
 if(MSVC)
     # /W4 with warnings-as-errors: a warning in a program that is meant to
     # run for weeks is usually a bug that has not happened yet.
-    target_compile_options(SnipText PRIVATE /W4 /WX /permissive- /utf-8 /EHsc /GR-)
+    target_compile_options(SnipTextProUltra PRIVATE /W4 /WX /permissive- /utf-8 /EHsc /GR-)
 
-    # /MANIFEST:NO is required, not optional. SnipText.rc embeds the manifest
+    # /MANIFEST:NO is required, not optional. SnipTextProUltra.rc embeds the manifest
     # as resource 1 so that build.bat and CMake produce an identical binary
     # from one source of truth. The linker also generates a manifest of its
     # own by default, and two RT_MANIFEST resources with id 1 make CVTRES
     # fail outright:
     #   CVT1100: duplicate resource. type:MANIFEST, name:1, language:0x0409
     #   LNK1123: failure during conversion to COFF
-    target_link_options(SnipText PRIVATE /SUBSYSTEM:WINDOWS /MANIFEST:NO)
+    target_link_options(SnipTextProUltra PRIVATE /SUBSYSTEM:WINDOWS /MANIFEST:NO)
     # Belt and braces for the Visual Studio generator, which writes
     # <GenerateManifest> from its own property rather than from the link
     # flags, so /MANIFEST:NO alone does not always reach it.
-    set_target_properties(SnipText PROPERTIES VS_GLOBAL_GenerateManifest false)
+    set_target_properties(SnipTextProUltra PROPERTIES VS_GLOBAL_GenerateManifest false)
 endif()
 
-target_link_libraries(SnipText PRIVATE
+target_link_libraries(SnipTextProUltra PRIVATE
     user32 gdi32 gdiplus shell32 shlwapi ole32 oleaut32 comdlg32 comctl32
     advapi32 dwmapi winmm shcore uuid
     msimg32                # AlphaBlend, used by the overlay's dimming
@@ -187,18 +186,18 @@ target_link_libraries(SnipText PRIVATE
 # it produces plausible-looking wrong text rather than an obvious failure.
 option(SNIPTEXT_BUILD_TESTS "Build the text-normaliser tests" ON)
 if(SNIPTEXT_BUILD_TESTS)
-    add_executable(SnipTextTests
+    add_executable(SnipTextProUltraTests
         tests/TextNormalizerTests.cpp
         src/TextNormalizer.cpp
         src/Util.cpp
     )
-    target_include_directories(SnipTextTests PRIVATE src)
-    target_compile_definitions(SnipTextTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(SnipTextProUltraTests PRIVATE src)
+    target_compile_definitions(SnipTextProUltraTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
     if(MSVC)
-        target_compile_options(SnipTextTests PRIVATE /W4 /permissive- /utf-8 /EHsc)
+        target_compile_options(SnipTextProUltraTests PRIVATE /W4 /permissive- /utf-8 /EHsc)
     endif()
-    target_link_libraries(SnipTextTests PRIVATE user32 shell32 ole32 shcore uuid)
+    target_link_libraries(SnipTextProUltraTests PRIVATE user32 shell32 ole32 shcore uuid)
 
     enable_testing()
-    add_test(NAME text_normalizer COMMAND SnipTextTests)
+    add_test(NAME text_normalizer COMMAND SnipTextProUltraTests)
 endif()

@@ -10,10 +10,10 @@ some prose.
 places and nothing enforces that they agree:
 
 1. `VERSION` — the canonical file.
-2. `src/resource.h` — the `SNIPTEXT_VERSION_*` macros. `SnipText.rc` and the
-   startup log line both read these, so the file properties and the log can
+2. `src/resource.h` — the `SNIPTEXT_VERSION_*` macros. `SnipTextProUltra.rc` and the
+   startup banner both read these, so the file properties and the binary can
    never disagree with each other.
-3. `src/SnipText.manifest` — `assemblyIdentity version`, which has to be a
+3. `src/SnipTextProUltra.manifest` — `assemblyIdentity version`, which has to be a
    literal.
 
 Tags are `vMAJOR.MINOR.PATCH`.
@@ -23,12 +23,9 @@ Tags are `vMAJOR.MINOR.PATCH`.
 Two things are on for the 1.x shakedown and should come out once the app has
 actually been run on hardware for a while:
 
-- `kVerboseByDefault` in `src/Log.h` → `false`.
-- The `WriteStartupDiagnostics()` call in `App::Run()` → delete it, and the
-  function with it.
 
 Both are commented as temporary at their definitions. Nothing else depends on
-either. Update [the README's troubleshooting section](../README.md#the-log)
+Update [the README's troubleshooting section](../README.md#troubleshooting)
 in the same commit — it currently tells people verbose is the default.
 
 ## Steps
@@ -72,7 +69,7 @@ in the same commit — it currently tells people verbose is the default.
    ./scripts/release.sh vX.Y.Z
    ```
 
-   It checks that `VERSION`, `src/resource.h`, `src/SnipText.manifest` and
+   It checks that `VERSION`, `src/resource.h`, `src/SnipTextProUltra.manifest` and
    `docs/RELEASE-NOTES-vX.Y.Z.md` all agree with the tag you asked for, then
    commits, pushes, tags and pushes the tag — stopping at the first thing that
    fails.
@@ -120,5 +117,5 @@ the file matches what CI built; it says nothing about who built it or whether
 the source was sound.
 
 **No installer.** The program is one self-contained file that writes its
-settings to `HKCU` and its log to `%LOCALAPPDATA%`. The uninstall instructions
+settings to `HKCU` and writes no log. The uninstall instructions
 in the README are four commands, and that is the point.

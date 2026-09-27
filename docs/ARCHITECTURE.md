@@ -17,7 +17,6 @@ No Visual Studio project file. `build.bat` compiles `src/*.cpp` with `cl.exe`, l
 | `framework.h` | Windows configuration macros and the RAII wrappers |
 | `Util.cpp` | Strings, code points, paths, time, DPI, geometry |
 | `Hotkeys.cpp` | The six shortcuts: bindings, persistence, and the rebinding window |
-| `Log.cpp` | Plain-text file logger with rotation |
 | `Settings.cpp` | Registry-backed settings, and Run-at-Startup |
 | `MediaFolder.cpp` | One output folder — three instances |
 | `Bitmap.cpp` | 32-bit BGRA DIB section, PNG encoding, clipboard |
@@ -146,7 +145,7 @@ Note the three different reductions in one struct — X is a union, height is a 
 
 Windows' recogniser has two blind spots that have nothing to do with language: **light text on a dark background**, and **small text**. Both used to mean a capture came back partly or wholly empty.
 
-So a capture now gets up to four passes, in this order: as captured; inverted, if the mean luminance says the image is dark; doubled, if the short edge is under 700 pixels; and both, if both apply. Whichever pass read the most characters wins, and the log names it.
+So a capture now gets up to four passes, in this order: as captured; inverted, if the mean luminance says the image is dark; doubled, if the short edge is under 700 pixels; and both, if both apply. Whichever pass read the most characters wins.
 
 The cost is bounded in two ways. The variants are only **queued** when the image has the problem they solve, so an ordinary bright, roomy capture queues nothing beyond the first pass. And a first pass that reads 200 characters or more short-circuits the rest, so a dark screenshot that is simply full of text does not pay for an inverted copy it will not use. Each prepared copy is built inside the loop and released at the end of it, so at most one exists at a time — building all four up front would cost ten times the source in memory for a capture the first pass usually wins.
 
@@ -190,7 +189,7 @@ The first implementation guessed from **line length** instead. It merged adjacen
 
 ### The clipboard is never clobbered on failure
 
-Empty text is refused outright, before the clipboard is touched. OCR coming back blank must not destroy whatever the user already had copied. The write is then read straight back so the log can prove whether it stuck, and both `OpenClipboard` calls retry a few times, because any process can hold the clipboard for a moment.
+Empty text is refused outright, before the clipboard is touched. OCR coming back blank must not destroy whatever the user already had copied. The write is then read straight back, because `SetClipboardData` succeeding only means the call was accepted — and both `OpenClipboard` calls retry a few times, because any process can hold the clipboard for a moment.
 
 ---
 
@@ -311,7 +310,7 @@ It is also painted exactly once. A static border costs nothing to keep on screen
 
 The dashes are filled rectangles rather than a dashed pen: a pen's dash pattern is defined along the path, so drawing the four sides as one rectangle leaves the dashes meeting raggedly at the corners. The corners are drawn solid for the same reason.
 
-**The pill** says *that* it is recording, and stops it: `● 00:24`, placed below the frame, or above it if there is no room below. Both of those are outside the recorded rectangle. When there is no room outside — a full-screen recording, or a region hard against the edges — it goes in the bottom-left corner of the region, and `WDA_EXCLUDEFROMCAPTURE` keeps it out of the video there too. On a build too old for that flag it does appear, and the log says so; an honest line beats a surprise.
+**The pill** says *that* it is recording, and stops it: `● 00:24`, placed below the frame, or above it if there is no room below. Both of those are outside the recorded rectangle. When there is no room outside — a full-screen recording, or a region hard against the edges — it goes in the bottom-left corner of the region, and `WDA_EXCLUDEFROMCAPTURE` keeps it out of the video there too. On a build too old for that flag it does appear, and a message on screen says so before the take rather than after it.
 
 Two details:
 
@@ -345,8 +344,6 @@ So the quit path stops the recording and then **pumps messages** in 50 ms slices
 macOS `UserDefaults` has registered defaults: a value that was never written reads as its default. That distinction is load-bearing here, so the registry layer reproduces it — every getter takes the fallback it should use when the value is absent, and `RestoreDefaults` **deletes** values rather than writing the defaults back.
 
 The reason is `IsDefault()`, which the Sanitize menu item uses to decide whether there is anything to do. It compares **values, not key presence**. Key presence looked simpler and was wrong: the editor writes its tool, colour and width whenever a window opens or the user re-picks the tool they already had, so "a key exists" stopped meaning "the user changed something" — which left Sanitize permanently enabled. That is also why the three setters in `EditorWindow` each have an equality guard.
-
-`debugMode` is deliberately excluded from Sanitize. It is a developer switch, not a setting the user chose.
 
 ### Sanitize uses the Recycle Bin
 
@@ -392,8 +389,7 @@ Deliberate choices, since this process runs for weeks at a time.
 - **Peak memory is one capture's bitmap** — about 8 MB for a 1440p screen, 33 MB for 4K — created late and released as soon as OCR or the editor is finished with it. Nothing is cached between captures.
 - **Every GDI object, handle and COM pointer is owned by an RAII wrapper** from `framework.h`, so there is no branch — including an early return — on which a resource leaks.
 - **Bitmaps release their memory DC explicitly.** The bitmap must come out of the DC before either is destroyed, or the DIB section stays alive for the process's lifetime.
-- **Verbose log strings are never built** when verbose logging is off. `LOG_DEBUG` is a macro that short-circuits before evaluating its argument, and several debug call sites do real work.
-- **Bounded by construction.** Undo caps at 50 snapshots; the log rotates at 512 KB, checked at launch and every 200th write.
+- **Bounded by construction.** Undo caps at 50 snapshots.
 - **Drag paths avoid full-resolution work.** The editor canvas drops to `COLORONCOLOR` resampling while a drag is in flight; freehand points closer than 1.5 view pixels are skipped, so a slow stroke doesn't accumulate tens of thousands of them. The mouse-up point is always appended, or every stroke ends short of where it was released.
 - **One capture at a time.** A second hotkey press while a capture is running is ignored — otherwise you get two overlays and two clipboard writes racing.
 

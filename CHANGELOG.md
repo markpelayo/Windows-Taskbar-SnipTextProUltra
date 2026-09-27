@@ -6,7 +6,51 @@ adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **Renamed throughout: `SnipText` is now `SnipTextProUltra`.** The app name,
+  the window titles, the registry key, the Run-at-startup entry, the capture
+  folders, the saved file names, the window classes, the resource and manifest
+  files, the CMake target.
+
+  **This resets your settings and hides your existing captures.** A rename with
+  no migration was the deliberate choice — the alternative was carrying
+  migration code forever for a one-time move — so on first run after upgrading:
+
+  | | |
+  |---|---|
+  | Every setting | back to its default, because the registry key moved |
+  | Existing captures | still on disk, in the old `SnipText_*` folders |
+  | Show Saved Files | reports none, because it looks in the new folders |
+  | Run at Startup | off, with an orphan `Run\SnipText` entry to delete |
+
+  To bring the old captures across, rename the three folders in Explorer:
+  `Pictures\SnipText_Screenshot_Images` →
+  `Pictures\SnipTextProUltra_Screenshot_Images`, and the same for
+  `SnipText_ScreenshotToText_Images` and `Videos\SnipText_Videos`. To remove
+  the orphan startup entry:
+  `reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v SnipText /f`
+
+  Past release notes and released changelog sections keep the old name, because
+  that is what shipped under it.
+
+- **The log file is gone.** No `%LOCALAPPDATA%` folder, no trace on disk.
+  `Log.h`, `Log.cpp` and 99 call sites removed, along with the `debugMode`
+  setting and the startup environment banner.
+
+  Removing it turned a set of quiet failures into silent ones, which was not
+  the intent, so the ones that matter now report on screen instead:
+
+  | | |
+  |---|---|
+  | Auto-save could not write | `Couldn't auto-save the screenshot to disk` |
+  | Sanitize could not remove files | `Settings restored, but some files couldn't be removed` — it used to claim success either way |
+  | Run at Startup could not change | `Couldn't set SnipTextProUltra to run at startup` — previously a bare beep |
+  | Stop button will be in the recording | warned before the take, not discovered after it |
+  | GDI+ or the window failed at launch | a message box; the icon used to do nothing at all, inexplicably |
+
+  The trade is real: a bug on a machine nobody can reproduce on now has no
+  trail. The module is in the history at `v1.6.2` if it is ever needed back.
 
 ## [1.6.2] — 2026-09-27
 

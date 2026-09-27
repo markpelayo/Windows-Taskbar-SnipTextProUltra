@@ -1,6 +1,5 @@
 #include "TesseractOcr.h"
 
-#include "Log.h"
 #include "Util.h"
 #include "resource.h"
 
@@ -32,7 +31,6 @@ EmbeddedModel LoadEmbeddedModel() {
 
     HRSRC found = ::FindResourceW(module, MAKEINTRESOURCEW(IDR_TESSDATA_ENG), RT_RCDATA);
     if (!found) {
-        logging::Write(L"tesseract: the trained model is missing from this build");
         return model;
     }
     HGLOBAL loaded = ::LoadResource(module, found);
@@ -150,7 +148,6 @@ Result Recognize(const Bitmap& image) {
     // has no default argument on this overload.
     if (api->Init(model.data, model.size, "eng", tesseract::OEM_LSTM_ONLY,
                   nullptr, 0, &variableNames, &variableValues, false, nullptr) != 0) {
-        logging::Write(L"tesseract: the engine refused to initialise");
         result.failure = L"The fallback text recogniser couldn't start.";
         return result;
     }
@@ -167,7 +164,6 @@ Result Recognize(const Bitmap& image) {
     api->SetImage(pix.get());
 
     if (api->Recognize(nullptr) != 0) {
-        logging::Write(L"tesseract: recognition failed");
         return result;   // empty, treated as "no text"
     }
 
@@ -209,10 +205,8 @@ Result Recognize(const Bitmap& image) {
         result.lines.push_back(std::move(line));
     } while (it->Next(level));
 
-    LOG_DEBUG(util::Format(L"tesseract: %zu lines", result.lines.size()));
     return result;
 }
-
 } // namespace tesseract_ocr
 
 #else   // SNIPTEXT_WITH_TESSERACT

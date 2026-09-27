@@ -1,7 +1,6 @@
 #include "EditorWindow.h"
 
 #include "EditorSettings.h"
-#include "Log.h"
 #include "MediaFolder.h"
 #include "Util.h"
 
@@ -29,10 +28,9 @@ using Gdiplus::SmoothingModeAntiAlias;
 using Gdiplus::TextRenderingHintAntiAliasGridFit;
 
 namespace {
-
-constexpr const wchar_t* kFrameClass  = L"SnipTextEditorFrame";
-constexpr const wchar_t* kCanvasClass = L"SnipTextEditorCanvas";
-constexpr const wchar_t* kPopupClass  = L"SnipTextColourPopup";
+constexpr const wchar_t* kFrameClass  = L"SnipTextProUltraEditorFrame";
+constexpr const wchar_t* kCanvasClass = L"SnipTextProUltraEditorCanvas";
+constexpr const wchar_t* kPopupClass  = L"SnipTextProUltraColourPopup";
 
 constexpr int IDC_UNDO       = 101;
 constexpr int IDC_REDO       = 102;
@@ -235,7 +233,6 @@ bool EditorWindow::Create() {
         nullptr, nullptr, ::GetModuleHandleW(nullptr), this);
 
     if (!hwnd_) {
-        logging::Write(L"editor: couldn't create the window");
         return false;
     }
 
@@ -1424,7 +1421,6 @@ void EditorWindow::CopyToClipboard() {
         ::MessageBeep(MB_ICONWARNING);
         return;
     }
-    logging::Write(L"editor: copied the annotated image to the clipboard");
     FlashTitle(L"Copied");
 }
 
@@ -1438,7 +1434,7 @@ void EditorWindow::SaveAsPng() {
     MediaFolder& folder = MediaFolder::Screenshots();
     folder.EnsureDirectoryExists();
 
-    std::wstring name = L"SnipText " + util::FileNameTimestamp() + L".png";
+    std::wstring name = L"SnipTextProUltra " + util::FileNameTimestamp() + L".png";
     std::vector<wchar_t> buffer(name.begin(), name.end());
     buffer.resize(MAX_PATH, L'\0');
 
@@ -1461,14 +1457,13 @@ void EditorWindow::SaveAsPng() {
     ScopedFile file(::CreateFileW(buffer.data(), GENERIC_WRITE, 0, nullptr,
                                   CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
     if (!file) {
-        ::MessageBoxW(hwnd_, L"That file couldn't be written.", L"SnipText",
+        ::MessageBoxW(hwnd_, L"That file couldn't be written.", L"SnipTextProUltra",
                       MB_OK | MB_ICONWARNING);
         return;
     }
 
     DWORD written = 0;
     ::WriteFile(file.get(), png.data(), static_cast<DWORD>(png.size()), &written, nullptr);
-    logging::Write(util::Format(L"editor: saved %zu bytes to %s", png.size(), buffer.data()));
     FlashTitle(L"Saved");
 }
 

@@ -1,6 +1,6 @@
 // TextNormalizerTests.cpp — assertions for the geometry-driven normaliser.
 //
-// This is the one part of SnipText whose failure mode is silent: a broken
+// This is the one part of SnipTextProUltra whose failure mode is silent: a broken
 // join rule produces text that looks perfectly plausible and is subtly wrong,
 // which is exactly the kind of thing nobody catches by eye. The six cases
 // below are the ones that shaped the algorithm — prose, a two-paragraph

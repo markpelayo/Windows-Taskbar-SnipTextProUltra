@@ -70,7 +70,7 @@ rem        that has not happened yet
 rem /GR- - no RTTI; nothing here uses dynamic_cast or typeid
 rem /O2 /GL /LTCG - optimise across translation units
 rem /MANIFEST:NO (on the link line) - the manifest is embedded by
-rem        SnipText.rc; letting the linker generate a second one makes
+rem        SnipTextProUltra.rc; letting the linker generate a second one makes
 rem        CVTRES fail with CVT1100, duplicate resource
 set CFLAGS=/nologo /std:c++17 /EHsc /GR- /W4 /WX /permissive- /utf-8 /O2 /GL /MT ^
     /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /DNOMINMAX /I"%ROOT%src" ^
@@ -85,7 +85,7 @@ set LIBS=kernel32.lib user32.lib gdi32.lib gdiplus.lib shell32.lib shlwapi.lib ^
     runtimeobject.lib mf.lib mfplat.lib mfreadwrite.lib mfuuid.lib propsys.lib
 
 echo Compiling resources...
-rc.exe /nologo /fo "%OUT%\SnipText.res" "%ROOT%src\SnipText.rc"
+rc.exe /nologo /fo "%OUT%\SnipTextProUltra.res" "%ROOT%src\SnipTextProUltra.rc"
 if errorlevel 1 exit /b 1
 
 echo Compiling...
@@ -99,7 +99,6 @@ cl.exe %CFLAGS% /Fo"%OUT%\\" /Fe"%OUT%\%EXENAME%.exe" ^
     "%ROOT%src\EditorSettings.cpp" ^
     "%ROOT%src\EditorWindow.cpp" ^
     "%ROOT%src\Hotkeys.cpp" ^
-    "%ROOT%src\Log.cpp" ^
     "%ROOT%src\MediaFolder.cpp" ^
     "%ROOT%src\Ocr.cpp" ^
     "%ROOT%src\RecordingIndicator.cpp" ^
@@ -111,7 +110,7 @@ cl.exe %CFLAGS% /Fo"%OUT%\\" /Fe"%OUT%\%EXENAME%.exe" ^
     "%ROOT%src\Toast.cpp" ^
     "%ROOT%src\Util.cpp" ^
     "%ROOT%src\VideoSettings.cpp" ^
-    /link /LTCG /SUBSYSTEM:WINDOWS /MANIFEST:NO "%OUT%\SnipText.res" %LIBS%
+    /link /LTCG /SUBSYSTEM:WINDOWS /MANIFEST:NO "%OUT%\SnipTextProUltra.res" %LIBS%
 if errorlevel 1 exit /b 1
 
 echo Built %OUT%\%EXENAME%.exe
@@ -120,13 +119,13 @@ if /i "%1"=="test" (
     echo Building tests...
     cl.exe /nologo /std:c++17 /EHsc /W4 /permissive- /utf-8 /MT ^
         /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /DNOMINMAX /I"%ROOT%src" ^
-        /Fo"%OUT%\t_" /Fe"%OUT%\SnipTextTests.exe" ^
+        /Fo"%OUT%\t_" /Fe"%OUT%\SnipTextProUltraTests.exe" ^
         "%ROOT%tests\TextNormalizerTests.cpp" ^
         "%ROOT%src\TextNormalizer.cpp" ^
         "%ROOT%src\Util.cpp" ^
         /link /SUBSYSTEM:CONSOLE user32.lib shell32.lib ole32.lib shcore.lib uuid.lib
     if errorlevel 1 exit /b 1
-    "%OUT%\SnipTextTests.exe"
+    "%OUT%\SnipTextProUltraTests.exe"
     exit /b !errorlevel!
 )
 

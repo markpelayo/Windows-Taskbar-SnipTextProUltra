@@ -30,8 +30,6 @@ bool IsUnicodeLowercase(char32_t c);
 // Milliseconds are in the name because two captures in the same second would
 // otherwise overwrite each other.
 std::wstring FileNameTimestamp();
-// "yyyy-MM-dd HH:mm:ss.SSS" — the log line stamp.
-std::wstring LogTimestamp(const SYSTEMTIME& time);
 
 // --- paths -----------------------------------------------------------------
 
@@ -46,7 +44,7 @@ std::wstring ExecutablePath();
 
 // Replaces a leading %USERPROFILE% with "~", the way the macOS original
 // abbreviates a home-relative path for display. Menu labels are the only
-// place this is used; log lines always carry the absolute path.
+// place this is used.
 std::wstring DisplayPath(const std::wstring& path);
 
 // --- DPI and geometry ------------------------------------------------------

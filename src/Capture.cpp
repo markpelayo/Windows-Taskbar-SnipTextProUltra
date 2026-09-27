@@ -1,6 +1,5 @@
 #include "Capture.h"
 
-#include "Log.h"
 #include "Settings.h"
 #include "Util.h"
 
@@ -60,7 +59,6 @@ std::unique_ptr<Bitmap> GrabRect(const RECT& bounds) {
 
     auto image = Bitmap::Create(width, height);
     if (!image) {
-        logging::Write(util::Format(L"capture: couldn't allocate a %dx%d image", width, height));
         return nullptr;
     }
 
@@ -74,7 +72,6 @@ std::unique_ptr<Bitmap> GrabRect(const RECT& bounds) {
     // window over the region leaves a hole in the capture.
     if (!::BitBlt(target, 0, 0, width, height, screen.get(), bounds.left, bounds.top,
                   SRCCOPY | CAPTUREBLT)) {
-        logging::Write(L"capture: BitBlt failed");
         return nullptr;
     }
 
@@ -296,19 +293,11 @@ void PlayConfiguredShutter() {
             return;
         }
         // Missing or unplayable: fall through to the built-in one rather than
-        // leaving the capture silent. Logged once rather than on every
-        // capture — a line per screenshot would bury everything else.
-        static bool warned = false;
-        if (!warned) {
-            warned = true;
-            logging::Write(L"shutter: couldn't play " + custom
-                           + L", using the built-in sound");
-        }
+        // leaving the capture silent.
     }
 
     PlayBuiltIn(shutter::CurrentTone());
 }
-
 } // namespace
 
 void PlayShutter() {

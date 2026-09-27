@@ -4,7 +4,6 @@
 #include "Clipboard.h"
 #include "EditorSettings.h"
 #include "Hotkeys.h"
-#include "Log.h"
 #include "MediaFolder.h"
 #include "Ocr.h"
 #include "RecordingIndicator.h"
@@ -21,8 +20,7 @@
 #include <commctrl.h>
 
 namespace {
-
-constexpr const wchar_t* kWindowClass = L"SnipTextMain";
+constexpr const wchar_t* kWindowClass = L"SnipTextProUltraMain";
 constexpr const wchar_t* kMutexName   = L"Local\\SnipTextProUltraSingleInstance";
 
 constexpr UINT WM_TRAY_ICON     = WM_APP + 10;
@@ -405,19 +403,20 @@ bool App::Run() {
         return true;
     }
 
-    // Defaults to on during the 1.x shakedown; see the note in Log.h. A
-    // machine that has explicitly set debugMode still wins either way.
-    logging::SetVerbose(settings::GetBool(settings::key::kDebugMode,
-                                          logging::kVerboseByDefault));
-    logging::StartSession(L"SnipText launched, log at " + logging::FilePath());
-    WriteStartupDiagnostics();
-
+    // A message box, not a toast: the toast window does not exist yet, and
+    // silence here is the worst possible failure — the pinned icon does
+    // nothing when clicked, forever, with no way to find out why.
     if (!gdip::Startup()) {
-        logging::Write(L"launch: GDI+ failed to start");
+        ::MessageBoxW(nullptr, L"SnipTextProUltra couldn't start its graphics "
+                               L"library (GDI+) and has to close.",
+                      L"SnipTextProUltra", MB_OK | MB_ICONERROR);
         return false;
     }
     if (!CreateHiddenWindow()) {
         gdip::Shutdown();
+        ::MessageBoxW(nullptr, L"SnipTextProUltra couldn't create its window "
+                               L"and has to close.",
+                      L"SnipTextProUltra", MB_OK | MB_ICONERROR);
         return false;
     }
 
@@ -432,7 +431,6 @@ bool App::Run() {
     // boot, never to a launch the user asked for.
     const int delay = settings::GetInt(settings::key::kStartupDelay, 0);
     if (delay > 0 && LaunchedAtLogin()) {
-        logging::Write(util::Format(L"startup: login launch, holding setup for %ds", delay));
         ::SetTimer(hwnd_, kSetupTimer, static_cast<UINT>(delay) * 1000, nullptr);
     } else {
         SetUpAfterStartupDelay();
@@ -451,108 +449,7 @@ bool App::Run() {
     RecordingIndicator::Shared().Hide();
     toast::Destroy();
     gdip::Shutdown();
-    logging::Shutdown();
     return true;
-}
-
-// TEMPORARY, part of the 1.x shakedown — see the note in Log.h.
-//
-// Everything here is the context a bug report needs and nobody remembers to
-// include: which Windows build, how many monitors and at what scaling, and
-// whether an OCR language is installed at all. Written once per launch.
-void App::WriteStartupDiagnostics() {
-    // --- build ---
-    logging::Write(util::Format(L"env: SnipText %s (%s, built %S %S)",
-                                SNIPTEXT_VERSION_DISPLAY,
-#ifdef _WIN64
-                                L"x64",
-#else
-                                L"x86",
-#endif
-                                __DATE__, __TIME__));
-
-    // --- Windows version ---
-    // Through RtlGetVersion, not GetVersionEx: the documented API lies to
-    // applications whose manifest does not list the running OS, and reports
-    // Windows 8 forever. OSVERSIONINFOEXW is layout-compatible with the
-    // RTL_OSVERSIONINFOEXW that RtlGetVersion actually takes, and is declared
-    // in winnt.h rather than the internal headers.
-    OSVERSIONINFOEXW version{};
-    version.dwOSVersionInfoSize = sizeof(version);
-    bool gotVersion = false;
-    if (HMODULE ntdll = ::GetModuleHandleW(L"ntdll.dll")) {
-        using RtlGetVersionFn = LONG(WINAPI*)(OSVERSIONINFOEXW*);
-        auto rtlGetVersion = reinterpret_cast<RtlGetVersionFn>(
-            reinterpret_cast<void*>(::GetProcAddress(ntdll, "RtlGetVersion")));
-        gotVersion = rtlGetVersion != nullptr && rtlGetVersion(&version) == 0;
-    }
-    if (gotVersion) {
-        // Windows 11 still reports major version 10; the build number is the
-        // only thing that actually distinguishes it.
-        const wchar_t* name = (version.dwBuildNumber >= 22000) ? L"Windows 11"
-                            : (version.dwMajorVersion >= 10)   ? L"Windows 10"
-                                                               : L"Windows (pre-10)";
-        logging::Write(util::Format(L"env: %s %lu.%lu build %lu",
-                                    name, version.dwMajorVersion, version.dwMinorVersion,
-                                    version.dwBuildNumber));
-    } else {
-        logging::Write(L"env: couldn't read the Windows version");
-    }
-
-    // --- displays ---
-    // The one thing most likely to be different on the machine where a
-    // capture lands in the wrong place.
-    int monitorIndex = 0;
-    ::EnumDisplayMonitors(
-        nullptr, nullptr,
-        [](HMONITOR monitor, HDC, LPRECT, LPARAM parameter) -> BOOL {
-            int* index = reinterpret_cast<int*>(parameter);
-            MONITORINFOEXW info{};
-            info.cbSize = sizeof(info);
-            if (!::GetMonitorInfoW(monitor, &info)) return TRUE;
-
-            UINT dpiX = 96, dpiY = 96;
-            ::GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY);
-            // Only the horizontal figure is reported; the two are equal on
-            // every shipping display, and GetDpiForMonitor will not accept a
-            // null for the second.
-            (void)dpiY;
-
-            logging::Write(util::Format(
-                L"env: display %d %s %ldx%ld at (%ld,%ld), %u dpi (%d%%)",
-                (*index)++,
-                (info.dwFlags & MONITORINFOF_PRIMARY) ? L"[primary]" : L"         ",
-                info.rcMonitor.right - info.rcMonitor.left,
-                info.rcMonitor.bottom - info.rcMonitor.top,
-                info.rcMonitor.left, info.rcMonitor.top,
-                dpiX, static_cast<int>(dpiX * 100 / 96)));
-            return TRUE;
-        },
-        reinterpret_cast<LPARAM>(&monitorIndex));
-
-    logging::Write(util::Format(L"env: virtual desktop %dx%d at (%d,%d), DPI awareness %s",
-                                ::GetSystemMetrics(SM_CXVIRTUALSCREEN),
-                                ::GetSystemMetrics(SM_CYVIRTUALSCREEN),
-                                ::GetSystemMetrics(SM_XVIRTUALSCREEN),
-                                ::GetSystemMetrics(SM_YVIRTUALSCREEN),
-                                ::AreDpiAwarenessContextsEqual(
-                                    ::GetThreadDpiAwarenessContext(),
-                                    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
-                                    ? L"PerMonitorV2 (correct)"
-                                    : L"NOT PerMonitorV2 — captures will be misplaced"));
-
-    // --- OCR ---
-    // Answered once here so "Screenshot to Text did nothing" is diagnosable
-    // from the log alone. The result is cached, so the first real capture
-    // pays nothing for it.
-    logging::Write(ocr::IsAvailable()
-                       ? L"env: OCR engine available"
-                       : L"env: NO OCR language installed — Screenshot to Text will fail");
-
-    // --- where things are ---
-    logging::Write(L"env: screenshots  -> " + MediaFolder::Screenshots().Directory());
-    logging::Write(L"env: text images  -> " + MediaFolder::TextImages().Directory());
-    logging::Write(L"env: videos       -> " + MediaFolder::Videos().Directory());
 }
 
 bool App::CreateHiddenWindow() {
@@ -572,7 +469,6 @@ bool App::CreateHiddenWindow() {
                               0, 0, 0, 0, nullptr, nullptr,
                               ::GetModuleHandleW(nullptr), this);
     if (!hwnd_) {
-        logging::Write(L"launch: couldn't create the main window");
         return false;
     }
     return true;
@@ -594,7 +490,6 @@ void App::RegisterHotkeys() {
 
 bool App::LaunchedAtLogin() {
     if (!settings::IsRunAtStartupEnabled()) {
-        logging::Write(L"startup: not registered to run at startup, launching now");
         return false;
     }
     // Startup entries fire moments after the desktop appears, so a launch
@@ -603,8 +498,6 @@ bool App::LaunchedAtLogin() {
     // invisible, while a wrong one looks like a broken app.
     const ULONGLONG uptimeMs = ::GetTickCount64();
     const bool isLogin = uptimeMs < 120000;
-    logging::Write(util::Format(L"startup: uptime %llus — treating as a %s launch",
-                   uptimeMs / 1000, isLogin ? L"login" : L"manual"));
     return isLogin;
 }
 
@@ -1196,11 +1089,6 @@ void App::OnCommand(int command) {
                     if (other == action) continue;
                     if (hotkeys::Current(other) == captured) {
                         hotkeys::Set(other, hotkeys::Binding{});
-                        logging::Write(util::Format(
-                            L"hotkey: %s gave up %s to %s",
-                            hotkeys::ActionTitle(other),
-                            hotkeys::Describe(captured).c_str(),
-                            hotkeys::ActionTitle(action)));
                     }
                 }
             }
@@ -1209,9 +1097,6 @@ void App::OnCommand(int command) {
             // returns, so the new one needs a fresh pass to take effect.
             hotkeys::Unregister(hwnd_);
             hotkeys::Register(hwnd_);
-            logging::Write(util::Format(L"hotkey: %s is now %s",
-                                        hotkeys::ActionTitle(action),
-                                        hotkeys::Describe(captured).c_str()));
         }
         return;
     }
@@ -1310,7 +1195,6 @@ void App::OnCommand(int command) {
     case ID_SET_AUTOSAVE: {
         const bool on = !settings::GetBool(settings::key::kSaveCaptures, false);
         settings::SetBool(settings::key::kSaveCaptures, on);
-        logging::Write(on ? L"save images on" : L"save images off");
         return;
     }
 
@@ -1319,15 +1203,12 @@ void App::OnCommand(int command) {
     case ID_FOLDER_VIDEO_CHOOSE: ChooseFolder(MediaFolder::Videos()); return;
     case ID_FOLDER_SHOT_RESET:
         MediaFolder::Screenshots().SetDirectory(L"");
-        logging::Write(L"screenshots: folder reset to " + MediaFolder::Screenshots().Directory());
         return;
     case ID_FOLDER_TEXT_RESET:
         MediaFolder::TextImages().SetDirectory(L"");
-        logging::Write(L"text images: folder reset to " + MediaFolder::TextImages().Directory());
         return;
     case ID_FOLDER_VIDEO_RESET:
         MediaFolder::Videos().SetDirectory(L"");
-        logging::Write(L"videos: folder reset to " + MediaFolder::Videos().Directory());
         return;
 
     case ID_VID_CURSOR: video::SetCapturesCursor(!video::CapturesCursor()); return;
@@ -1342,7 +1223,6 @@ void App::OnCommand(int command) {
         hotkeys::ResetAll();
         hotkeys::Unregister(hwnd_);
         hotkeys::Register(hwnd_);
-        logging::Write(L"hotkey: all shortcuts reset to defaults");
         return;
 
     case ID_ABOUT:
@@ -1373,8 +1253,6 @@ std::unique_ptr<Bitmap> App::AcquireImage(capture::Mode mode) {
 
 void App::Screenshot(capture::Mode mode) {
     if (isCapturing_ || RegionOverlay::IsShowing()) {
-        LOG_DEBUG(std::wstring(L"screenshot: ignored ") + capture::ModeLabel(mode)
-                  + L", a capture or overlay is already up");
         return;
     }
     isCapturing_ = true;
@@ -1387,7 +1265,6 @@ void App::Screenshot(capture::Mode mode) {
     isCapturing_ = false;
 
     if (!image) {
-        LOG_DEBUG(L"screenshot: cancelled");
         return;   // a cancel does nothing at all: no sound, no message, no file
     }
 
@@ -1397,7 +1274,10 @@ void App::Screenshot(capture::Mode mode) {
     // written to disk AND put on the clipboard, and nothing opens.
     if (settings::GetBool(settings::key::kSaveCaptures, false)) {
         std::vector<BYTE> png = image->EncodePng();
-        if (!png.empty()) MediaFolder::Screenshots().SaveBytes(png.data(), png.size());
+        if (png.empty() ||
+            MediaFolder::Screenshots().SaveBytes(png.data(), png.size()).empty()) {
+            toast::Show(L"Couldn't auto-save the screenshot to disk");
+        }
     }
 
     if (settings::GetBool(settings::key::kSkipEditor, false)) {
@@ -1410,29 +1290,22 @@ void App::Screenshot(capture::Mode mode) {
         image.reset();   // the editor is not going to take it
 
         if (copied) {
-            logging::Write(util::Format(L"screenshot: copied %dx%d to the clipboard (%s)",
-                                        width, height, capture::ModeLabel(mode)));
             toast::Show(util::Format(L"Screenshot copied to the clipboard · %d × %d",
                                      width, height));
         } else {
             // Another process can hold the clipboard open, and then the shot
             // exists nowhere the user can reach unless auto-save happened to
             // catch it. Silence here would look exactly like success.
-            logging::Write(L"screenshot: the clipboard refused the image");
             toast::Show(L"Couldn’t copy — another program is holding the clipboard");
         }
         return;
     }
 
-    logging::Write(util::Format(L"screenshot: editor opened %dx%d (%s)",
-                   image->Width(), image->Height(), capture::ModeLabel(mode)));
     OpenEditor(std::move(image));
 }
 
 void App::ScreenshotToText(capture::Mode mode) {
     if (isCapturing_ || RegionOverlay::IsShowing()) {
-        LOG_DEBUG(std::wstring(L"pipeline: ignored ") + capture::ModeLabel(mode)
-                  + L", a capture or overlay is already up");
         return;
     }
     isCapturing_ = true;
@@ -1445,21 +1318,20 @@ void App::ScreenshotToText(capture::Mode mode) {
     // not the part anyone sees.
     const bool rebuildParagraphs = settings::GetBool(settings::key::kJoinWrappedLines, true);
     const bool keepLineBreaks    = !rebuildParagraphs;
-    LOG_DEBUG(util::Format(L"pipeline: start mode=%s layout=%s",
-                           capture::ModeLabel(mode),
-                           rebuildParagraphs ? L"rebuild" : L"lines"));
 
     std::unique_ptr<Bitmap> image = AcquireImage(mode);
     if (!image) {
         isCapturing_ = false;
-        LOG_DEBUG(L"pipeline: cancelled, nothing copied");
         return;
     }
 
     if (settings::GetBool(settings::key::kShutterSound, true)) capture::PlayShutter();
     if (settings::GetBool(settings::key::kSaveCaptures, false)) {
         std::vector<BYTE> png = image->EncodePng();
-        if (!png.empty()) MediaFolder::TextImages().SaveBytes(png.data(), png.size());
+        if (png.empty() ||
+            MediaFolder::TextImages().SaveBytes(png.data(), png.size()).empty()) {
+            toast::Show(L"Couldn't auto-save the source image to disk");
+        }
     }
 
     // OCR runs off the UI thread: recognition on a full-screen capture takes
@@ -1511,19 +1383,14 @@ void App::OnOcrFinished(OcrOutcome* raw) {
     if (!outcome) return;
 
     if (!outcome->failure.empty()) {
-        logging::Write(L"pipeline: failure — " + outcome->failure);
         ReportFailure(outcome->failure);
         return;
     }
 
     if (outcome->text.empty()) {
-        logging::Write(L"capture produced no readable text");
         toast::Show(L"No text found in that capture");
         return;
     }
-
-    LOG_DEBUG(util::Format(L"pipeline: %zu lines → %zu chars",
-                           outcome->lineCount, outcome->text.size()));
 
     const bool copied = clipboard::CopyText(hwnd_, outcome->text);
     // Recorded regardless of whether the clipboard write landed, so "Copy
@@ -1534,9 +1401,6 @@ void App::OnOcrFinished(OcrOutcome* raw) {
                     ? util::Format(L"Copied %zu characters to the clipboard",
                                    outcome->text.size())
                     : std::wstring(L"Found the text, but the clipboard refused it"));
-    logging::Write(util::Format(L"copied %zu chars from %zu lines (%s)",
-                   outcome->text.size(), outcome->lineCount,
-                   capture::ModeLabel(outcome->mode)));
 }
 
 // --- recording -------------------------------------------------------------
@@ -1552,7 +1416,6 @@ void App::ToggleRecording(bool region) {
 void App::BeginRecording(bool region) {
     if (ScreenRecorder::Shared().IsRecording()) return;
     if (isCapturing_ || RegionOverlay::IsShowing()) {
-        LOG_DEBUG(L"recorder: ignored, a capture or overlay is already up");
         return;
     }
 
@@ -1599,12 +1462,18 @@ void App::OnRecordingStateChanged() {
         // One timer drives the elapsed text, the blink and the pill, so the
         // three can never drift out of step.
         ::SetTimer(hwnd_, kRecordingTimer, 1000, nullptr);
-        toast::SetSuppressed(true);
+
         // The green frame and the Stop pill are the indicator people
         // actually see; the tray icon only changes appearance.
+        //
+        // Shown BEFORE toasts are suppressed, and the order matters: Show()
+        // may need to warn that the Stop button will end up in the recording,
+        // and suppressing first would swallow the one message that has to
+        // arrive before the take rather than after it.
         RecordingIndicator::Shared().Show(recordingRegion_, [] {
             ScreenRecorder::Shared().Stop();
         });
+        toast::SetSuppressed(true);
     } else {
         toast::SetSuppressed(false);
         RecordingIndicator::Shared().Hide();
@@ -1634,7 +1503,6 @@ void App::ShowTrayIcon() {
     ::wcscpy_s(data.szTip, L"SnipTextProUltra");
 
     trayIconVisible_ = ::Shell_NotifyIconW(NIM_ADD, &data) != FALSE;
-    if (!trayIconVisible_) logging::Write(L"tray: couldn't add the icon");
 }
 
 void App::HideTrayIcon() {
@@ -1691,7 +1559,7 @@ void App::ChooseFolder(MediaFolder& folder) {
     const std::wstring current = folder.Directory();
 
     BROWSEINFOW browse{};
-    const std::wstring title = L"Choose where SnipText saves " + folder.Label();
+    const std::wstring title = L"Choose where SnipTextProUltra saves " + folder.Label();
     browse.hwndOwner = hwnd_;
     browse.lpszTitle = title.c_str();
     browse.ulFlags   = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE | BIF_EDITBOX;
@@ -1705,7 +1573,6 @@ void App::ChooseFolder(MediaFolder& folder) {
     if (!resolved) return;
 
     folder.SetDirectory(path);
-    logging::Write(folder.Label() + L": folder set to " + path);
 }
 
 void App::ChooseShutterSound() {
@@ -1737,7 +1604,6 @@ void App::ChooseShutterSound() {
     settings::SetString(settings::key::kShutterSoundPath, buffer);
     // Choosing a sound implies wanting to hear it.
     settings::SetBool(settings::key::kShutterSound, true);
-    logging::Write(std::wstring(L"shutter: custom sound set to ") + buffer);
     capture::PreviewShutter();
 }
 
@@ -1747,11 +1613,13 @@ void App::ApplyStartup(bool enabled, int delaySeconds) {
     settings::SetInt(settings::key::kStartupDelay, delaySeconds);
 
     if (!settings::SetRunAtStartup(enabled)) {
-        logging::Write(enabled ? L"startup: register failed" : L"startup: unregister failed");
+        // A beep alone left the menu showing the opposite of what the user
+        // just chose, with no reason given.
         ::MessageBeep(MB_ICONWARNING);
+        toast::Show(enabled ? L"Couldn't set SnipTextProUltra to run at startup"
+                            : L"Couldn't stop SnipTextProUltra running at startup");
         return;
     }
-    logging::Write(util::Format(L"startup: enabled=%d delay=%ds", enabled ? 1 : 0, delaySeconds));
 }
 
 void App::Sanitize() {
@@ -1783,8 +1651,8 @@ void App::Sanitize() {
                L"    • Run at Startup (switched off)";
 
     const std::wstring heading =
-        files.empty() ? L"Restore all SnipText settings to their defaults?"
-                      : util::Format(L"Move %zu SnipText file%s to the Recycle Bin?",
+        files.empty() ? L"Restore all SnipTextProUltra settings to their defaults?"
+                      : util::Format(L"Move %zu SnipTextProUltra file%s to the Recycle Bin?",
                                      files.size(), files.size() == 1 ? L"" : L"s");
 
     // A task dialog rather than a message box, so the destructive button says
@@ -1799,7 +1667,7 @@ void App::Sanitize() {
     config.cbSize             = sizeof(config);
     config.hwndParent         = hwnd_;
     config.dwFlags            = TDF_ALLOW_DIALOG_CANCELLATION | TDF_USE_COMMAND_LINKS;
-    config.pszWindowTitle     = L"SnipText";
+    config.pszWindowTitle     = L"SnipTextProUltra";
     config.pszMainIcon        = TD_WARNING_ICON;
     config.pszMainInstruction = heading.c_str();
     config.pszContent         = message.c_str();
@@ -1812,21 +1680,22 @@ void App::Sanitize() {
     if (FAILED(::TaskDialogIndirect(&config, &answer, nullptr, nullptr))) {
         // Fall back to a plain message box on the (unlikely) machine where
         // the task dialog is unavailable.
-        answer = ::MessageBoxW(hwnd_, message.c_str(), L"SnipText",
+        answer = ::MessageBoxW(hwnd_, message.c_str(), L"SnipTextProUltra",
                                MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2);
     }
     if (answer != IDOK) {
-        logging::Write(L"sanitize: cancelled");
         return;
     }
 
-    if (!files.empty()) {
-        if (media::RecycleFiles(files)) {
-            logging::Write(util::Format(L"sanitize: moved %zu file(s) to the Recycle Bin", files.size()));
-        } else {
-            logging::Write(L"sanitize: some files couldn't be moved to the Recycle Bin");
-        }
-    }
+    // The return value was only ever used to log which way it went. Nothing
+    // else can be done about a failure here: the files the user agreed to
+    // remove either went to the Recycle Bin or did not, and either way the
+    // settings below still have to be restored.
+    // The result decides what the confirmation says. Reporting success while
+    // the files are still on disk is worse than reporting nothing, and that
+    // is what discarding this return value produced.
+    bool filesRemoved = true;
+    if (!files.empty()) filesRemoved = media::RecycleFiles(files);
 
     // Removal rather than assignment, so the defaults take over cleanly.
     // debugMode is deliberately untouched: it is a developer switch, not a
@@ -1856,14 +1725,15 @@ void App::Sanitize() {
     settings::SetRunAtStartup(false);
     lastText_.clear();   // the last OCR result is captured content too
 
-    logging::Write(L"sanitize: settings restored to defaults");
-    toast::Show(L"Sanitized and restored to defaults");
+    toast::Show(filesRemoved
+                    ? L"Sanitized and restored to defaults"
+                    : L"Settings restored, but some files couldn't be removed");
 }
 
 void App::ReportFailure(const std::wstring& message) {
     toast::Show(L"⚠ The capture failed");
     ::SetForegroundWindow(hwnd_);
-    ::MessageBoxW(hwnd_, message.c_str(), L"SnipText couldn't capture",
+    ::MessageBoxW(hwnd_, message.c_str(), L"SnipTextProUltra couldn't capture",
                   MB_OK | MB_ICONWARNING);
 }
 

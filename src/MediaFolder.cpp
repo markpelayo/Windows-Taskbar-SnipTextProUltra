@@ -1,6 +1,5 @@
 #include "MediaFolder.h"
 
-#include "Log.h"
 #include "Settings.h"
 #include "Util.h"
 
@@ -22,19 +21,19 @@ MediaFolder::MediaFolder(const wchar_t* settingsKey, const wchar_t* folderName,
       label_(label) {}
 
 MediaFolder& MediaFolder::Screenshots() {
-    static MediaFolder folder(settings::key::kScreenshotFolder, L"SnipText_Screenshot_Images",
+    static MediaFolder folder(settings::key::kScreenshotFolder, L"SnipTextProUltra_Screenshot_Images",
                               &kPictures, L"Pictures", L"png", L"screenshots");
     return folder;
 }
 
 MediaFolder& MediaFolder::TextImages() {
-    static MediaFolder folder(settings::key::kTextImageFolder, L"SnipText_ScreenshotToText_Images",
+    static MediaFolder folder(settings::key::kTextImageFolder, L"SnipTextProUltra_ScreenshotToText_Images",
                               &kPictures, L"Pictures", L"png", L"text images");
     return folder;
 }
 
 MediaFolder& MediaFolder::Videos() {
-    static MediaFolder folder(settings::key::kVideoFolder, L"SnipText_Videos",
+    static MediaFolder folder(settings::key::kVideoFolder, L"SnipTextProUltra_Videos",
                               &kVideos, L"Videos", L"mp4", L"videos");
     return folder;
 }
@@ -67,7 +66,6 @@ void MediaFolder::SetDirectory(const std::wstring& path) {
 bool MediaFolder::EnsureDirectoryExists() const {
     const std::wstring path = Directory();
     if (util::EnsureDirectory(path)) return true;
-    logging::Write(label_ + L": couldn't create " + path);
     return false;
 }
 
@@ -105,7 +103,7 @@ int MediaFolder::Count() const {
 }
 
 std::wstring MediaFolder::NewFilePath() const {
-    const std::wstring name = L"SnipText " + util::FileNameTimestamp() + L"." + extension_;
+    const std::wstring name = L"SnipTextProUltra " + util::FileNameTimestamp() + L"." + extension_;
     return util::JoinPath(Directory(), name);
 }
 
@@ -126,7 +124,6 @@ std::wstring MediaFolder::SaveBytes(const void* data, size_t size) const {
     ScopedFile file(::CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,
                                   CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
     if (!file) {
-        logging::Write(label_ + L": save FAILED — couldn't create " + util::LastPathComponent(path));
         return std::wstring();
     }
 
@@ -136,19 +133,16 @@ std::wstring MediaFolder::SaveBytes(const void* data, size_t size) const {
         DWORD chunk   = static_cast<DWORD>((std::min)(remaining, static_cast<size_t>(1u << 20)));
         DWORD written = 0;
         if (!::WriteFile(file.get(), cursor, chunk, &written, nullptr) || written == 0) {
-            logging::Write(label_ + L": save FAILED — write error on " + util::LastPathComponent(path));
             return std::wstring();
         }
         cursor    += written;
         remaining -= written;
     }
 
-    LOG_DEBUG(label_ + L": saved " + util::LastPathComponent(path) + L" to " + Directory());
     return path;
 }
 
 namespace media {
-
 bool RecycleFiles(const std::vector<std::wstring>& paths) {
     if (paths.empty()) return true;
 

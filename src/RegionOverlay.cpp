@@ -1,15 +1,13 @@
 #include "RegionOverlay.h"
 
 #include "Capture.h"
-#include "Log.h"
 #include "Util.h"
 #include "VideoSettings.h"
 
 #include <dwmapi.h>
 
 namespace {
-
-constexpr const wchar_t* kWindowClass = L"SnipTextRegionOverlay";
+constexpr const wchar_t* kWindowClass = L"SnipTextProUltraRegionOverlay";
 
 // Every constant the overlay draws with, in one place.
 constexpr int kMinimumSize       = 16;   // also the floor below which Confirm refuses
@@ -131,7 +129,6 @@ RegionOverlay::Selection RegionOverlay::Run(Style style) {
     // its own output and the screen cannot change mid-selection.
     frozen_ = capture::GrabVirtualDesktop(&desktopBounds_);
     if (!frozen_) {
-        logging::Write(L"overlay: couldn't capture the desktop");
         return Selection{};
     }
 
@@ -146,7 +143,6 @@ RegionOverlay::Selection RegionOverlay::Run(Style style) {
         description.hbrBackground = nullptr;   // we paint every pixel ourselves
         description.lpszClassName = kWindowClass;
         if (!::RegisterClassExW(&description)) {
-            logging::Write(L"overlay: couldn't register the window class");
             return Selection{};
         }
         registered = true;
@@ -176,14 +172,13 @@ RegionOverlay::Selection RegionOverlay::Run(Style style) {
     hwnd_ = ::CreateWindowExW(
         // TOOLWINDOW keeps the overlay out of the taskbar and out of Alt-Tab.
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
-        kWindowClass, L"SnipText", WS_POPUP,
+        kWindowClass, L"SnipTextProUltra", WS_POPUP,
         desktopBounds_.left, desktopBounds_.top,
         util::RectWidth(desktopBounds_), util::RectHeight(desktopBounds_),
         nullptr, nullptr, ::GetModuleHandleW(nullptr), this);
 
     if (!hwnd_) {
         g_isShowing = false;
-        logging::Write(L"overlay: couldn't create the window");
         return Selection{};
     }
 

@@ -101,6 +101,13 @@ Nothing yet.
   orphaned when the log was removed in 1.6.3. No behaviour change — every one
   was verified to have no caller anywhere in `src/` or `tests/`.
 
+- **Text Layout → Compare the Two on Sample Text now opens a page that
+  actually renders.** The sample page is Markdown as well as HTML, and GitHub
+  renders Markdown at its own URL — so the menu row opens readable examples in
+  the browser instead of the wall of markup GitHub serves for a `.html` file.
+  The link was a placeholder in 1.6.3 for exactly that reason, and closing it
+  needed no hosting.
+
 - **The editor moves a completed pen stroke instead of copying it.** A long
   scribble carries every sampled point, hundreds of kilobytes, and it was being
   deep-copied once per stroke.

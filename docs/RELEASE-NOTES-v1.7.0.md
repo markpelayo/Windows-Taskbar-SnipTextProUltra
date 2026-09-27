@@ -65,6 +65,14 @@ Everything this program allocates itself, at idle, now comes to **under
 - Three places read pixel bytes without flushing GDI first — one of them the
   recorder, on every frame at any Quality below the top one.
 
+## Also
+
+**Text Layout → Compare the Two on Sample Text opens a page that renders.**
+The sample page is now Markdown as well as HTML, and GitHub renders Markdown at
+its own URL — so the menu row opens readable examples in the browser rather
+than the markup GitHub serves for a `.html` file. That link was a placeholder
+in 1.6.3 for exactly that reason, and closing it needed no hosting at all.
+
 ## Leaner
 
 Thirteen unreachable functions, fields and accessors deleted, most orphaned

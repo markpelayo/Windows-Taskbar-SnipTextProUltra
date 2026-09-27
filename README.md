@@ -20,7 +20,7 @@ This is version 1.7.0. It builds clean under `/W4 /WX` and has been run on Windo
 
 ### Trying it on sample text
 
-[**docs/text-layout-test.html**](docs/text-layout-test.html) is a page of eight
+[**docs/text-layout-test.md**](docs/text-layout-test.md) is a page of eight
 deliberately awkward cases — a wrapped paragraph, a three-column table, a
 column of serial numbers, a list, an indented block, a symbol string. Open it
 in a browser and capture each box with *ScreenshotToText a Region*.
@@ -30,6 +30,11 @@ neither is right for everything, so the page shows you what each does to the
 same text rather than describing it. Each case says what to expect from both,
 which also makes it a regression check — if a column of serial numbers comes
 back joined into one line, that is a bug rather than a preference.
+
+It is Markdown so that GitHub renders it in the browser: nothing to download,
+and the *Text Layout → Compare the Two on Sample Text* menu row opens it
+directly. There is also an [HTML version](docs/text-layout-test.html) with
+tighter control over widths and gaps, for cases needing exact geometry.
 
 ---
 
@@ -262,7 +267,7 @@ See [the architecture notes](docs/ARCHITECTURE.md#text-normalisation) for why th
 
 **Keep Every Line Separate** is the predictable one — verbatim, always. Reach for it when a capture comes back joined, or spaced out, in a way you did not want.
 
-Rather than choose from a description, see both: **Text Layout → Compare the Two on Sample Text** opens [docs/text-layout-test.html](docs/text-layout-test.html), eight cases covering every place the two diverge. The table case is the one worth deciding on — if three columns come back as one line, the structure is gone and cannot be recovered afterwards.
+Rather than choose from a description, see both: **Text Layout → Compare the Two on Sample Text** opens [docs/text-layout-test.md](docs/text-layout-test.md), eight cases covering every place the two diverge. The table case is the one worth deciding on — if three columns come back as one line, the structure is gone and cannot be recovered afterwards.
 
 ---
 

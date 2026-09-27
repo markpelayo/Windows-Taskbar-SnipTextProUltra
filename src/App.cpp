@@ -67,26 +67,18 @@ const int kStartupDelayChoices[6] = { 5, 10, 15, 20, 30, 60 };
 constexpr const wchar_t* kRepositoryUrl =
     L"https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra";
 
-// --- PLACEHOLDER -----------------------------------------------------------
+// No longer a placeholder, and no hosting was needed to get there.
 //
-// The sample page lives at docs/text-layout-test.html in the repository. This
-// URL does not serve it yet, and two things have to be true before it will:
+// GitHub RENDERS a Markdown file at its own URL, so the sample page lives as
+// docs/text-layout-test.md and this link opens a readable page in the
+// browser. The earlier attempt pointed at the .html version, which GitHub
+// serves as SOURCE — a wall of markup rather than the examples.
 //
-//   1. GitHub renders a .html file in a repository as SOURCE, not as a page.
-//      A blob link shows the markup; a raw link serves text/plain and shows
-//      the markup too. Neither is useful to someone who wants to see the
-//      examples.
-//   2. Rendering it means publishing it — GitHub Pages or equivalent — which
-//      is a hosting decision, not a code one.
-//
-// There is a third option that needs neither, and it is the one that fits
-// this program: embed the page as a resource, write it to the temp directory
-// on demand, and open that. It stays a single self-contained executable, it
-// works with no network, and it cannot rot when a URL moves. Say the word and
-// it is a small change.
+// The alternative was publishing the HTML somewhere that renders it, which is
+// a hosting decision rather than a code one. This needs none.
 constexpr const wchar_t* kTextLayoutExamplesUrl =
     L"https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra"
-    L"/blob/main/docs/text-layout-test.html";
+    L"/blob/main/docs/text-layout-test.md";
 
 UINT RelaunchMessage() {
     static const UINT message = ::RegisterWindowMessageW(L"SnipTextProUltra.ShowMenu");

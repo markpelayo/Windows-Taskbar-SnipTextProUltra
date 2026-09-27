@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.6.3] — 2026-09-27
+
 ### Fixed
 
 - **The menu really is out of the capture now.** 1.6.2 addressed the wrong

@@ -17,12 +17,12 @@
 //
 // Still has to be kept in step by hand with VERSION and with
 // SnipText.manifest — see docs/RELEASING.md.
-#define SNIPTEXT_VERSION_COMMA  1,6,1,0
-#define SNIPTEXT_VERSION_STRING "1.6.1.0"
-#define SNIPTEXT_VERSION_WIDE   L"1.6.1"
+#define SNIPTEXT_VERSION_COMMA  1,6,2,0
+#define SNIPTEXT_VERSION_STRING "1.6.2.0"
+#define SNIPTEXT_VERSION_WIDE   L"1.6.2"
 // Narrow, three-part, for the resource block's OriginalFilename, which has to
 // match the name of the file on disk — and that now carries the version.
-#define SNIPTEXT_VERSION_DOTTED "1.6.1"
+#define SNIPTEXT_VERSION_DOTTED "1.6.2"
 
 // --- which build is this? ---------------------------------------------------
 //

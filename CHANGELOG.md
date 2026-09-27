@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.6.2] — 2026-09-27
+
 ### Fixed
 
 - **The flyout menu could appear in the capture on a slower machine.** The

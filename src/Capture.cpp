@@ -98,10 +98,6 @@ std::unique_ptr<Bitmap> GrabRect(const RECT& bounds) {
 
 } // namespace
 
-const wchar_t* ModeLabel(Mode mode) {
-    return mode == Mode::Region ? L"region" : L"full screen";
-}
-
 std::unique_ptr<Bitmap> GrabMonitor(HMONITOR monitor) {
     return GrabRect(util::MonitorBounds(monitor));
 }

@@ -164,18 +164,6 @@ std::unique_ptr<Bitmap> Bitmap::Crop(const RECT& region) const {
     return out;
 }
 
-void Bitmap::FillOpaqueBlack() {
-    if (!IsValid()) return;
-    BYTE* pixels = static_cast<BYTE*>(bits_);
-    const size_t total = static_cast<size_t>(width_) * height_;
-    for (size_t i = 0; i < total; ++i) {
-        pixels[i * 4 + 0] = 0;
-        pixels[i * 4 + 1] = 0;
-        pixels[i * 4 + 2] = 0;
-        pixels[i * 4 + 3] = 255;
-    }
-}
-
 void Bitmap::MakeOpaque() {
     if (!IsValid()) return;
     BYTE* pixels = static_cast<BYTE*>(bits_);

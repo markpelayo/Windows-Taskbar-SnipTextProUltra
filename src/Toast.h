@@ -23,10 +23,6 @@ void Show(const std::wstring& message);
 // surface and would overwrite the message a second later.
 void SetSuppressed(bool suppressed);
 
-// True while a message is on screen. The recording indicator checks this so
-// it does not stomp a live "saved" confirmation.
-bool IsShowing();
-
 void Hide();
 void Destroy();
 

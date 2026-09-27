@@ -29,7 +29,6 @@ enum class Engine { Auto, WindowsOnly, TesseractOnly };
 
 struct Result {
     std::vector<OcrLine> lines;
-    bool                 engineAvailable = true;
     std::wstring         failure;         // empty unless something actually broke
 };
 
@@ -39,9 +38,6 @@ struct Result {
 // Safe to call from a worker thread — it initialises the apartment it needs
 // and tears it down again.
 Result Recognize(const Bitmap& image, Engine engine = Engine::Auto);
-
-// Which engine actually produced the last result, for the menu.
-const wchar_t* EngineName(Engine engine);
 
 // True when at least one OCR language is installed. Checked once and cached;
 // the answer only changes when the user installs a language pack, which

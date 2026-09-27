@@ -349,14 +349,12 @@ Result RecognizeWithWindows(const Bitmap& image) {
 
     ComPtr<ABIO::IOcrEngineStatics> statics = EngineStatics();
     if (!statics) {
-        result.engineAvailable = false;
         result.failure = L"Windows text recognition isn't available on this machine.";
         return result;
     }
 
     ComPtr<ABIO::IOcrEngine> engine;
     if (FAILED(statics->TryCreateFromUserProfileLanguages(&engine)) || !engine) {
-        result.engineAvailable = false;
         result.failure = L"No OCR language is installed. Add one under "
                          L"Settings › Time & language › Language & region.";
         return result;
@@ -496,15 +494,15 @@ Result RecognizeWithWindows(const Bitmap& image) {
     // bright, roomy capture queues nothing else and costs exactly what it
     // always did.
     enum class Prep { AsCaptured, Inverted, Doubled, DoubledInverted };
-    struct Attempt { Prep prep; const wchar_t* name; };
+    struct Attempt { Prep prep; };
 
     std::vector<Attempt> attempts;
-    attempts.push_back({ Prep::AsCaptured, L"as captured" });
+    attempts.push_back({ Prep::AsCaptured });
 
     // Light text on a dark background. The engine reads dark-on-light
     // considerably better.
     const bool dark = MeanLuminance(*source) < 118.0;
-    if (dark) attempts.push_back({ Prep::Inverted, L"inverted" });
+    if (dark) attempts.push_back({ Prep::Inverted });
 
     // Small text. Doubling it must not push the image back over the ceiling
     // the downscale above just brought it under — and that ceiling applies to
@@ -517,8 +515,8 @@ Result RecognizeWithWindows(const Bitmap& image) {
                            (maxDimension == 0 ||
                             static_cast<UINT32>(longEdge) * 2 <= maxDimension);
     if (canDouble) {
-        attempts.push_back({ Prep::Doubled, L"2x" });
-        if (dark) attempts.push_back({ Prep::DoubledInverted, L"2x inverted" });
+        attempts.push_back({ Prep::Doubled });
+        if (dark) attempts.push_back({ Prep::DoubledInverted });
     }
 
     // --- run them, keep whichever read the most --------------------------
@@ -585,20 +583,11 @@ Result RecognizeWithWindows(const Bitmap& image) {
     return result;
 }
 
-const wchar_t* EngineName(Engine engine) {
-    switch (engine) {
-    case Engine::WindowsOnly:   return L"Windows";
-    case Engine::TesseractOnly: return L"Tesseract";
-    default:                    return L"Auto";
-    }
-}
-
 Result Recognize(const Bitmap& image, Engine engine) {
     // Forced to the fallback engine.
     if (engine == Engine::TesseractOnly) {
         if (!tesseract_ocr::IsAvailable()) {
             Result result;
-            result.engineAvailable = false;
             result.failure = tesseract_ocr::IsCompiledIn()
                 ? L"The bundled text-recognition model is missing from this build."
                 : L"This build was compiled without the fallback recogniser.";

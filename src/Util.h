@@ -9,7 +9,6 @@ namespace util {
 // --- strings ---------------------------------------------------------------
 
 std::wstring Format(const wchar_t* fmt, ...);
-std::string  ToUtf8(const std::wstring& text);
 std::wstring FromUtf8(const std::string& text);
 
 // Decodes UTF-16 into code points. The normaliser and the menu-preview
@@ -39,7 +38,6 @@ std::wstring JoinPath(const std::wstring& base, const std::wstring& leaf);
 std::wstring LastPathComponent(const std::wstring& path);
 std::wstring FileExtensionLower(const std::wstring& path);
 bool         EnsureDirectory(const std::wstring& path);
-bool         PathExists(const std::wstring& path);
 std::wstring ExecutablePath();
 
 // Replaces a leading %USERPROFILE% with "~", the way the macOS original
@@ -77,10 +75,8 @@ int SuppressOwnMenusForCapture();
 
 // The process is Per-Monitor-V2 aware (see the manifest), so every coordinate
 // the program handles is already in physical pixels and no scaling conversion
-// is needed anywhere. This returns the scale only for sizing chrome — menus,
-// handles, toolbars — that should stay a constant physical size.
-double  DpiScaleForWindow(HWND hwnd);
-double  DpiScaleForMonitor(HMONITOR monitor);
+// is needed anywhere. Chrome sizes come from fixed constants, which is why
+// there are no DPI-scale helpers here.
 HMONITOR MonitorUnderCursor();
 RECT    MonitorBounds(HMONITOR monitor);
 

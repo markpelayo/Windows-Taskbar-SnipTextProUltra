@@ -19,7 +19,6 @@ constexpr int      kMargin       = 16;
 HWND         g_window     = nullptr;
 std::wstring g_message;
 bool         g_suppressed = false;
-bool         g_showing    = false;
 // Set in Show, read in the paint handler: whether the message had to be cut
 // to fit the work area, which decides between centring it and ellipsising it.
 bool         g_truncates  = false;
@@ -130,8 +129,6 @@ void SetSuppressed(bool suppressed) {
     if (suppressed) Hide();
 }
 
-bool IsShowing() { return g_showing; }
-
 void Show(const std::wstring& message) {
     if (g_suppressed || message.empty()) return;
 
@@ -187,11 +184,9 @@ void Show(const std::wstring& message) {
                    SWP_NOACTIVATE | SWP_SHOWWINDOW);
     ::InvalidateRect(window, nullptr, TRUE);
     ::SetTimer(window, kDismissTimer, kDurationMs, nullptr);
-    g_showing = true;
 }
 
 void Hide() {
-    g_showing = false;
     if (!g_window) return;
     ::KillTimer(g_window, kDismissTimer);
     ::ShowWindow(g_window, SW_HIDE);
@@ -201,7 +196,6 @@ void Destroy() {
     if (!g_window) return;
     ::DestroyWindow(g_window);
     g_window  = nullptr;
-    g_showing = false;
 }
 
 } // namespace toast

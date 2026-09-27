@@ -376,11 +376,9 @@ HICON RecordingTrayIcon() {
 
 struct App::OcrOutcome {
     std::unique_ptr<Bitmap> image;
-    capture::Mode           mode = capture::Mode::Region;
     bool                    keepLineBreaks = false;
     ocr::Engine             engine = ocr::Engine::Auto;
     std::wstring            text;
-    size_t                  lineCount = 0;
     std::wstring            failure;
 };
 
@@ -1369,7 +1367,6 @@ void App::ScreenshotToText(capture::Mode mode) {
     // was working in.
     auto* outcome = new OcrOutcome();
     outcome->image          = std::move(image);
-    outcome->mode           = mode;
     outcome->keepLineBreaks = keepLineBreaks;
     // Resolved here rather than on the worker: the setting lives in the
     // registry, and reading it from two threads is needless.
@@ -1390,7 +1387,6 @@ DWORD WINAPI App::OcrThread(void* parameter) {
 
     ocr::Result recognised = ocr::Recognize(*outcome->image, outcome->engine);
     outcome->failure   = recognised.failure;
-    outcome->lineCount = recognised.lines.size();
     outcome->text      = text::Normalize(recognised.lines, outcome->keepLineBreaks);
 
     // The image is released here rather than on the UI thread: it is the

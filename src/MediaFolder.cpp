@@ -73,10 +73,6 @@ std::wstring MediaFolder::DisplayPath() const {
     return util::DisplayPath(Directory());
 }
 
-std::wstring MediaFolder::DisplayPath(const std::wstring& path) const {
-    return util::DisplayPath(path);
-}
-
 std::vector<std::wstring> MediaFolder::Contents() const {
     std::vector<std::wstring> out;
     const std::wstring directory = Directory();

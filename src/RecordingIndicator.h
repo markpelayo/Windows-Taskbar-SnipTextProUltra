@@ -52,8 +52,6 @@ public:
     // pill's width.
     void Update(const std::wstring& elapsed, bool blinkOn);
 
-    bool IsShowing() const { return pill_ != nullptr; }
-
 private:
     RecordingIndicator() = default;
     ~RecordingIndicator();

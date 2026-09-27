@@ -30,7 +30,6 @@ public:
 
     // ~-abbreviated, for menu labels and tooltips.
     std::wstring DisplayPath() const;
-    std::wstring DisplayPath(const std::wstring& path) const;
 
     // Non-recursive, hidden files skipped, extension matched
     // case-insensitively. The extension filter is what stops Sanitize from

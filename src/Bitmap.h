@@ -49,11 +49,6 @@ public:
     // they understand.
     bool CopyToClipboard(HWND owner) const;
 
-    // Fills with opaque black. A freshly created DIB section is already
-    // zeroed, which is transparent black — fine for the editor's export
-    // surface, wrong for anything that will be flattened onto the desktop.
-    void FillOpaqueBlack();
-
     // Forces every alpha byte to 255. Screen captures come back from BitBlt
     // with an undefined alpha channel, and an image that reaches the
     // clipboard with zero alpha pastes as an invisible rectangle.

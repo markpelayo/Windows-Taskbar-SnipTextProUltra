@@ -23,17 +23,6 @@ std::wstring Format(const wchar_t* fmt, ...) {
     return out;
 }
 
-std::string ToUtf8(const std::wstring& text) {
-    if (text.empty()) return std::string();
-    int needed = ::WideCharToMultiByte(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()),
-                                       nullptr, 0, nullptr, nullptr);
-    if (needed <= 0) return std::string();
-    std::string out(static_cast<size_t>(needed), '\0');
-    ::WideCharToMultiByte(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()),
-                          &out[0], needed, nullptr, nullptr);
-    return out;
-}
-
 std::wstring FromUtf8(const std::string& text) {
     if (text.empty()) return std::wstring();
     int needed = ::MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), nullptr, 0);
@@ -175,10 +164,6 @@ std::wstring FileExtensionLower(const std::wstring& path) {
     return ext;
 }
 
-bool PathExists(const std::wstring& path) {
-    return ::GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
-}
-
 bool EnsureDirectory(const std::wstring& path) {
     if (path.empty()) return false;
     DWORD attributes = ::GetFileAttributesW(path.c_str());
@@ -295,20 +280,6 @@ int SuppressOwnMenusForCapture() {
     ::EnumThreadWindows(::GetCurrentThreadId(), &SuppressMenuWindow,
                         reinterpret_cast<LPARAM>(&found));
     return found;
-}
-
-double DpiScaleForWindow(HWND hwnd) {
-    UINT dpi = hwnd ? ::GetDpiForWindow(hwnd) : ::GetDpiForSystem();
-    if (dpi == 0) dpi = 96;
-    return static_cast<double>(dpi) / 96.0;
-}
-
-double DpiScaleForMonitor(HMONITOR monitor) {
-    UINT dpiX = 96, dpiY = 96;
-    if (monitor && SUCCEEDED(::GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY)) && dpiX) {
-        return static_cast<double>(dpiX) / 96.0;
-    }
-    return 1.0;
 }
 
 HMONITOR MonitorUnderCursor() {

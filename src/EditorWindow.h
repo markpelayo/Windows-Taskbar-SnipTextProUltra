@@ -30,8 +30,6 @@ public:
     EditorWindow& operator=(const EditorWindow&) = delete;
     ~EditorWindow();
 
-    HWND Window() const { return hwnd_; }
-
 private:
     enum class DragMode { None, Drawing, Moving, Resizing };
 

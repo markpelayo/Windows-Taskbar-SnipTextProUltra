@@ -15,8 +15,6 @@ namespace capture {
 
 enum class Mode { Region, FullScreen };
 
-const wchar_t* ModeLabel(Mode mode);
-
 // Grabs one monitor, in that monitor's own physical pixels.
 std::unique_ptr<Bitmap> GrabMonitor(HMONITOR monitor);
 

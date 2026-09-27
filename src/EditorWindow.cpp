@@ -658,7 +658,12 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
             return 0;
         }
 
-        Annotation shape = draft_;
+        // Moved, not copied. A long pen stroke carries every sampled point
+        // — hundreds of KB for a canvas-filling scribble — and this ran once
+        // per completed stroke. hasDraft_ is cleared on the next line and
+        // every reader of draft_ is guarded by it, so the moved-from state is
+        // never observed.
+        Annotation shape = std::move(draft_);
         hasDraft_ = false;
         dragMode_ = DragMode::None;
         needsSnapshotBeforeDrag_ = false;

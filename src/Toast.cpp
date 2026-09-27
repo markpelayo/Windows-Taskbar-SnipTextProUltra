@@ -42,7 +42,13 @@ LRESULT CALLBACK ToastProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam
     case WM_PAINT: {
         PAINTSTRUCT paint{};
         HDC dc = ::BeginPaint(hwnd, &paint);
-        if (!dc) return 0;
+        if (!dc) {
+            // EndPaint even with no DC to release. BeginPaint failing does
+            // not validate the update region, so returning without it makes
+            // Windows resend WM_PAINT immediately and forever.
+            ::EndPaint(hwnd, &paint);
+            return 0;
+        }
 
         RECT client{};
         ::GetClientRect(hwnd, &client);

@@ -54,6 +54,16 @@ public:
     // re-grabbing the screen, so what they get is exactly what was on screen
     // when the selection was made.
     const Bitmap* FrozenDesktop() const { return frozen_.get(); }
+
+    // Drops the frozen desktop image early. Returns null from FrozenDesktop()
+    // afterwards, so call it only once everything needed has been read out.
+    //
+    // It exists because the recording path keeps the overlay object alive
+    // after confirming — deliberately, so IsShowing() stays true while the
+    // recorder starts — and the snapshot is the largest allocation in the
+    // program: the whole virtual desktop at 32bpp, 33 MB per 4K monitor.
+    // Holding it while the encoder spins up doubled the peak for no reason.
+    void ReleaseFrozenDesktop() { frozen_.reset(); }
     RECT          DesktopBounds() const { return desktopBounds_; }
 
 private:

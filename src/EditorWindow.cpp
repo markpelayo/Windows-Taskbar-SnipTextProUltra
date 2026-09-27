@@ -1462,8 +1462,20 @@ void EditorWindow::SaveAsPng() {
         return;
     }
 
+    // Checked, because a title flashing "Saved" over a truncated file is
+    // worse than an error. A full disk, a volume pulled mid-save, or an AV
+    // hook can all take the write after CreateFileW succeeded — and this is
+    // the interactive Save, so the user is standing right there and can
+    // choose somewhere else.
     DWORD written = 0;
-    ::WriteFile(file.get(), png.data(), static_cast<DWORD>(png.size()), &written, nullptr);
+    if (!::WriteFile(file.get(), png.data(), static_cast<DWORD>(png.size()),
+                     &written, nullptr) ||
+        written != png.size()) {
+        ::MessageBoxW(hwnd_, L"The file couldn't be written completely. "
+                             L"It may be incomplete — try saving somewhere else.",
+                      L"SnipTextProUltra", MB_OK | MB_ICONWARNING);
+        return;
+    }
     FlashTitle(L"Saved");
 }
 

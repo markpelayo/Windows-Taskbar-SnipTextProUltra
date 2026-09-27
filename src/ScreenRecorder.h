@@ -71,7 +71,10 @@ private:
 
     void Abandon(const std::wstring& message);
     void Teardown();
-    void JoinWorker();
+    // True when the worker actually stopped. False means it was abandoned
+    // and may still hold Media Foundation objects, which decides whether
+    // MFShutdown is safe to call.
+    bool JoinWorker();
 
     HWND               window_       = nullptr;
     ScopedHandle       workerThread_;
@@ -96,6 +99,12 @@ private:
     Lock               resultLock_;
     std::wstring       resultPath_;
     std::wstring       resultFailure_;
+    // Which recording the strings above describe. The generation check on the
+    // MESSAGE is not enough on its own: an abandoned worker that finally
+    // finishes writes into these members while a LATER recording is live, and
+    // that recording's own message then reads the wrong file name. Tagging
+    // the payload makes the pair move together.
+    unsigned long long resultGeneration_ = 0;
 
     StateCallback      onStateChange_;
     FinishCallback     onFinish_;

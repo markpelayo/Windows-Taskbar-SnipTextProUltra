@@ -83,6 +83,12 @@ std::unique_ptr<Bitmap> GrabRect(const RECT& bounds) {
         return nullptr;
     }
 
+    // GDI batches per thread, and MakeOpaque writes the alpha bytes directly
+    // rather than through GDI — so without a flush it can run against the
+    // buffer as it was before the blt landed. Same rule Ocr.cpp and
+    // EditorWindow.cpp already follow.
+    ::GdiFlush();
+
     // BitBlt leaves the alpha channel undefined. An image that reaches the
     // clipboard with zero alpha pastes as an invisible rectangle, and OCR
     // reads nothing from it.

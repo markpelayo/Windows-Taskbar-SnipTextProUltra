@@ -420,7 +420,19 @@ bool App::Run() {
         return false;
     }
 
-    ScreenRecorder::Shared().Initialise();
+    // NOT Initialise() here. Media Foundation is started by the first
+    // recording instead, which is the single biggest saving available in this
+    // program: MFStartup commits roughly 2-5 MB and spins up MF's own worker
+    // threads, and for a taskbar utility that mostly sits idle — and that
+    // many people will never record with at all — that was about half the
+    // idle footprint, permanently, for nothing.
+    //
+    // Start() already self-initialises and reports its own failure
+    // (ScreenRecorder.cpp), so nothing else has to change. What does change:
+    // the first recording pays the MF init, tens of milliseconds before its
+    // first frame; and a machine where MF cannot start says so when you try
+    // to record rather than at launch — which is strictly better, because the
+    // return value here was discarded and nobody was ever told.
     ScreenRecorder::Shared().SetOnStateChange([this] { OnRecordingStateChanged(); });
     ScreenRecorder::Shared().SetOnFinish(
         [this](const std::wstring& path, const std::wstring& failure) {
@@ -905,11 +917,17 @@ HMENU App::BuildMenu() {
             AppendCommand(audio, ID_AUDIO_NONE, L"Do Not Record Audio", true,
                           selectedId.empty());
             const std::vector<video::Microphone>& microphones = video::AvailableMicrophones();
+            menuMicrophoneIds_.clear();
             if (!microphones.empty()) {
                 AppendHeader(audio, L"Microphone:");
+                menuMicrophoneIds_.reserve(microphones.size());
                 for (size_t i = 0; i < microphones.size(); ++i) {
                     AppendCommand(audio, ID_AUDIO_BASE + static_cast<int>(i),
                                   microphones[i].name, true, microphones[i].id == selectedId);
+                    // Recorded alongside the row, so the click resolves to the
+                    // device the row named rather than to whatever is at that
+                    // position by the time it is dispatched.
+                    menuMicrophoneIds_.push_back(microphones[i].id);
                 }
             }
 
@@ -1010,7 +1028,7 @@ HMENU App::BuildMenu() {
 
 void App::ShowMenu() {
     // Never stack a menu on top of a crosshair.
-    if (isCapturing_ || RegionOverlay::IsShowing()) return;
+    if (reportingFailure_ || isCapturing_ || RegionOverlay::IsShowing()) return;
 
     ScopedMenu menu(BuildMenu());
     if (!menu) return;
@@ -1110,9 +1128,12 @@ void App::OnCommand(int command) {
         return;
     }
     if (command >= ID_AUDIO_BASE && command < ID_DELAY_BASE) {
+        // Against the snapshot taken when the menu was built, not against a
+        // fresh enumeration — see menuMicrophoneIds_ in App.h.
         const size_t index = static_cast<size_t>(command - ID_AUDIO_BASE);
-        const std::vector<video::Microphone>& microphones = video::AvailableMicrophones();
-        if (index < microphones.size()) video::SetAudioDeviceId(microphones[index].id);
+        if (index < menuMicrophoneIds_.size()) {
+            video::SetAudioDeviceId(menuMicrophoneIds_[index]);
+        }
         return;
     }
 
@@ -1261,7 +1282,7 @@ std::unique_ptr<Bitmap> App::AcquireImage(capture::Mode mode) {
 }
 
 void App::Screenshot(capture::Mode mode) {
-    if (isCapturing_ || RegionOverlay::IsShowing()) {
+    if (reportingFailure_ || isCapturing_ || RegionOverlay::IsShowing()) {
         return;
     }
     isCapturing_ = true;
@@ -1314,7 +1335,7 @@ void App::Screenshot(capture::Mode mode) {
 }
 
 void App::ScreenshotToText(capture::Mode mode) {
-    if (isCapturing_ || RegionOverlay::IsShowing()) {
+    if (reportingFailure_ || isCapturing_ || RegionOverlay::IsShowing()) {
         return;
     }
     isCapturing_ = true;
@@ -1415,6 +1436,12 @@ void App::OnOcrFinished(OcrOutcome* raw) {
 // --- recording -------------------------------------------------------------
 
 void App::ToggleRecording(bool region) {
+    // Nothing starts while the failure dialog is up. Its message loop keeps
+    // dispatching the queue, and isRecording_ is already false by then, so
+    // without this a hotkey press would begin a new recording from inside the
+    // callback reporting the previous one's failure.
+    if (reportingFailure_) return;
+
     if (ScreenRecorder::Shared().IsRecording()) {
         ScreenRecorder::Shared().Stop();
         return;
@@ -1424,7 +1451,7 @@ void App::ToggleRecording(bool region) {
 
 void App::BeginRecording(bool region) {
     if (ScreenRecorder::Shared().IsRecording()) return;
-    if (isCapturing_ || RegionOverlay::IsShowing()) {
+    if (reportingFailure_ || isCapturing_ || RegionOverlay::IsShowing()) {
         return;
     }
 
@@ -1447,10 +1474,22 @@ void App::BeginRecording(bool region) {
             target = util::MonitorBounds(util::MonitorUnderCursor());
         }
 
-        // The overlay's window is already hidden at this point, and the
-        // overlay object is still alive, so IsShowing() still reports true —
-        // which is what stops a second overlay appearing in the first frames
-        // of the recording about to start.
+        // Everything the overlay was holding has been read out of it —
+        // selection.bounds above, and DesktopBounds() which is a separate
+        // member — so the frozen desktop snapshot can go now rather than at
+        // the end of this scope.
+        //
+        // This is the program's high-water mark: the snapshot is the whole
+        // virtual desktop at 32bpp, which is 33 MB for one 4K monitor and
+        // 66 MB for two, and it was staying resident while the recorder
+        // allocated its own frame buffers and Media Foundation built an
+        // encoder on top. Dropping it first takes that peak away.
+        //
+        // IsShowing() is unaffected — it reports on the window, not the
+        // image — so the guard that stops a second overlay appearing in the
+        // first frames of the recording still holds.
+        overlay.ReleaseFrozenDesktop();
+
         recordingRegion_ = target;
         const std::wstring failure = ScreenRecorder::Shared().Start(target);
         if (!failure.empty()) ReportFailure(failure);
@@ -1740,10 +1779,18 @@ void App::Sanitize() {
 }
 
 void App::ReportFailure(const std::wstring& message) {
+    // Re-entered only if something starts a capture from inside this dialog's
+    // own message loop, which is exactly what the flag prevents. Guarding
+    // here as well means a second failure arriving while the first box is up
+    // cannot stack a second box.
+    if (reportingFailure_) return;
+
+    reportingFailure_ = true;
     toast::Show(L"⚠ The capture failed");
     ::SetForegroundWindow(hwnd_);
     ::MessageBoxW(hwnd_, message.c_str(), L"SnipTextProUltra couldn't capture",
                   MB_OK | MB_ICONWARNING);
+    reportingFailure_ = false;
 }
 
 // --- editors ---------------------------------------------------------------

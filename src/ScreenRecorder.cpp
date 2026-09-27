@@ -267,14 +267,23 @@ bool ScreenRecorder::Initialise() {
 }
 
 void ScreenRecorder::Shutdown() {
-    JoinWorker();
+    const bool joined = JoinWorker();
     if (window_) {
         ::DestroyWindow(window_);
         window_ = nullptr;
     }
+
     // Only if startup actually succeeded: MFShutdown without a matching
     // MFStartup is an error, and the pair is reference-counted.
-    if (mfStarted_) {
+    //
+    // And only if the worker actually stopped. An abandoned worker may still
+    // be inside IMFSinkWriter::Finalize holding Media Foundation objects, and
+    // releasing those after MFShutdown has run is a crash on the way out.
+    // Skipping the call leaks MF's own allocation for the handful of
+    // milliseconds between here and process exit, where the OS reclaims it
+    // anyway — a far better trade than faulting in front of the user as the
+    // program closes.
+    if (mfStarted_ && joined) {
         ::MFShutdown();
         mfStarted_ = false;
     }
@@ -336,6 +345,7 @@ std::wstring ScreenRecorder::Start(const RECT& region) {
         LockGuard guard(resultLock_);
         resultPath_.clear();
         resultFailure_.clear();
+        resultGeneration_ = 0;   // 0 is never a live generation
     }
 
     // State flips before the thread starts, so the UI reflects the intent
@@ -379,6 +389,14 @@ void ScreenRecorder::Stop() {
 
 void ScreenRecorder::FinishBeforeQuit() {
     if (!isRecording_) return;
+
+    // Belt to the braces of the isRecording_ check above, which already
+    // implies a window exists. It matters now that Media Foundation is
+    // started lazily, so a null window_ is an ordinary state rather than an
+    // impossible one: PeekMessageW with a null hWnd filter means ALL of this
+    // thread's windows, not none — the exact whole-queue pump the loop below
+    // is written to avoid.
+    if (!window_) return;
 
     Stop();
 
@@ -447,10 +465,19 @@ void ScreenRecorder::OnWorkerFinished(unsigned long long generation) {
     }
 
     std::wstring path, failure;
+    bool mine = false;
     {
         LockGuard guard(resultLock_);
-        path    = resultPath_;
-        failure = resultFailure_;
+        // Only trust the result if it was written by THIS recording's worker.
+        // An abandoned worker can still be finalizing a large file when the
+        // next recording starts, and its late report would otherwise be read
+        // as the new one's — reporting the previous file's name, or a failure
+        // for a recording that actually succeeded.
+        mine = (resultGeneration_ == generation);
+        if (mine) {
+            path    = resultPath_;
+            failure = resultFailure_;
+        }
     }
 
     Teardown();
@@ -460,6 +487,12 @@ void ScreenRecorder::OnWorkerFinished(unsigned long long generation) {
     // the same turn.
     if (onStateChange_) onStateChange_();
 
+    if (!mine) {
+        // The message was ours but the payload was not, which means the
+        // worker never got as far as reporting. Saying nothing beats naming
+        // the wrong file.
+        return;
+    }
     if (!failure.empty()) {
         if (onFinish_) onFinish_(std::wstring(), failure);
     } else if (!path.empty()) {
@@ -502,8 +535,8 @@ void ScreenRecorder::Teardown() {
     startedAtMs_ = 0;
 }
 
-void ScreenRecorder::JoinWorker() {
-    if (!workerThread_) return;
+bool ScreenRecorder::JoinWorker() {
+    if (!workerThread_) return true;
     if (stopRequest_) ::SetEvent(stopRequest_.get());
 
     if (::WaitForSingleObject(workerThread_.get(), 5000) != WAIT_OBJECT_0) {
@@ -514,11 +547,12 @@ void ScreenRecorder::JoinWorker() {
         // path that should never be taken is the cheaper mistake.
         workerThread_.release();
         stopRequest_.release();
-        return;
+        return false;   // still running; it owns Media Foundation objects
     }
 
     workerThread_.reset();
     stopRequest_.reset();
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -534,8 +568,9 @@ DWORD WINAPI ScreenRecorder::WorkerEntry(void* parameter) {
     auto report = [&](const std::wstring& path, const std::wstring& failure) {
         {
             LockGuard guard(owner->resultLock_);
-            owner->resultPath_    = path;
-            owner->resultFailure_ = failure;
+            owner->resultPath_       = path;
+            owner->resultFailure_    = failure;
+            owner->resultGeneration_ = config->generation;
         }
         ::PostMessageW(config->notify, WM_RECORDER_FINISHED,
                        static_cast<WPARAM>(config->generation), 0);
@@ -693,6 +728,12 @@ DWORD WINAPI ScreenRecorder::WorkerEntry(void* parameter) {
         }
 
         if (FAILED(writer->BeginWriting())) {
+            // The sink writer created the file when it was constructed, so
+            // returning without this leaves a zero-byte .mp4 in the Videos
+            // folder that inflates the menu's count and will not open. The
+            // codec path below already deletes it; these two did not.
+            writer.Reset();
+            ::DeleteFileW(config->outputPath.c_str());
             report(std::wstring(), L"The movie writer refused to start.");
             return 0;
         }
@@ -707,14 +748,36 @@ DWORD WINAPI ScreenRecorder::WorkerEntry(void* parameter) {
         auto scaled = (width == sourceWidth && height == sourceHeight)
                           ? nullptr : Bitmap::Create(width, height);
         if (!frame || ((width != sourceWidth || height != sourceHeight) && !scaled)) {
+            writer.Reset();
+            ::DeleteFileW(config->outputPath.c_str());
             report(std::wstring(), L"Couldn't allocate the capture buffers.");
             return 0;
         }
 
         const LONGLONG frameDuration = 10000000LL / config->frameRate;
         const ULONGLONG startTick    = ::GetTickCount64();
+
+        // Video timestamps come from the WALL CLOCK, not from a frame counter.
+        //
+        // The bug this fixes: the loop paces against the clock but used to
+        // stamp every frame with a fixed frameDuration. If one iteration
+        // takes longer than the frame interval — a 4K blt plus a HALFTONE
+        // downscale plus an encode, on a machine that cannot keep up — the
+        // pacing wait is skipped and the loop simply runs flat out. It then
+        // produces FEWER frames than frameRate x wallSeconds, while the file
+        // still claims frameCount x frameDuration. So a 60-second recording
+        // came out as, say, a 22-second file that plays back fast, and
+        // because audio is stamped from real sample counts, the audio ran
+        // progressively ahead of the picture.
+        //
+        // Stamping from the clock makes the file's duration match real time
+        // whatever rate was achieved. A dropped frame becomes a longer
+        // displayed frame rather than a shortened recording.
         LONGLONG videoTimestamp      = 0;
-        LONGLONG audioTimestamp      = 0;
+
+        // Counts every frame the audio device produced, INCLUDING packets we
+        // do not write. See the note where it is used.
+        long long audioFramesSeen    = 0;
         long long frameIndex         = 0;
         std::wstring failure;
         std::vector<INT16> pcm;
@@ -752,6 +815,13 @@ DWORD WINAPI ScreenRecorder::WorkerEntry(void* parameter) {
                              config->region.left, config->region.top, SRCCOPY);
                     if (config->drawCursor) DrawCursorInto(target, config->region);
                     if (config->drawClicks) DrawClickHighlight(target, config->region);
+
+                    // Before MakeOpaque and before the bits are handed to
+                    // Media Foundation, both of which read the buffer
+                    // directly rather than through GDI. GDI batches per
+                    // thread, so without this a frame can be encoded as it
+                    // was before the blt landed.
+                    ::GdiFlush();
                     frame->MakeOpaque();
                 }
 
@@ -773,6 +843,21 @@ DWORD WINAPI ScreenRecorder::WorkerEntry(void* parameter) {
                     failure = L"The capture buffer didn't match the encoder's frame size.";
                     break;
                 }
+                // Where this frame actually belongs in time. 10000 100ns
+                // units per millisecond.
+                const LONGLONG stamp =
+                    static_cast<LONGLONG>(::GetTickCount64() - startTick) * 10000LL;
+
+                // Never go backwards or sit still: MF requires strictly
+                // increasing timestamps, and GetTickCount64 has a resolution
+                // of about 15ms, so two frames can easily read the same tick.
+                if (stamp > videoTimestamp) videoTimestamp = stamp;
+
+                // The duration is the gap to the frame after this one, which
+                // is not known yet — so this is the nominal interval, which
+                // is right when the rate is being met and is only a hint to
+                // the player when it is not. The timestamps are what carry
+                // the real timing.
                 ComPtr<IMFSample> sample =
                     MakeSample(source->Bits(),
                                static_cast<size_t>(source->Stride()) * source->Height(),
@@ -784,7 +869,7 @@ DWORD WINAPI ScreenRecorder::WorkerEntry(void* parameter) {
                         break;
                     }
                 }
-                videoTimestamp += frameDuration;
+                ++videoTimestamp;   // keep the next stamp strictly greater
             }
 
             // --- whatever audio has arrived since the last frame ---
@@ -797,15 +882,30 @@ DWORD WINAPI ScreenRecorder::WorkerEntry(void* parameter) {
                     if (FAILED(audio.capture->GetBuffer(&data, &count, &flags, nullptr, nullptr))) {
                         break;
                     }
+                    // The timestamp is derived from every frame the device
+                    // has produced, not from the ones we chose to write.
+                    //
+                    // The bug this fixes: WASAPI flags a packet
+                    // AUDCLNT_BUFFERFLAGS_SILENT when the endpoint has
+                    // nothing but silence to hand over, which is normal for a
+                    // muted or idle microphone. Those packets consume real
+                    // time. Advancing the clock only for packets we kept made
+                    // speech after a quiet stretch land earlier than it
+                    // happened, and the error accumulated across the take —
+                    // stay silent for twenty seconds and everything said
+                    // afterwards was twenty seconds out.
+                    const LONGLONG stamp =
+                        audioFramesSeen * 10000000LL / audio.sampleRate;
+                    audioFramesSeen += count;
+
                     if (count > 0 && data && !(flags & AUDCLNT_BUFFERFLAGS_SILENT)) {
                         AppendPcm16(data, count, audio, pcm);
                         const LONGLONG duration =
                             static_cast<LONGLONG>(count) * 10000000LL / audio.sampleRate;
                         ComPtr<IMFSample> sample =
                             MakeSample(pcm.data(), pcm.size() * sizeof(INT16),
-                                       audioTimestamp, duration);
+                                       stamp, duration);
                         if (sample) writer->WriteSample(audioStream, sample.Get());
-                        audioTimestamp += duration;
                     }
                     audio.capture->ReleaseBuffer(count);
                 }

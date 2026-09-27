@@ -192,6 +192,12 @@ std::vector<BYTE> Bitmap::EncodePng() const {
         return out;
     }
 
+    // GDI batches per thread and this hands the raw bytes to GDI+, which
+    // reads them directly. Without the flush a PNG can be encoded from the
+    // buffer as it was before the last blt into it landed. Same rule the OCR
+    // and editor paths already follow.
+    ::GdiFlush();
+
     // Wraps the DIB's memory rather than copying it. The Gdiplus::Bitmap must
     // not outlive this object, and it does not — it is destroyed below.
     Gdiplus::Bitmap source(width_, height_, Stride(), PixelFormat32bppARGB,
@@ -228,6 +234,14 @@ bool Bitmap::CopyToClipboard(HWND owner) const {
     const size_t pixelBytes = static_cast<size_t>(Stride()) * height_;
     const size_t totalBytes = sizeof(BITMAPV5HEADER) + pixelBytes;
 
+    // Encoded FIRST, before any raw HGLOBAL is in flight. EncodePng allocates
+    // — a vector the size of the whole PNG, plus GDI+ internals — and on
+    // bad_alloc an exception would unwind straight past a GlobalAlloc'd
+    // handle with nothing to free it. This is the one raw handle in the file
+    // not covered by an RAII type, so the ordering is what keeps the promise
+    // framework.h makes about no path leaking, exceptions included.
+    std::vector<BYTE> png = EncodePng();
+
     HGLOBAL dibHandle = ::GlobalAlloc(GMEM_MOVEABLE, totalBytes);
     if (!dibHandle) return false;
 
@@ -254,7 +268,6 @@ bool Bitmap::CopyToClipboard(HWND owner) const {
         ::GlobalUnlock(dibHandle);
     }
 
-    std::vector<BYTE> png = EncodePng();
     HGLOBAL pngHandle = nullptr;
     if (!png.empty()) {
         pngHandle = ::GlobalAlloc(GMEM_MOVEABLE, png.size());

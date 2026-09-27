@@ -101,6 +101,28 @@ private:
     RECT         recordingRegion_{};
     std::wstring lastText_;   // in memory only; empty at every launch
 
+    // The endpoint IDs behind the Audio submenu's rows, captured when the
+    // menu is built.
+    //
+    // The menu item ID encodes a POSITION in video::AvailableMicrophones(),
+    // and TrackPopupMenuEx pumps the thread queue — so a WM_DEVICECHANGE
+    // arriving while the submenu is open invalidates that cache, and the
+    // position then refers to a different device. Plugging in a headset with
+    // the menu open would select the wrong microphone, or silently nothing.
+    // Resolving against this snapshot instead makes the click mean what the
+    // row said when it was drawn.
+    std::vector<std::wstring> menuMicrophoneIds_;
+
+    // True while ReportFailure's message box is up.
+    //
+    // A modal MessageBoxW runs its own message loop, so the thread queue
+    // keeps being dispatched while it is on screen. The recorder's failure
+    // path has already cleared isRecording_ by then, so a record hotkey
+    // pressed while the box is up used to pass every guard and stack a
+    // full-desktop overlay — and a blocking 5-second JoinWorker — on top of
+    // the dialog that was explaining why the LAST recording failed.
+    bool reportingFailure_ = false;
+
     std::vector<std::unique_ptr<EditorWindow>> editors_;
     std::vector<EditorWindow*>                 closingEditors_;
 };

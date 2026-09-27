@@ -314,7 +314,15 @@ LRESULT RegionOverlay::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPA
 void RegionOverlay::OnPaint(HWND hwnd) {
     PAINTSTRUCT paint{};
     HDC dc = ::BeginPaint(hwnd, &paint);
-    if (!dc) return;
+    if (!dc) {
+        // EndPaint even with no DC to release. BeginPaint failing does not
+        // validate the update region, so returning without it makes Windows
+        // resend WM_PAINT immediately and forever. On this window — topmost,
+        // full-desktop, running its own modal loop — that is a screen-covering
+        // window spinning at 100% CPU that Esc can never reach.
+        ::EndPaint(hwnd, &paint);
+        return;
+    }
 
     const RECT dirty = paint.rcPaint;
     const int  width  = util::RectWidth(dirty);

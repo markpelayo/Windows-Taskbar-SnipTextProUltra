@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Text Layout test page — SnipTextProUltra</title>
+<style>
+  body { background:#fff; color:#111; font:16px/1.5 "Segoe UI", Arial, sans-serif;
+         margin:0; padding:32px 40px 64px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:#555; font-size:14px; margin:0 0 28px; }
+  .case { border:2px solid #d0d0d0; border-radius:6px; margin:0 0 26px;
+          background:#fff; }
+  .hdr { background:#f2f2f2; border-bottom:2px solid #d0d0d0; padding:8px 14px;
+         font-size:13px; font-weight:600; color:#333; }
+  .hdr .n { display:inline-block; background:#111; color:#fff; border-radius:3px;
+            padding:1px 7px; margin-right:9px; }
+  /* Everything inside .capture is what you screenshot. Nothing else. */
+  .capture { padding:18px 20px; font-size:19px; line-height:1.45; }
+  .narrow { max-width:520px; }
+  .expect { border-top:1px dashed #ccc; padding:9px 14px; font-size:13px;
+            color:#444; background:#fafafa; }
+  .expect b { color:#111; }
+  .gap { height:52px; }
+  table { border-collapse:collapse; font-size:19px; }
+  td { padding:5px 34px 5px 0; }
+  .mono { font-family:Consolas,"Courier New",monospace; font-size:19px;
+          line-height:1.6; }
+  .sym { font-size:26px; letter-spacing:1px; }
+  ol,ul { margin:0; padding-left:26px; }
+  li { margin:2px 0; }
+</style>
+
+<h1>Text Layout test page</h1>
+<p class="sub">
+  Capture the white area inside each box with <b>ScreenshotToText a Region</b>
+  (Ctrl+Shift+3), paste the result somewhere, then switch
+  <b>Settings → Text Layout</b> to the other option and capture the same box
+  again. Do not include the grey header or footer strips — they are notes, not
+  test material.
+</p>
+
+<div class="case">
+  <div class="hdr"><span class="n">1</span>A paragraph that wraps</div>
+  <div class="capture narrow">
+    The compressor on line three has been tripping its thermal overload
+    roughly every forty minutes since the belt was replaced on Tuesday. The
+    technician who did the work noted that the tensioner was already at the
+    end of its travel, so the belt may be slightly short rather than
+    incorrectly fitted.
+  </div>
+  <div class="expect">
+    <b>Rebuild Paragraphs:</b> one continuous paragraph, as written.<br>
+    <b>Keep Every Line Separate:</b> five or six separate lines, broken wherever
+    the screen happened to wrap them.
+  </div>
+</div>
+
+<div class="case">
+  <div class="hdr"><span class="n">2</span>Two blocks with space between them</div>
+  <div class="capture narrow">
+    Asset 4471 was taken out of service at 09:20 and tagged for inspection.
+    <div class="gap"></div>
+    The replacement unit arrived the same afternoon but could not be
+    commissioned because the isolator had not been certified.
+  </div>
+  <div class="expect">
+    <b>Rebuild Paragraphs:</b> two paragraphs with a blank line between them.<br>
+    <b>Keep Every Line Separate:</b> the same lines with no blank line — the gap
+    is not represented at all.
+  </div>
+</div>
+
+<div class="case">
+  <div class="hdr"><span class="n">3</span>A table — the case worth watching closely</div>
+  <div class="capture">
+    <table>
+      <tr><td>WO-10482</td><td>Pump seal replacement</td><td>Overdue</td></tr>
+      <tr><td>WO-10483</td><td>Quarterly belt inspection</td><td>Scheduled</td></tr>
+      <tr><td>WO-10484</td><td>Bearing temperature check</td><td>Complete</td></tr>
+    </table>
+  </div>
+  <div class="expect">
+    This is the one that decides it for me. Check whether the three columns come
+    back as <b>three separate values</b> or get <b>joined into one line</b>. If
+    they are joined, you cannot tell afterwards where one column ended and the
+    next began — the structure is gone, not just reformatted.
+  </div>
+</div>
+
+<div class="case">
+  <div class="hdr"><span class="n">4</span>Short lines that did not wrap</div>
+  <div class="capture mono">
+    WO-10482<br>
+    WO-10483<br>
+    WO-10484<br>
+    SN-88-4471-C<br>
+    SN-88-4471-D
+  </div>
+  <div class="expect">
+    <b>Both:</b> five separate lines. Neither line reaches the right margin, so
+    Rebuild should not join them. If it does join them, that is a bug — tell me.
+  </div>
+</div>
+
+<div class="case">
+  <div class="hdr"><span class="n">5</span>A list whose items wrap</div>
+  <div class="capture narrow">
+    <ol>
+      <li>Isolate the unit at the local disconnect and apply your own lock
+          before opening any panel.</li>
+      <li>Verify zero energy at the terminals with a meter you have just
+          proved on a known live source.</li>
+      <li>Record the reading in the work order before starting.</li>
+    </ol>
+  </div>
+  <div class="expect">
+    <b>Rebuild Paragraphs:</b> three numbered items, each rejoined into one
+    line. It should <i>not</i> run item 1 into item 2 — the numbering is what
+    stops it.<br>
+    <b>Keep Every Line Separate:</b> five or six lines, with each item broken
+    mid-sentence.
+  </div>
+</div>
+
+<div class="case">
+  <div class="hdr"><span class="n">6</span>Mixed: heading, prose, then data</div>
+  <div class="capture narrow">
+    <b>Maintenance note</b>
+    <div style="height:22px"></div>
+    The gearbox was topped up rather than drained because the oil sample came
+    back clean and the next scheduled change is only three weeks out.
+    <div style="height:22px"></div>
+    <span class="mono">Oil: ISO VG 220<br>
+    Added: 0.4 L<br>
+    Sample: PASS</span>
+  </div>
+  <div class="expect">
+    The realistic case: one capture containing prose that wants rejoining and
+    data that does not. Whichever setting you choose, one half of this comes
+    back wrong. Worth seeing which half you mind less.
+  </div>
+</div>
+
+<div class="case">
+  <div class="hdr"><span class="n">7</span>Symbols and mixed characters (regression check)</div>
+  <div class="capture">
+    <div class="sym">Magic Word</div>
+    <div class="sym">@#4!TW$RH^%&amp;CFG?:</div>
+  </div>
+  <div class="expect">
+    Not about Text Layout — this is the case that needed the second OCR engine.
+    Both lines should come back exactly as shown, with no characters changed
+    into letters that make words. Note that <b>Rebuild</b> will put a blank line
+    between them, because the gap between the two is large.
+  </div>
+</div>
+
+<div class="case">
+  <div class="hdr"><span class="n">8</span>An indented continuation</div>
+  <div class="capture narrow">
+    The pump was rebuilt in March and has run without complaint since, which is
+    why the vibration reading came as a surprise.
+    <div style="margin-left:52px; margin-top:6px;">
+      Indented follow-up: the reading was taken with the guard removed, which
+      may account for some of it.
+    </div>
+  </div>
+  <div class="expect">
+    <b>Rebuild Paragraphs:</b> the indented block should stay separate rather
+    than being run onto the end of the first — the indent is what stops it. If
+    it gets joined, tell me.
+  </div>
+</div>
+
+<p class="sub" style="margin-top:34px;">
+  Case 3 is the one I would decide on. Case 6 is the one that shows there is no
+  setting that gets everything right, which is the actual reason this was a
+  menu in the first place.
+</p>

@@ -815,12 +815,56 @@ void EditorWindow::PaintCanvas(HDC dc) {
     const double scale = ImageScale();
 
     if (image_->MemoryDC()) {
-        // Low-quality resampling while a drag is in flight; a full-resolution
-        // resample on every mouse-move is what makes a canvas feel sluggish.
-        ::SetStretchBltMode(target, dragMode_ == DragMode::None ? HALFTONE : COLORONCOLOR);
-        ::SetBrushOrgEx(target, 0, 0, nullptr);
-        ::StretchBlt(target, rect.left, rect.top, util::RectWidth(rect), util::RectHeight(rect),
-                     image_->MemoryDC(), 0, 0, image_->Width(), image_->Height(), SRCCOPY);
+        const int destWidth  = util::RectWidth(rect);
+        const int destHeight = util::RectHeight(rect);
+
+        if (destWidth == image_->Width() && destHeight == image_->Height()) {
+            // Shown at 1:1 — nothing to scale, so blit the original and hold
+            // no cache at all. This is why a small capture costs no extra
+            // memory, and it is also why the wobble was never visible on one.
+            scaledImage_.reset();
+            ::BitBlt(target, rect.left, rect.top, destWidth, destHeight,
+                     image_->MemoryDC(), 0, 0, SRCCOPY);
+        } else {
+            // Scaled ONCE, with the good resampler, and kept. The size is the
+            // cache key, so a window resize rebuilds it and nothing else does.
+            if (!scaledImage_ || scaledImage_->Width() != destWidth ||
+                scaledImage_->Height() != destHeight) {
+                // Released before allocating, so a resize never holds two.
+                scaledImage_.reset();
+                scaledImage_ = Bitmap::Create(destWidth, destHeight);
+
+                if (scaledImage_ && scaledImage_->MemoryDC()) {
+                    // HALFTONE averages the source pixels that map to each
+                    // destination pixel. SetBrushOrgEx after it is required,
+                    // not optional — without it GDI misaligns the brush it
+                    // uses internally for the filter.
+                    ::SetStretchBltMode(scaledImage_->MemoryDC(), HALFTONE);
+                    ::SetBrushOrgEx(scaledImage_->MemoryDC(), 0, 0, nullptr);
+                    ::StretchBlt(scaledImage_->MemoryDC(), 0, 0, destWidth, destHeight,
+                                 image_->MemoryDC(), 0, 0,
+                                 image_->Width(), image_->Height(), SRCCOPY);
+                } else {
+                    scaledImage_.reset();
+                }
+            }
+
+            if (scaledImage_ && scaledImage_->MemoryDC()) {
+                // A plain copy. No resampling happens during a drag at all
+                // now, which is what makes the quality constant.
+                ::BitBlt(target, rect.left, rect.top, destWidth, destHeight,
+                         scaledImage_->MemoryDC(), 0, 0, SRCCOPY);
+            } else {
+                // The cache could not be allocated. Scale per paint rather
+                // than show nothing — still with the good resampler, because
+                // a slow canvas beats one whose text changes as you draw.
+                ::SetStretchBltMode(target, HALFTONE);
+                ::SetBrushOrgEx(target, 0, 0, nullptr);
+                ::StretchBlt(target, rect.left, rect.top, destWidth, destHeight,
+                             image_->MemoryDC(), 0, 0,
+                             image_->Width(), image_->Height(), SRCCOPY);
+            }
+        }
     }
 
     {

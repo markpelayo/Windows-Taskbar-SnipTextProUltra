@@ -107,6 +107,31 @@ private:
     // where before it existed only during a paint.
     std::unique_ptr<Bitmap> paintBuffer_;
 
+    // The capture, scaled once to the size it is drawn at.
+    //
+    // Why it exists: the canvas used to re-scale the full-resolution capture
+    // on EVERY WM_MOUSEMOVE, and because the good resampler is too slow to do
+    // that, it switched to a crude one mid-drag. The crude one DROPS source
+    // rows and columns instead of averaging them, so one-pixel glyph stems
+    // disappeared and came back as the mode flipped on mouse-down and
+    // mouse-up — text that appeared to vibrate while drawing.
+    //
+    // Scaling once removes the reason for the crude mode, so the good one is
+    // used always. The wobble goes, and drawing gets faster rather than
+    // slower.
+    //
+    // Bounded by construction, which is the point:
+    //   - One bitmap, canvas-sized. ~4 MB for a typical window.
+    //   - Drawing, undo, paste and save never touch it. It cannot grow with
+    //     use; nothing is ever appended.
+    //   - A resize REPLACES it, releasing the old one first, so shrinking the
+    //     window shrinks this too rather than leaving the larger one resident.
+    //   - Released entirely when the capture is shown at 1:1, because then
+    //     there is nothing to scale and the original can be blitted directly.
+    //     A small capture therefore costs nothing at all.
+    //   - Freed with the window.
+    std::unique_ptr<Bitmap> scaledImage_;
+
     // The colour to paint over a region that has been lifted away with Shift.
     // Sampled from the ring of pixels just outside the region, because that is
     // what the hole should look like if it is to disappear: the background the

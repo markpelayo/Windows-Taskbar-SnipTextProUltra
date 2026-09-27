@@ -8,6 +8,38 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.7.4] — 2026-09-28
+
+### Fixed
+
+- **Text in the editor appeared to vibrate while drawing.** Present since the
+  editor was written, and it took a frame-by-frame look at a phone recording to
+  pin down: the glyphs were not moving, they were being *resampled
+  differently*.
+
+  The canvas re-scaled the full-resolution capture on every `WM_MOUSEMOVE`, and
+  because the good resampler is too slow to do that, it switched to a crude one
+  for the duration of a drag. `HALFTONE` averages the source pixels that map to
+  each destination pixel; `COLORONCOLOR` simply **drops** rows and columns. On
+  text — where a glyph stem is one or two pixels wide — dropping a column
+  deletes the stem of an `h` or shifts it a pixel, so the whole line changed
+  appearance on mouse-down and changed back on mouse-up. In the recorded frames
+  `The` reads as `Ihe`, `Everything` as `Lverything`.
+
+  The capture is now scaled **once** and kept, so the crude mode has no reason
+  to exist and the good one is used always. The wobble is gone and drawing is
+  *faster*, because the scaling no longer happens per mouse-move.
+
+  Only the on-screen preview was ever affected — export always re-blitted the
+  untouched original at full resolution, so no saved or copied image was ever
+  wrong.
+
+  The cache is bounded by construction: one canvas-sized bitmap, about 4 MB for
+  a typical window; drawing, undo, paste and save never touch it; a resize
+  replaces it and releases the old one first, so shrinking the window shrinks
+  it too; it is dropped entirely when the capture is shown at 1:1, so a small
+  capture costs nothing; and it goes with the window.
+
 ## [1.7.3] — 2026-09-28
 
 ### Changed

@@ -116,38 +116,6 @@ void AppendCommand(HMENU menu, int id, const std::wstring& title,
     ::AppendMenuW(menu, flags, static_cast<UINT_PTR>(id), title.c_str());
 }
 
-// ---------------------------------------------------------------------------
-// TEMPORARY DIAGNOSTIC — remove before the next release.
-//
-// Reports what util::SuppressOwnMenusForCapture actually observed, so the next
-// attempt at the fading-menu problem is based on measurement rather than a
-// fourth theory.
-//
-// Called only AFTER the pixels have been grabbed. A message box put on screen
-// any earlier would itself be part of what is being measured — and on the
-// region path the desktop snapshot is taken when the overlay opens, so
-// "after AcquireImage returns" is the first safe moment.
-void ShowMenuDiagnostic() {
-    const util::MenuSuppressionReport& r = util::LastMenuSuppressionReport();
-
-    const std::wstring text =
-        util::Format(L"Menu suppression, last capture\r\n\r\n"
-                     L"Fade effect enabled:        %s\r\n"
-                     L"Menu windows found:         %d\r\n"
-                     L"  excluded from capture:    %d\r\n"
-                     L"  hidden instead:           %d\r\n"
-                     L"Wait loop iterations:       %d\r\n"
-                     L"Time spent waiting:         %d ms\r\n"
-                     L"Menu windows still there:   %d\r\n\r\n"
-                     L"This box is a diagnostic build only.",
-                     r.fadeEnabled ? L"yes" : L"no",
-                     r.windowsFound, r.excluded, r.hidden,
-                     r.pollCount, r.waitedMs, r.windowsAfterWait);
-
-    ::MessageBoxW(nullptr, text.c_str(), L"SnipTextProUltra diagnostic",
-                  MB_OK | MB_ICONINFORMATION);
-}
-
 void AppendSeparator(HMENU menu) {
     if (menu) ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 }
@@ -1091,7 +1059,13 @@ void App::ShowMenu() {
     // across one of those serves no purpose.
     menu.reset();
 
-    if (command > 0) OnCommand(command);
+    if (command > 0) {
+        // Marks the capture path's one permitted reason to wait for a menu
+        // fade. Scoped to this dispatch, so a hotkey capture — which never
+        // showed a menu — never waits. See util::MenuDismissGuard.
+        util::MenuDismissGuard menuJustClosed;
+        OnCommand(command);
+    }
 }
 
 void App::OnCommand(int command) {
@@ -1310,7 +1284,6 @@ void App::Screenshot(capture::Mode mode) {
     isCapturing_ = true;
 
     std::unique_ptr<Bitmap> image = AcquireImage(mode);
-    ShowMenuDiagnostic();   // TEMPORARY
 
     // Cleared before anything that can put a dialog on screen. A deferred
     // reset would keep the app locked out of new captures for as long as the
@@ -1373,7 +1346,6 @@ void App::ScreenshotToText(capture::Mode mode) {
     const bool keepLineBreaks    = !rebuildParagraphs;
 
     std::unique_ptr<Bitmap> image = AcquireImage(mode);
-    ShowMenuDiagnostic();   // TEMPORARY
     if (!image) {
         isCapturing_ = false;
         return;

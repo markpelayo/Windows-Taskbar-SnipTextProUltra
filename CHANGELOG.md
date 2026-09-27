@@ -8,6 +8,36 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.7.2] — 2026-09-28
+
+### Fixed
+
+- **The flyout menu no longer appears in captures.** Four attempts, and this
+  one is based on a measurement rather than a theory.
+
+  A diagnostic build reported: fade effect enabled **yes**, menu windows found
+  **0**, wait loop **0 iterations, 0 ms**. There is no window. By the time a
+  command runs Windows has already destroyed the menu window, and what remains
+  on screen is DWM dissolving the surface it last rendered — a ghost with no
+  handle. Which explains every earlier failure at once:
+  `WDA_EXCLUDEFROMCAPTURE` had nothing to apply to, `SW_HIDE` had nothing to
+  hide, waiting for the window to disappear returned instantly because it
+  already had, `TPM_NOANIMATION` does not govern the dissolve, and `DwmFlush`
+  faithfully returned a frame containing a half-faded menu.
+
+  A wait is the only mechanism left, so the work went into making it cost as
+  little as possible and as rarely as possible. It is **250 ms**, and it
+  applies only when **both** of these hold:
+
+  - Windows reports the fade effect as on. Switch it off and nothing waits.
+  - A **menu** started the capture. `Ctrl+Shift+N` never showed a menu, so the
+    shortcut path is exactly as fast as it has always been — which is the path
+    anyone using this regularly actually takes.
+
+  A plain sleep, not the message pump the previous attempt used: that pump
+  existed on the theory that USER32 drove the fade from a timer on our thread,
+  and with no window of ours involved, DWM animates in its own process.
+
 ## [1.7.1] — 2026-09-28
 
 ### Fixed

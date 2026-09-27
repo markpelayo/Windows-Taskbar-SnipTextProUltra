@@ -63,36 +63,29 @@ std::wstring DisplayPath(const std::wstring& path);
 // still fading out stays out of the screenshot.
 bool ExcludeFromCapture(HWND hwnd);
 
-// Takes every popup menu window this thread still owns out of the capture,
-// and hides any it could not exclude. See the note on the definition — this
-// is the fix for the menu appearing in a screenshot on a machine where
-// "Fade out menu items after clicking" is switched on.
+// Makes sure our own flyout menu is not in the capture. See the long note on
+// the definition for why this ended up being a wait rather than anything
+// cleverer — it is measured, not assumed.
 //
-// Returns how many menu windows it found, which is zero on the common path.
+// Returns how many menu windows it found, which a diagnostic build showed is
+// always zero in practice. Kept because it costs nothing and a future Windows
+// could behave differently.
 int SuppressOwnMenusForCapture();
 
-// ---------------------------------------------------------------------------
-// TEMPORARY DIAGNOSTIC — remove before the next release.
+// Marks our flyout menu as having just been dismissed, for the lifetime of the
+// object. Construct one around the dispatch of a menu command.
 //
-// Three attempts at keeping the fading menu out of captures have failed, each
-// for a different reason, and each guess cost a build-and-test cycle. This
-// records what actually happened so the next change is made with facts
-// instead of a fourth theory.
-//
-// Everything here is filled in by SuppressOwnMenusForCapture and read once
-// afterwards. It costs six integers.
-// ---------------------------------------------------------------------------
-struct MenuSuppressionReport {
-    bool fadeEnabled      = false;  // what SPI_GETMENUFADE says
-    int  windowsFound     = 0;      // menu windows of ours, at entry
-    int  excluded         = 0;      // WDA_EXCLUDEFROMCAPTURE succeeded
-    int  hidden           = 0;      // fell back to ShowWindow(SW_HIDE)
-    int  pollCount        = 0;      // iterations of the wait loop
-    int  waitedMs         = 0;      // wall time spent waiting
-    int  windowsAfterWait = 0;      // still there when we gave up or finished
+// The capture path cannot otherwise tell a menu-initiated capture from a
+// hotkey one, and the difference decides whether it has to wait for a menu
+// fade at all: a hotkey never showed a menu, so it must never pay for one.
+class MenuDismissGuard {
+public:
+    MenuDismissGuard();
+    ~MenuDismissGuard();
+    MenuDismissGuard(const MenuDismissGuard&) = delete;
+    MenuDismissGuard& operator=(const MenuDismissGuard&) = delete;
 };
 
-const MenuSuppressionReport& LastMenuSuppressionReport();
 
 // --- DPI and geometry ------------------------------------------------------
 

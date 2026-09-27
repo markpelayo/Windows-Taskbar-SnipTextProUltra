@@ -67,20 +67,6 @@ Everything this program allocates itself, at idle, now comes to **under
 
 ## Also
 
-**Another attempt at the menu appearing in captures.** The reason the 1.6.3
-attempt failed is now known, and it was mine: the suppressor skipped any menu
-window that reported itself invisible, which during a fade-out is exactly what
-the window does. Windows hides it and DWM dissolves the surface it last
-rendered, so a guard added as an obvious optimisation skipped the only case
-that mattered.
-
-That guard is gone. Beyond it, if and only if Windows reports the fade effect
-as enabled, the capture waits for the menu window to disappear and then settles
-briefly for the DWM animation — bounded, and never reached on a machine with
-the effect switched off. `TPM_NOANIMATION` has been passed since 1.6.3 and is
-not the fix by itself.
-
-
 **Text Layout → Compare the Two on Sample Text opens a page that renders.**
 The sample page is now Markdown as well as HTML, and GitHub renders Markdown at
 its own URL — so the menu row opens readable examples in the browser rather

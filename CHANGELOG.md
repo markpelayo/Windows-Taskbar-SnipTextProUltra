@@ -8,6 +8,24 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.7.1] — 2026-09-28
+
+### Fixed
+
+- **Another attempt at the menu appearing in captures**, and this time the
+  reason the last one failed is known: the suppressor skipped any menu window
+  that reported itself invisible. During a fade-out that is precisely what the
+  window does — Windows hides it and DWM dissolves the surface it last
+  rendered — so the guard added as an optimisation skipped exactly the case
+  the function existed for.
+
+  That guard is gone. Beyond it, if and only if Windows reports the fade
+  effect as enabled, the capture now waits for the menu window to disappear
+  and then settles briefly for the DWM animation. Machines with the effect
+  switched off reach none of that and pay nothing.
+
+  `TPM_NOANIMATION` has been passed since 1.6.3 and is not the fix on its own.
+
 ## [1.7.0] — 2026-09-28
 
 ### Fixed
@@ -100,20 +118,6 @@ Nothing yet.
 - **Thirteen unreachable functions, fields and accessors deleted**, most of them
   orphaned when the log was removed in 1.6.3. No behaviour change — every one
   was verified to have no caller anywhere in `src/` or `tests/`.
-
-- **Another attempt at the menu appearing in captures**, and this time the
-  reason the last one failed is known: the suppressor skipped any menu window
-  that reported itself invisible. During a fade-out that is precisely what the
-  window does — Windows hides it and DWM dissolves the surface it last
-  rendered — so the guard added as an optimisation skipped exactly the case
-  the function existed for.
-
-  That guard is gone. Beyond it, if and only if Windows reports the fade
-  effect as enabled, the capture now waits for the menu window to disappear
-  and then settles briefly for the DWM animation. Machines with the effect
-  switched off reach none of that and pay nothing.
-
-  `TPM_NOANIMATION` has been passed since 1.6.3 and is not the fix on its own.
 
 - **Text Layout → Compare the Two on Sample Text now opens a page that
   actually renders.** The sample page is Markdown as well as HTML, and GitHub

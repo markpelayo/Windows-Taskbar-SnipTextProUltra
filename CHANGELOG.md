@@ -8,6 +8,119 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.7.0] — 2026-09-28
+
+### Fixed
+
+- **Recordings played back faster than real time on any machine that could
+  not sustain the frame rate, and the audio drifted ahead of the picture.**
+
+  The capture loop paced itself against the clock but stamped every frame with
+  a fixed interval. When one iteration took longer than that interval — a 4K
+  blt, a downscale and an encode on a busy machine — the pacing wait was
+  skipped and the loop ran flat out, producing fewer frames than the rate
+  claimed while the file still declared `frameCount x frameInterval`. A
+  60-second take could come out as a 22-second file. Audio, stamped from real
+  sample counts, ran progressively ahead.
+
+  Timestamps now come from `QueryPerformanceCounter`, and each sample's
+  duration is the measured gap rather than the nominal one. A dropped frame
+  becomes a longer displayed frame instead of a shorter recording.
+
+- **Audio slid ahead of the picture after any quiet stretch.** WASAPI flags a
+  packet as silent when the microphone has nothing but silence to hand over,
+  which is normal for an idle mic. Those packets consume real time, but the
+  audio clock only advanced for packets that were written — so staying quiet
+  for twenty seconds put everything said afterwards twenty seconds early, and
+  the error accumulated across the take.
+
+- **The Audio menu could select the wrong microphone.** The menu row encoded a
+  position in the device list, and `TrackPopupMenuEx` pumps the message queue —
+  so plugging in a headset while the submenu was open invalidated the cache and
+  the position then meant a different device. The rows now carry the endpoint
+  IDs they were drawn from.
+
+- **Two paint handlers could spin a window at 100% CPU forever.** On the rare
+  path where `BeginPaint` fails they returned without `EndPaint`, which never
+  validates the update region, so Windows resends `WM_PAINT` immediately and
+  repeatedly. On the region overlay — topmost, full-desktop, running its own
+  modal loop — that is a screen-covering window that Esc cannot reach.
+
+- **Save as PNG could report success on a truncated file.** `WriteFile`'s
+  result was discarded, so a full disk or a volume pulled mid-save still
+  flashed "Saved".
+
+- **A late-finishing recording could be reported under the wrong name.** If a
+  worker was abandoned — a slow `Finalize` on a large file — and the user
+  started another recording, the old worker's result could be read as the new
+  one's. The result is now tagged with the recording it belongs to, and an
+  older worker cannot overwrite a newer result.
+
+- **Two failed-recording paths left a zero-byte `.mp4` behind**, which then
+  counted towards *Show Saved Files* as a recording that would not open.
+
+- **A crash on exit** was possible when a worker was abandoned still holding
+  Media Foundation objects: `MFShutdown` ran anyway, and releasing those
+  afterwards faults. It is now skipped in that case — the OS reclaims the
+  allocation microseconds later at process exit.
+
+- **The failure dialog could be used to start a new capture from inside
+  itself.** A modal message box runs its own message loop, and the recorder had
+  already cleared its recording flag by then, so a hotkey press could stack a
+  full-desktop overlay and a blocking five-second wait on top of the dialog
+  explaining why the last recording failed.
+
+- **Three places read pixel bytes without flushing GDI first**, against a rule
+  the rest of the codebase follows and documents. One of them was the recorder,
+  on every frame at any Quality below the top one.
+
+- **The clipboard PNG is encoded before the memory handle is taken**, so an
+  allocation failure during encoding cannot unwind past a raw handle.
+
+### Changed
+
+- **Media Foundation starts with the first recording instead of at launch.**
+  This is the single largest saving in the program: `MFStartup` commits roughly
+  **2–5 MB** and spins up its own worker threads, and for a taskbar utility
+  that mostly sits idle — and that many people will never record with at all —
+  that was about **half the idle footprint**, permanently, for nothing.
+
+  The first recording now pays that initialisation, tens of milliseconds before
+  its first frame. A machine where Media Foundation cannot start says so when
+  you try to record rather than at launch, which is strictly better: the launch
+  call's result was discarded and nobody was ever told.
+
+- **The frozen desktop is released before the recorder allocates.** Recording a
+  region keeps the overlay alive while the recorder starts, deliberately, and
+  the overlay holds a snapshot of the whole virtual desktop at 32 bits per
+  pixel — **33 MB per 4K monitor, 66 MB for two**. It was staying resident
+  while the recorder allocated its own frame buffers and the encoder spun up.
+  That was the program's high-water mark and it is now gone.
+
+- **Thirteen unreachable functions, fields and accessors deleted**, most of them
+  orphaned when the log was removed in 1.6.3. No behaviour change — every one
+  was verified to have no caller anywhere in `src/` or `tests/`.
+
+- **The editor moves a completed pen stroke instead of copying it.** A long
+  scribble carries every sampled point, hundreds of kilobytes, and it was being
+  deep-copied once per stroke.
+
+### Looked at and deliberately not changed
+
+- **The undo stack is capped at 50 snapshots, not by size.** A few long pen
+  strokes can make each snapshot large enough that the stack reaches tens of
+  megabytes. Capping by point count instead would make undo depth vary
+  silently with what you had drawn, which is worse than the memory.
+- **The encoder's input queue is unbounded** because throttling is disabled on
+  purpose. Re-enabling it would block the capture thread and change frame
+  pacing. Worth revisiting only if the growth is ever actually observed.
+- **The shutter sound buffers are never freed** — 17 KB, and `PlaySound` reads
+  them from its own thread past static destruction. Freeing them is a
+  correctness regression, not a saving.
+- **GDI+ stays initialised at launch.** Unlike Media Foundation it is used by
+  every drawing path, so deferring it would mean auditing all of them for a
+  fraction of the benefit.
+
 ## [1.6.3] — 2026-09-27
 
 ### Fixed

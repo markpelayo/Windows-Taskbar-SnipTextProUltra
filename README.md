@@ -16,7 +16,7 @@ Everything runs locally. OCR is Windows' own `Windows.Media.Ocr`, capture is GDI
 
 One executable, no installer, no third-party dependencies — nothing but the Windows SDK. The binary is statically linked, so there is no runtime to install.
 
-This is version 1.6.3. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
+This is version 1.7.0. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
 
 ### Trying it on sample text
 
@@ -43,7 +43,7 @@ A **tray icon** sits in the notification area whenever the program is running, s
 
 ### Pinning it
 
-1. Build it (below), then run `build\SnipTextProUltra_1.6.3.exe` once.
+1. Build it (below), then run `build\SnipTextProUltra_1.7.0.exe` once.
 2. Right-click its taskbar button → **Pin to taskbar**.
 
 That's it. The pinned icon is now the app.
@@ -63,7 +63,7 @@ That's it. The pinned icon is now the app.
 A `SHA-256` checksum is published beside each release binary. It is not a signature and does not pretend to be one; it only lets you confirm the file you downloaded is the file CI produced:
 
 ```
-Get-FileHash .\SnipTextProUltra_1.6.3.exe -Algorithm SHA256
+Get-FileHash .\SnipTextProUltra_1.7.0.exe -Algorithm SHA256
 ```
 
 ## Requirements
@@ -414,12 +414,13 @@ Each has its own **Folder ▸** submenu, so any of the three can be pointed else
 It is deliberately lightweight, and the design reasons are in [the architecture notes](docs/ARCHITECTURE.md#resource-behaviour). In short:
 
 - **While idle there is nothing running**: no timer, no window, no background thread. The process exists to hold six hotkey registrations, one tray icon and a message loop.
-- **Peak memory is one capture's bitmap** — about 8 MB for a 1440p screen, 33 MB for 4K — released as soon as OCR or the editor is finished with it.
+- **Everything the program allocates for itself, at idle, comes to under 100 KB.** The rest of its idle footprint is one library: GDI+, which every drawing path uses. Media Foundation is *not* started until the first recording — it commits 2–5 MB and its own worker threads, which is about half the idle footprint for something many people will never use.
+- **Peak memory is one capture's bitmap** — about 8 MB for a 1440p screen, 33 MB for 4K — released as soon as OCR or the editor is finished with it. Recording a region releases the desktop snapshot before the encoder starts, rather than holding both.
 - **One timer exists only while recording**, at one tick a second, driving the elapsed time, the pulse and the Stop pill so they cannot drift apart. The green frame is painted once and never repaints; the pill repaints about 150×34 pixels a second, which is the entire ongoing cost of the recording indicator.
-- **Every GDI object, handle and COM pointer is owned by an RAII wrapper**, so there is no branch — including an early return — on which a resource leaks.
-- Undo is capped at 50 snapshots; the log rotates at 512 KB.
+- **Every GDI object, handle and COM pointer is owned by an RAII wrapper**, so there is no branch — including an early return — on which a resource leaks. An independent audit of every GDI, kernel, COM, Media Foundation and WASAPI call found **no per-frame or per-capture leak**.
+- Undo is capped at 50 snapshots. Note that it caps the *number* of snapshots, not their size — a few canvas-filling pen strokes can make each one large, because a stroke stores every sampled point.
 
-Nobody has profiled it. Those are design properties, not measurements.
+Nobody has profiled it. Those are design properties and reasoned estimates, not measurements.
 
 ---
 

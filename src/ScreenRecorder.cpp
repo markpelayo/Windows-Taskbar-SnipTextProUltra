@@ -568,9 +568,17 @@ DWORD WINAPI ScreenRecorder::WorkerEntry(void* parameter) {
     auto report = [&](const std::wstring& path, const std::wstring& failure) {
         {
             LockGuard guard(owner->resultLock_);
-            owner->resultPath_       = path;
-            owner->resultFailure_    = failure;
-            owner->resultGeneration_ = config->generation;
+            // Only if this is not older than what is already parked.
+            // Generations only increase, and an abandoned worker can finish
+            // AFTER the recording that replaced it has already reported — in
+            // which case overwriting would make the live recording's own
+            // message find a stale generation and say nothing at all, so a
+            // take that succeeded would pass in silence.
+            if (config->generation >= owner->resultGeneration_) {
+                owner->resultPath_       = path;
+                owner->resultFailure_    = failure;
+                owner->resultGeneration_ = config->generation;
+            }
         }
         ::PostMessageW(config->notify, WM_RECORDER_FINISHED,
                        static_cast<WPARAM>(config->generation), 0);
@@ -757,6 +765,48 @@ DWORD WINAPI ScreenRecorder::WorkerEntry(void* parameter) {
         const LONGLONG frameDuration = 10000000LL / config->frameRate;
         const ULONGLONG startTick    = ::GetTickCount64();
 
+        // A high-resolution clock for the TIMESTAMPS, separate from the
+        // millisecond tick used for pacing below.
+        //
+        // GetTickCount64 advances in steps of about 15.6ms, so stamping from
+        // it would quantise every frame onto a 15.6ms grid — frames that are
+        // genuinely 16.67ms apart at 60fps would alternate between 15.6 and
+        // 31.2, which is worse on a machine that IS keeping up than the fixed
+        // interval it replaced. The point was to fix slow machines without
+        // making fast ones jitter.
+        LARGE_INTEGER counterFrequency{};
+        LARGE_INTEGER startCounter{};
+        ::QueryPerformanceFrequency(&counterFrequency);
+        ::QueryPerformanceCounter(&startCounter);
+        if (counterFrequency.QuadPart <= 0) counterFrequency.QuadPart = 1;
+
+        // Throw away whatever the microphone has already queued, so that
+        // audio time zero and video time zero are the same instant.
+        //
+        // IAudioClient::Start ran back in OpenAudio, before the AAC encoder
+        // was resolved, before BeginWriting — which can take seconds — and
+        // before the full-desktop bitmap was allocated. All of that audio is
+        // sitting in the endpoint's buffer. Now that silent packets advance
+        // the clock (they must, or speech after a quiet stretch lands early),
+        // that backlog would be stamped from zero and the whole track would
+        // lead the picture by however long the setup took.
+        //
+        // Dropping it costs the fraction of a second of audio that happened
+        // before there was any video to put it against.
+        if (hasAudio && audio.capture) {
+            UINT32 queued = 0;
+            while (SUCCEEDED(audio.capture->GetNextPacketSize(&queued)) && queued > 0) {
+                BYTE*  stale = nullptr;
+                UINT32 count = 0;
+                DWORD  flags = 0;
+                if (FAILED(audio.capture->GetBuffer(&stale, &count, &flags,
+                                                    nullptr, nullptr))) {
+                    break;
+                }
+                audio.capture->ReleaseBuffer(count);
+            }
+        }
+
         // Video timestamps come from the WALL CLOCK, not from a frame counter.
         //
         // The bug this fixes: the loop paces against the clock but used to
@@ -832,6 +882,14 @@ DWORD WINAPI ScreenRecorder::WorkerEntry(void* parameter) {
                     ::StretchBlt(scaled->MemoryDC(), 0, 0, width, height,
                                  frame->MemoryDC(), 0, 0, sourceWidth, sourceHeight, SRCCOPY);
                     source = scaled.get();
+
+                    // The flush above covered the blt into `frame`, which
+                    // MakeOpaque reads. This one covers the StretchBlt into
+                    // `scaled`, whose bits are what Media Foundation is about
+                    // to read — so without it every recording at any Quality
+                    // below the top one had exactly the unflushed read the
+                    // other call was added to prevent.
+                    ::GdiFlush();
                 }
 
                 // The byte count comes from the bitmap actually being sent,
@@ -843,25 +901,34 @@ DWORD WINAPI ScreenRecorder::WorkerEntry(void* parameter) {
                     failure = L"The capture buffer didn't match the encoder's frame size.";
                     break;
                 }
-                // Where this frame actually belongs in time. 10000 100ns
-                // units per millisecond.
+                // Where this frame actually belongs in time, in 100ns units.
+                LARGE_INTEGER counter{};
+                ::QueryPerformanceCounter(&counter);
                 const LONGLONG stamp =
-                    static_cast<LONGLONG>(::GetTickCount64() - startTick) * 10000LL;
+                    (counter.QuadPart - startCounter.QuadPart) * 10000000LL
+                        / counterFrequency.QuadPart;
 
-                // Never go backwards or sit still: MF requires strictly
-                // increasing timestamps, and GetTickCount64 has a resolution
-                // of about 15ms, so two frames can easily read the same tick.
-                if (stamp > videoTimestamp) videoTimestamp = stamp;
+                // Strictly increasing, which Media Foundation requires. With
+                // a sub-microsecond clock two frames cannot share a stamp in
+                // practice, but the guard costs nothing and the alternative
+                // is a rejected sample.
+                const LONGLONG previous = videoTimestamp;
+                videoTimestamp = (stamp > previous) ? stamp : previous + 1;
 
-                // The duration is the gap to the frame after this one, which
-                // is not known yet — so this is the nominal interval, which
-                // is right when the rate is being met and is only a hint to
-                // the player when it is not. The timestamps are what carry
-                // the real timing.
+                // The duration is the measured gap rather than the nominal
+                // interval. Writing a fixed duration beside a wall-clock
+                // timestamp would leave the two disagreeing, and the MPEG-4
+                // sink builds its timing table from durations — which is how
+                // the original "plays back too fast" symptom happened. The
+                // first frame has no predecessor, so it gets the nominal one.
+                const LONGLONG duration =
+                    (frameIndex == 0) ? frameDuration
+                                      : (videoTimestamp - previous);
+
                 ComPtr<IMFSample> sample =
                     MakeSample(source->Bits(),
                                static_cast<size_t>(source->Stride()) * source->Height(),
-                               videoTimestamp, frameDuration);
+                               videoTimestamp, duration);
                 if (sample) {
                     HRESULT written = writer->WriteSample(videoStream, sample.Get());
                     if (FAILED(written)) {
@@ -869,7 +936,7 @@ DWORD WINAPI ScreenRecorder::WorkerEntry(void* parameter) {
                         break;
                     }
                 }
-                ++videoTimestamp;   // keep the next stamp strictly greater
+
             }
 
             // --- whatever audio has arrived since the last frame ---

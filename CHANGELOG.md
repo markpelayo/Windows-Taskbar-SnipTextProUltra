@@ -35,6 +35,10 @@ adheres to [Semantic Versioning](https://semver.org).
   and a hover border are discoverable by accident, which is not the same as
   being discoverable.
 
+- **Show Saved Files** sits directly above *Sanitize and Restore Default*
+  again, below *Screen Recording Settings* — settings together, then the two
+  rows that reach outside the app.
+
 - **The version in the menu's title row no longer has a `v`** —
   `SnipTextProUltra · 1.6.1 · markpelayo`.
 

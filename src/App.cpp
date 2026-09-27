@@ -917,30 +917,6 @@ HMENU App::BuildMenu() {
         AppendSubmenu(menu, locations, L"Save Locations");
     }
 
-    // --- everything the three capture commands have produced ---
-    // One row rather than three scattered through the capture sections: they
-    // are the same kind of thing, and grouping them keeps each section to its
-    // commands alone.
-    {
-        HMENU saved = ::CreatePopupMenu();
-        if (saved) {
-            AppendCommand(saved, ID_SHOT_SHOW,
-                          SavedItemTitle(L"Screenshots", screenshotCount),
-                          screenshotCount > 0);
-            AppendCommand(saved, ID_TEXT_SHOW,
-                          SavedItemTitle(L"ScreenshotToText Images", textImageCount),
-                          textImageCount > 0);
-            AppendCommand(saved, ID_REC_SHOW,
-                          SavedItemTitle(L"Videos", videoCount),
-                          videoCount > 0);
-        }
-        // Disabled outright when all three folders are empty, so the parent
-        // row behaves the way the individual rows used to: it tells you there
-        // is nothing there rather than opening to three dead entries.
-        const bool anySaved = (screenshotCount + textImageCount + videoCount) > 0;
-        AppendSubmenu(menu, saved, L"Show Saved Files", false, anySaved);
-    }
-
     // --- Screen Recording Settings ---
     {
         HMENU videoMenu = ::CreatePopupMenu();
@@ -1014,6 +990,30 @@ HMENU App::BuildMenu() {
 
             AppendSubmenu(menu, videoMenu, L"Screen Recording Settings");
         }
+    }
+
+    // --- everything the three capture commands have produced ---
+    // One row rather than three scattered through the capture sections: they
+    // are the same kind of thing, and grouping them keeps each section to its
+    // commands alone.
+    {
+        HMENU saved = ::CreatePopupMenu();
+        if (saved) {
+            AppendCommand(saved, ID_SHOT_SHOW,
+                          SavedItemTitle(L"Screenshots", screenshotCount),
+                          screenshotCount > 0);
+            AppendCommand(saved, ID_TEXT_SHOW,
+                          SavedItemTitle(L"ScreenshotToText Images", textImageCount),
+                          textImageCount > 0);
+            AppendCommand(saved, ID_REC_SHOW,
+                          SavedItemTitle(L"Videos", videoCount),
+                          videoCount > 0);
+        }
+        // Disabled outright when all three folders are empty, so the parent
+        // row behaves the way the individual rows used to: it tells you there
+        // is nothing there rather than opening to three dead entries.
+        const bool anySaved = (screenshotCount + textImageCount + videoCount) > 0;
+        AppendSubmenu(menu, saved, L"Show Saved Files", false, anySaved);
     }
 
     // --- Sanitize ---

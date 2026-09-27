@@ -167,8 +167,8 @@ SnipTextProUltra · v1.5.0 · markpelayo
   After a Screenshot     ▸
   Auto-Save Images
   Save Locations         ▸
-  Show Saved Files       ▸
   Screen Recording Settings ▸
+  Show Saved Files       ▸
   Sanitize and Restore Default…
 ──────────────────────
 ✓ Run at Startup: 15 s   ▸

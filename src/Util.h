@@ -47,6 +47,32 @@ std::wstring ExecutablePath();
 // place this is used.
 std::wstring DisplayPath(const std::wstring& path);
 
+// --- keeping our own windows out of captures -------------------------------
+//
+// SetWindowDisplayAffinity with WDA_EXCLUDEFROMCAPTURE, which the Windows
+// documentation describes for exactly this purpose: "windows that show video
+// recording controls, so that the controls are not included in the capture."
+// The window keeps rendering on the physical monitor and disappears from
+// anything that captures the screen.
+//
+// Windows 10 version 2004 and later. Returns false on anything older — and
+// the affinity is read back rather than inferred from the BOOL, because
+// WDA_EXCLUDEFROMCAPTURE is WDA_MONITOR plus a bit, so an older build could
+// accept the call and black the window out instead of removing it.
+//
+// Two callers, for two reasons: the recording indicator, so the frame and
+// Stop button stay out of the video; and the capture path, so a menu that is
+// still fading out stays out of the screenshot.
+bool ExcludeFromCapture(HWND hwnd);
+
+// Takes every popup menu window this thread still owns out of the capture,
+// and hides any it could not exclude. See the note on the definition — this
+// is the fix for the menu appearing in a screenshot on a machine where
+// "Fade out menu items after clicking" is switched on.
+//
+// Returns how many menu windows it found, which is zero on the common path.
+int SuppressOwnMenusForCapture();
+
 // --- DPI and geometry ------------------------------------------------------
 
 // The process is Per-Monitor-V2 aware (see the manifest), so every coordinate

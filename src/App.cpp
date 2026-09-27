@@ -1031,9 +1031,18 @@ void App::ShowMenu() {
     // not in the foreground refuses to dismiss when the user clicks away.
     ::SetForegroundWindow(hwnd_);
 
+    // TPM_NOANIMATION asks for this menu to be shown without animation. It is
+    // per-call and changes nothing system-wide, so it does not touch the
+    // user's Visual Effects settings.
+    //
+    // It is belt to the braces in util::SuppressOwnMenusForCapture, not a
+    // replacement for it: the documentation describes this flag as affecting
+    // how the menu is DISPLAYED, and the fade-out after a click is governed
+    // separately by SPI_SETMENUFADE. It may well suppress both — it costs
+    // nothing to ask — but the capture path cannot depend on it doing so.
     const int command = ::TrackPopupMenuEx(menu.get(),
                                            TPM_RETURNCMD | TPM_LEFTALIGN | TPM_BOTTOMALIGN
-                                               | TPM_RIGHTBUTTON,
+                                               | TPM_RIGHTBUTTON | TPM_NOANIMATION,
                                            x, y, hwnd_, nullptr);
     ::PostMessageW(hwnd_, WM_NULL, 0, 0);
 

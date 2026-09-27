@@ -210,6 +210,93 @@ std::wstring DisplayPath(const std::wstring& path) {
 
 // --- DPI and geometry ------------------------------------------------------
 
+// --- keeping our own windows out of captures -------------------------------
+
+#ifndef WDA_EXCLUDEFROMCAPTURE
+#define WDA_EXCLUDEFROMCAPTURE 0x00000011
+#endif
+
+bool ExcludeFromCapture(HWND hwnd) {
+    if (!hwnd) return false;
+
+    // Resolved dynamically. Both functions have existed in user32 since
+    // Windows 7, but importing them statically would make the program refuse
+    // to start on anything older to buy a cosmetic feature.
+    using SetAffinity = BOOL (WINAPI*)(HWND, DWORD);
+    using GetAffinity = BOOL (WINAPI*)(HWND, DWORD*);
+    static SetAffinity setAffinity = nullptr;
+    static GetAffinity getAffinity = nullptr;
+    static bool resolved = false;
+    if (!resolved) {
+        resolved = true;
+        if (HMODULE user32 = ::GetModuleHandleW(L"user32.dll")) {
+            setAffinity = reinterpret_cast<SetAffinity>(
+                ::GetProcAddress(user32, "SetWindowDisplayAffinity"));
+            getAffinity = reinterpret_cast<GetAffinity>(
+                ::GetProcAddress(user32, "GetWindowDisplayAffinity"));
+        }
+    }
+    if (!setAffinity || !getAffinity) return false;
+    if (!setAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)) return false;
+
+    // Read back and insist on the exact value. WDA_EXCLUDEFROMCAPTURE is
+    // 0x11, which is WDA_MONITOR (0x01) with an extra bit, so a build that
+    // does not know the newer flag could accept the call and apply
+    // WDA_MONITOR instead — which blacks the window out of the capture rather
+    // than removing it. That is worse than not trying.
+    DWORD applied = 0;
+    return getAffinity(hwnd, &applied) && applied == WDA_EXCLUDEFROMCAPTURE;
+}
+
+namespace {
+
+// Windows' own class for a popup menu. Menus raised by TrackPopupMenuEx
+// belong to the thread that raised them, so our own menus are findable this
+// way and nobody else's are.
+constexpr const wchar_t* kMenuWindowClass = L"#32768";
+
+BOOL CALLBACK SuppressMenuWindow(HWND hwnd, LPARAM parameter) {
+    wchar_t className[32]{};
+    if (::GetClassNameW(hwnd, className, 32) == 0) return TRUE;
+    if (::wcscmp(className, kMenuWindowClass) != 0) return TRUE;
+    if (!::IsWindowVisible(hwnd)) return TRUE;
+
+    // Excluding is preferred: the window keeps animating exactly as Windows
+    // intends, and simply is not in the capture. Hiding it is the fallback
+    // for a build with no WDA_EXCLUDEFROMCAPTURE, where the alternative is
+    // the menu appearing in the screenshot.
+    if (!ExcludeFromCapture(hwnd)) ::ShowWindow(hwnd, SW_HIDE);
+
+    ++*reinterpret_cast<int*>(parameter);
+    return TRUE;
+}
+
+} // namespace
+
+int SuppressOwnMenusForCapture() {
+    // Why this is needed at all, since TrackPopupMenuEx has already returned
+    // and the HMENU has already been destroyed:
+    //
+    // Windows has a setting — Performance Options → Visual Effects → "Fade
+    // out menu items after clicking" — which is ON by default. With it on,
+    // the menu WINDOW outlives the selection and fades over roughly 200ms.
+    // The menu is logically gone and visually still there.
+    //
+    // That is why waiting for the compositor was not enough: DwmFlush does
+    // what it promises and hands back a frame that faithfully contains a
+    // half-faded menu. There is nothing to wait for, because the thing has
+    // not begun to disappear.
+    //
+    // It is also why a delay is the wrong shape of fix. It would have to be
+    // long enough for the slowest machine with the fade enabled, and every
+    // machine without it would pay that for nothing. This costs one window
+    // enumeration, which on the common path finds nothing.
+    int found = 0;
+    ::EnumThreadWindows(::GetCurrentThreadId(), &SuppressMenuWindow,
+                        reinterpret_cast<LPARAM>(&found));
+    return found;
+}
+
 double DpiScaleForWindow(HWND hwnd) {
     UINT dpi = hwnd ? ::GetDpiForWindow(hwnd) : ::GetDpiForSystem();
     if (dpi == 0) dpi = 96;

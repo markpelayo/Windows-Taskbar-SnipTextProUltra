@@ -22,62 +22,10 @@ constexpr int kPillPadding = 12;
 constexpr int kPillGap     = 8;   // between the frame and the pill
 constexpr int kPillDotGap  = 8;   // between the dot and the text
 
-// --- keeping the indicator out of the recording ----------------------------
-//
-// The region frame solves this geometrically: it is drawn OUTSIDE the recorded
-// rectangle, so it cannot be captured. Full screen has no outside, which is
-// why there was no frame during a full-screen recording at all — the window
-// was created, positioned off the edge of the desktop, and never seen.
-//
-// SetWindowDisplayAffinity with WDA_EXCLUDEFROMCAPTURE is the mechanism
-// Windows provides for precisely this, and the documentation names this exact
-// use case: "windows that show video recording controls, so that the controls
-// are not included in the capture." The window keeps rendering on the physical
-// monitor and disappears from anything that captures the screen.
-//
-// Windows 10 version 2004 (build 19041) and later. On anything older the call
-// fails, and the caller has to fall back to the geometric guarantee rather
-// than assume it worked — a frame we *think* is excluded but is not would be
-// burned into every recording.
-#ifndef WDA_EXCLUDEFROMCAPTURE
-#define WDA_EXCLUDEFROMCAPTURE 0x00000011
-#endif
-
-bool ExcludeFromCapture(HWND hwnd) {
-    if (!hwnd) return false;
-    // Resolved dynamically. The function has existed in user32 since Windows 7,
-    // but importing it statically would make the whole program refuse to start
-    // on anything older, to buy a cosmetic feature — and this program has no
-    // other reason to require a particular build.
-    using SetAffinity = BOOL (WINAPI*)(HWND, DWORD);
-    static SetAffinity setAffinity = []() -> SetAffinity {
-        HMODULE user32 = ::GetModuleHandleW(L"user32.dll");
-        return user32 ? reinterpret_cast<SetAffinity>(
-                            ::GetProcAddress(user32, "SetWindowDisplayAffinity"))
-                      : nullptr;
-    }();
-    if (!setAffinity) return false;
-    if (!setAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)) return false;
-
-    // Read it back, and insist on the exact value. WDA_EXCLUDEFROMCAPTURE is
-    // 0x11, which is WDA_MONITOR (0x01) with an extra bit set, so a build that
-    // does not know the newer flag could plausibly accept the call and apply
-    // WDA_MONITOR instead — which blacks the window out of the capture rather
-    // than removing it, putting a black band in the video. That is the exact
-    // outcome the fallback exists to avoid, so it is not worth inferring from
-    // a BOOL.
-    using GetAffinity = BOOL (WINAPI*)(HWND, DWORD*);
-    static GetAffinity getAffinity = []() -> GetAffinity {
-        HMODULE user32 = ::GetModuleHandleW(L"user32.dll");
-        return user32 ? reinterpret_cast<GetAffinity>(
-                            ::GetProcAddress(user32, "GetWindowDisplayAffinity"))
-                      : nullptr;
-    }();
-    if (!getAffinity) return false;
-
-    DWORD applied = 0;
-    return getAffinity(hwnd, &applied) && applied == WDA_EXCLUDEFROMCAPTURE;
-}
+// The indicator windows are taken out of the capture with
+// util::ExcludeFromCapture — see the note on it in Util.h. It lives there
+// rather than here because the capture path needs the same thing for a very
+// different reason: a popup menu that is still fading out.
 
 HFONT PillFont() {
     static HFONT font = nullptr;
@@ -248,7 +196,7 @@ void RecordingIndicator::Show(const RECT& region, std::function<void()> onStop) 
         // there is no log: a frame believed hidden but actually captured
         // would be burned into every recording, so the check stays strict
         // and the fallback stays the safe direction.
-        if (ExcludeFromCapture(frame_)) {
+        if (util::ExcludeFromCapture(frame_)) {
             outer = region_;   // the dashes now sit inside the capture
             ::SetWindowPos(frame_, nullptr, outer.left, outer.top,
                            util::RectWidth(outer), util::RectHeight(outer),
@@ -287,7 +235,7 @@ void RecordingIndicator::Show(const RECT& region, std::function<void()> onStop) 
         // accepted as a limitation: a region with no room beside it put the
         // Stop button into the recording.
         //
-        const bool pillHidden = ExcludeFromCapture(pill_);
+        const bool pillHidden = util::ExcludeFromCapture(pill_);
         ::ShowWindow(pill_, SW_SHOWNA);
 
         // Said out loud rather than written to a log nobody opens. This is

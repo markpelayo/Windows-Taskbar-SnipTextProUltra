@@ -6,6 +6,38 @@ adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The menu really is out of the capture now.** 1.6.2 addressed the wrong
+  half of this and the symptom survived.
+
+  The actual cause is a Windows visual effect: **Performance Options → Visual
+  Effects → "Fade out menu items after clicking"**, which is on by default.
+  With it on, the menu *window* outlives the click and fades over roughly
+  200 ms. `TrackPopupMenuEx` has returned and the `HMENU` is destroyed, but the
+  row that was clicked is still on screen.
+
+  That is why waiting on `DwmFlush` was not enough. It does exactly what it
+  promises and returns a frame that faithfully contains a half-faded menu —
+  there was nothing to wait for, because the thing had not begun to disappear.
+
+  The capture path now takes any popup menu window of its own out of the
+  capture with `WDA_EXCLUDEFROMCAPTURE`, so there is nothing to wait for
+  either. On a build too old for that flag the window is hidden instead. Both
+  are immediate.
+
+  Deliberately not a delay: a delay would have to be long enough for the
+  slowest machine with the fade enabled, and every machine without it would
+  pay that on every capture. This costs one window enumeration, which finds
+  nothing on the common path. The second `DwmFlush` 1.6.2 added is now only
+  issued when a menu actually had to be dealt with, so an ordinary capture is
+  a frame faster than it was.
+
+  `TPM_NOANIMATION` is also passed when raising the menu. It is per-call and
+  changes no system setting. It may suppress the fade as well, but the flag is
+  documented as affecting how the menu is *displayed*, so the fix does not
+  depend on it.
+
 ### Changed
 
 - **Renamed throughout: `SnipText` is now `SnipTextProUltra`.** The app name,

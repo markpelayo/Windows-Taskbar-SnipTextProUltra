@@ -238,42 +238,6 @@ namespace {
 // Windows' own class for a popup menu. Menus raised by TrackPopupMenuEx
 // belong to the thread that raised them, so our own menus are findable this
 // way and nobody else's are.
-constexpr const wchar_t* kMenuWindowClass = L"#32768";
-
-// Long enough for the menu fade to finish. Windows does not expose the
-// duration, and it is on the order of 200ms, so this has margin on it.
-//
-// A fixed figure is unsatisfying and it is deliberate. The adaptive
-// alternative — sample the rectangle the menu occupied and poll until two
-// grabs match — stops early if two consecutive samples happen to agree
-// mid-dissolve, and after three clever fixes that each failed for a different
-// subtle reason, a number that can be reasoned about completely is worth more
-// than one that is usually faster.
-//
-// Paid only on a menu-initiated capture on a machine with the effect enabled.
-constexpr DWORD kMenuFadeWaitMs = 250;
-
-bool g_menuJustDismissed = false;
-
-BOOL CALLBACK SuppressMenuWindow(HWND hwnd, LPARAM parameter) {
-    wchar_t className[32]{};
-    if (::GetClassNameW(hwnd, className, 32) == 0) return TRUE;
-    if (::wcscmp(className, kMenuWindowClass) != 0) return TRUE;
-
-    // NO IsWindowVisible check, and its absence is the point.
-    //
-    // There used to be one here, added as an obvious optimisation: why bother
-    // with a window that is not on screen? Because during a fade-out it very
-    // likely IS one of those. Windows appears to hide the menu window and let
-    // DWM animate the last surface it rendered, so the window that still
-    // needs excluding reports itself invisible — and that guard skipped
-    // exactly the case the whole function exists for. It is the reason this
-    // did not work the first time.
-    if (!ExcludeFromCapture(hwnd)) ::ShowWindow(hwnd, SW_HIDE);
-
-    ++*reinterpret_cast<int*>(parameter);
-    return TRUE;
-}
 
 // Whether Windows is set to fade menus out after a click — Performance
 // Options > Visual Effects > "Fade out menu items after clicking". On by
@@ -285,67 +249,8 @@ BOOL CALLBACK SuppressMenuWindow(HWND hwnd, LPARAM parameter) {
 // the menu window has already been destroyed and what remains is a DWM
 // animation of its last frame — which no amount of excluding or hiding a
 // window can touch.
-bool MenusFadeOut() {
-    BOOL fade = FALSE;
-    if (!::SystemParametersInfoW(SPI_GETMENUFADE, 0, &fade, 0)) return false;
-    return fade != FALSE;
-}
 
 } // namespace
-
-int SuppressOwnMenusForCapture() {
-    // Keeping our own flyout menu out of the capture.
-    //
-    // THE PROBLEM. Windows has a visual effect — Performance Options → Visual
-    // Effects → "Fade out menu items after clicking", ON by default — which
-    // leaves the menu visible for roughly 200ms after the click.
-    // TrackPopupMenuEx has returned and the HMENU is destroyed, but the row
-    // that was just clicked is still on screen, so it lands in the
-    // screenshot. For ScreenshotToText it is then recognised and copied along
-    // with what the user actually wanted.
-    //
-    // WHAT IT IS NOT. Three attempts failed before this one, and a diagnostic
-    // build was what finally explained why. It reported: fade enabled yes,
-    // menu windows found 0, wait loop 0 iterations, 0ms.
-    //
-    // There is no window. By the time a command runs, Windows has already
-    // destroyed the menu window and what remains on screen is DWM dissolving
-    // the surface it last rendered — a ghost with no handle. So:
-    //
-    //   - WDA_EXCLUDEFROMCAPTURE had nothing to apply itself to.
-    //   - ShowWindow(SW_HIDE) had nothing to hide.
-    //   - Waiting for the window to disappear returned instantly, because it
-    //     already had.
-    //   - TPM_NOANIMATION does not govern the dissolve.
-    //   - DwmFlush did exactly what it promises and handed back a frame that
-    //     faithfully contained a half-faded menu.
-    //
-    // WHAT IT IS. A wait is the only mechanism left, so the work is in making
-    // it cost as little as possible, as rarely as possible:
-    //
-    //   - Only when Windows says it fades menus out. Switch that effect off
-    //     and this function does nothing at all.
-    //   - Only when a MENU started the capture. A hotkey never showed one, so
-    //     Ctrl+Shift+N is exactly as fast as it has always been — which is
-    //     the path anyone using this regularly actually takes.
-    //
-    int found = 0;
-    ::EnumThreadWindows(::GetCurrentThreadId(), &SuppressMenuWindow,
-                        reinterpret_cast<LPARAM>(&found));
-
-    // A plain Sleep, not the message pump the previous attempt used. That pump
-    // existed on the theory that USER32 drove the fade from a timer on this
-    // thread; with no window of ours involved, DWM animates in its own process
-    // and our thread sleeping cannot stall it.
-    if (!g_menuJustDismissed) return found;
-    if (!MenusFadeOut())     return found;
-
-    ::Sleep(kMenuFadeWaitMs);
-    return found;
-}
-
-MenuDismissGuard::MenuDismissGuard()  { g_menuJustDismissed = true; }
-MenuDismissGuard::~MenuDismissGuard() { g_menuJustDismissed = false; }
 
 HMONITOR MonitorUnderCursor() {
     POINT cursor{};

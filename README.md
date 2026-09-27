@@ -509,6 +509,30 @@ Failures that used to be recorded quietly are now said out loud instead:
 | The Stop button will be in the recording | `No room beside the region — the Stop button will appear in the video` |
 | GDI+ or the window could not start | a message box, because there is no toast yet at that point |
 
+### The flyout menu appears in a screenshot
+
+Only on the menu path, and only with a Windows visual effect enabled:
+**Performance Options → Visual Effects → "Fade out menu items after
+clicking"**, which is on by default.
+
+With it on, the row you clicked stays faintly on screen for a moment after the
+menu closes, so a capture started *from the menu* can contain it. For
+*ScreenshotToText* the row's own text then gets recognised along with
+everything else. Two ways round it:
+
+- **Use the keyboard shortcuts.** `Ctrl+Shift+1` … `Ctrl+Shift+6` never show a
+  menu, so they are never affected. This is the better habit anyway.
+- **Or untick that one effect** in Performance Options. Everything else in that
+  list can stay as it is.
+
+This was attempted in code four times and the attempts are documented in
+`src/Capture.cpp`. The short version: by the time a menu command runs, Windows
+has already destroyed the menu window, and what remains on screen is DWM
+dissolving the surface it last rendered — a ghost with no window handle. It
+cannot be excluded from capture, hidden, or waited for, because there is
+nothing to act on. Only a fixed delay outlasts it, and a delay on every
+menu-initiated capture cost more in responsiveness than the problem costs.
+
 **A hotkey does nothing.** Something else owns that combination — Windows gives the shortcut to whoever registered it first. Pick a different one under **Settings → Change Keyboard Shortcut**; the menu item itself still works either way.
 
 **"Screenshot to Text" says no language is installed.** Add one under Settings → Time & language → Language & region. Windows OCR only recognises languages you have installed.

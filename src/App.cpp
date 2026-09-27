@@ -1040,14 +1040,12 @@ void App::ShowMenu() {
     ::SetForegroundWindow(hwnd_);
 
     // TPM_NOANIMATION asks for this menu to be shown without animation. It is
-    // per-call and changes nothing system-wide, so it does not touch the
-    // user's Visual Effects settings.
+    // per-call, changes nothing system-wide, and costs nothing.
     //
-    // It is belt to the braces in util::SuppressOwnMenusForCapture, not a
-    // replacement for it: the documentation describes this flag as affecting
-    // how the menu is DISPLAYED, and the fade-out after a click is governed
-    // separately by SPI_SETMENUFADE. It may well suppress both — it costs
-    // nothing to ask — but the capture path cannot depend on it doing so.
+    // It does NOT stop the menu appearing in a capture — that is governed by
+    // a separate effect, "Fade out menu items after clicking"
+    // (SPI_GETSELECTIONFADE), which this flag has no bearing on. Kept only
+    // because a menu that appears without animation is marginally snappier.
     const int command = ::TrackPopupMenuEx(menu.get(),
                                            TPM_RETURNCMD | TPM_LEFTALIGN | TPM_BOTTOMALIGN
                                                | TPM_RIGHTBUTTON | TPM_NOANIMATION,
@@ -1059,13 +1057,7 @@ void App::ShowMenu() {
     // across one of those serves no purpose.
     menu.reset();
 
-    if (command > 0) {
-        // Marks the capture path's one permitted reason to wait for a menu
-        // fade. Scoped to this dispatch, so a hotkey capture — which never
-        // showed a menu — never waits. See util::MenuDismissGuard.
-        util::MenuDismissGuard menuJustClosed;
-        OnCommand(command);
-    }
+    if (command > 0) OnCommand(command);
 }
 
 void App::OnCommand(int command) {

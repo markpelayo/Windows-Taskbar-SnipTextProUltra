@@ -6,7 +6,26 @@ adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **The menu-fade wait is gone; captures are instantaneous again.** 1.7.2 slept
+  250 ms before a menu-initiated capture to outlast the fade. Two things were
+  wrong with it.
+
+  It was gated on the wrong setting. `SPI_GETMENUFADE` is "Fade or slide menus
+  into view" — the fade *in*. The effect that causes the problem is "Fade out
+  menu items after clicking", which is `SPI_GETSELECTIONFADE`. So switching the
+  offending checkbox off did not switch the delay off, and the tool felt slow
+  for no benefit at all.
+
+  And 250 ms was not enough anyway — a faint menu still made it into the
+  capture.
+
+  Rather than correct the constant and raise the delay, all of it is removed.
+  An instantaneous capture matters more than an occasional faint menu on one
+  of two paths, and the keyboard shortcuts were never affected in the first
+  place. The workaround is documented in the README's troubleshooting section:
+  use the shortcuts, or untick that one visual effect.
 
 ## [1.7.2] — 2026-09-28
 

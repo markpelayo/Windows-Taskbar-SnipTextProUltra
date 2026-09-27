@@ -9,30 +9,18 @@
 namespace capture {
 namespace {
 
-// Waits until the desktop on screen is the desktop we mean to capture.
+// Waits for the compositor to present a frame before the screen is read.
 //
-// Two separate problems, and the first one is the reason the second was not
-// enough on its own.
+// DwmFlush blocks until DWM has finished composing, which is the compositor
+// reporting the frame is done rather than a guess about how long that takes.
+// One flush, on the order of a frame — 16ms at 60Hz.
 //
-// 1. The menu window outlives the click. Windows has a visual effect — "Fade
-//    out menu items after clicking", on by default — that keeps the popup
-//    alive and fading for roughly 200ms after TrackPopupMenuEx has returned
-//    and the HMENU has been destroyed. So the row that was just clicked is
-//    still on screen, and for ScreenshotToText it then gets recognised and
-//    copied along with what the user actually wanted.
-//
-//    util::SuppressOwnMenusForCapture takes any such window of ours out of
-//    the capture outright, so there is nothing to wait for.
-//
-// 2. The composition may predate the change. Even once nothing is left to
-//    hide, the frame the screen DC reads has to be one composed afterwards.
-//    DwmFlush blocks until DWM has finished composing, which is the
-//    compositor reporting the frame is done rather than a guess about how
-//    long that takes.
-//
-// A sleep would have been the wrong shape for either: long enough for the
-// slowest machine with the fade enabled, and paid in full by every machine
-// without it.
+// NOT a fix for the flyout menu appearing in a capture. That was tried four
+// ways and removed; see the note in README's troubleshooting section. The menu
+// window is already destroyed by the time a command runs and what remains is
+// DWM dissolving the surface it last rendered, which nothing here can reach
+// and which only a delay could outlast. The delay was not worth what it cost
+// in responsiveness.
 void WaitForDesktopToSettle() {
     // Our own paint messages first. PM_QS_PAINT so this cannot dispatch input
     // or a hotkey and re-enter the capture already in progress.
@@ -41,18 +29,10 @@ void WaitForDesktopToSettle() {
         ::DispatchMessageW(&message);
     }
 
-    const int menusSuppressed = util::SuppressOwnMenusForCapture();
-
-    // One flush on the common path. A second only when a menu actually had to
-    // be dealt with, because the first can return at the end of a
-    // composition that began before it was — and that is the only case where
-    // the extra frame buys anything.
-    //
-    // Errors ignored deliberately: DwmFlush fails when composition is off,
+    // Error ignored deliberately: DwmFlush fails when composition is off,
     // which cannot happen on a supported version of Windows, and if it
     // somehow does then taking the capture beats refusing to.
     ::DwmFlush();
-    if (menusSuppressed > 0) ::DwmFlush();
 }
 
 std::unique_ptr<Bitmap> GrabRect(const RECT& bounds) {

@@ -58,34 +58,9 @@ std::wstring DisplayPath(const std::wstring& path);
 // WDA_EXCLUDEFROMCAPTURE is WDA_MONITOR plus a bit, so an older build could
 // accept the call and black the window out instead of removing it.
 //
-// Two callers, for two reasons: the recording indicator, so the frame and
-// Stop button stay out of the video; and the capture path, so a menu that is
-// still fading out stays out of the screenshot.
+// Used by the recording indicator, so the green frame and the Stop button
+// stay out of the video.
 bool ExcludeFromCapture(HWND hwnd);
-
-// Makes sure our own flyout menu is not in the capture. See the long note on
-// the definition for why this ended up being a wait rather than anything
-// cleverer — it is measured, not assumed.
-//
-// Returns how many menu windows it found, which a diagnostic build showed is
-// always zero in practice. Kept because it costs nothing and a future Windows
-// could behave differently.
-int SuppressOwnMenusForCapture();
-
-// Marks our flyout menu as having just been dismissed, for the lifetime of the
-// object. Construct one around the dispatch of a menu command.
-//
-// The capture path cannot otherwise tell a menu-initiated capture from a
-// hotkey one, and the difference decides whether it has to wait for a menu
-// fade at all: a hotkey never showed a menu, so it must never pay for one.
-class MenuDismissGuard {
-public:
-    MenuDismissGuard();
-    ~MenuDismissGuard();
-    MenuDismissGuard(const MenuDismissGuard&) = delete;
-    MenuDismissGuard& operator=(const MenuDismissGuard&) = delete;
-};
-
 
 // --- DPI and geometry ------------------------------------------------------
 

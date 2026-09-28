@@ -16,7 +16,7 @@ Everything runs locally. OCR is Windows' own `Windows.Media.Ocr`, capture is GDI
 
 One executable, no installer, no third-party dependencies — nothing but the Windows SDK. The binary is statically linked, so there is no runtime to install.
 
-This is version 1.7.4. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
+This is version 1.7.5. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
 
 ### Trying it on sample text
 
@@ -48,7 +48,7 @@ A **tray icon** sits in the notification area whenever the program is running, s
 
 ### Pinning it
 
-1. Build it (below), then run `build\SnipTextProUltra_1.7.4.exe` once.
+1. Build it (below), then run `build\SnipTextProUltra_1.7.5.exe` once.
 2. Right-click its taskbar button → **Pin to taskbar**.
 
 That's it. The pinned icon is now the app.
@@ -68,7 +68,7 @@ That's it. The pinned icon is now the app.
 A `SHA-256` checksum is published beside each release binary. It is not a signature and does not pretend to be one; it only lets you confirm the file you downloaded is the file CI produced:
 
 ```
-Get-FileHash .\SnipTextProUltra_1.7.4.exe -Algorithm SHA256
+Get-FileHash .\SnipTextProUltra_1.7.5.exe -Algorithm SHA256
 ```
 
 ## Requirements
@@ -445,7 +445,7 @@ Everything else. In rough order of how likely it is to bite:
 
 - **Video output quality.** Recordings are produced, but nobody has checked them frame by frame across frame rates, quality settings, or with audio on. The Media Foundation sink-writer configuration was written from documentation.
 - **Microphone audio.** The WASAPI capture and AAC path have not been exercised at all. They are written to fail soft — a bad microphone gives you a silent video, never a lost one — but "fails soft" is a design claim, not a measurement.
-- **Multi-monitor and mixed-DPI setups.** The program is Per-Monitor-V2 aware and works in physical pixels throughout, which is the correct design, but "correct design" and "correct on your three-monitor desk" are different claims. The startup log prints your display layout, which is the first thing to check if a capture lands in the wrong place.
+- **Multi-monitor and mixed-DPI setups.** The program is Per-Monitor-V2 aware and works in physical pixels throughout, which is the correct design, but "correct design" and "correct on your three-monitor desk" are different claims. If a capture lands in the wrong place, the monitor arrangement in Windows display settings is the first thing to check — particularly a secondary monitor placed above or to the left of the primary, which puts negative coordinates into play.
 - **The annotation editor under sustained use.** Individual tools work. Long sessions, deep undo stacks, and the interaction between text entry and the other tools have not been hammered.
 - **Long-running behaviour.** The idle cost is designed to be zero and every resource is RAII-owned, but nobody has left it running for a week and watched the handle count.
 

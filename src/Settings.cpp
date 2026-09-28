@@ -131,6 +131,38 @@ bool Exists(const wchar_t* name) {
 
 // --- Run at Startup --------------------------------------------------------
 
+std::wstring RunAtStartupCommand() {
+    // Quoted, because Program Files paths contain spaces. The trailing
+    // argument is the point: with it, a login launch is *stated* by the
+    // command line rather than guessed from how long the machine has been up.
+    return L"\"" + util::ExecutablePath() + L"\" " + kStartupArgument;
+}
+
+std::wstring ReadRunAtStartupCommand() {
+    HKEY key = nullptr;
+    if (::RegOpenKeyExW(HKEY_CURRENT_USER, kRunKeyPath, 0, KEY_QUERY_VALUE, &key) != ERROR_SUCCESS) {
+        return std::wstring();
+    }
+    KeyHandle handle(key);
+    DWORD type = 0;
+    DWORD bytes = 0;
+    if (::RegQueryValueExW(handle.get(), kRunKeyValue, nullptr, &type, nullptr, &bytes)
+            != ERROR_SUCCESS
+        || (type != REG_SZ && type != REG_EXPAND_SZ) || bytes < sizeof(wchar_t)) {
+        return std::wstring();
+    }
+    std::wstring value(bytes / sizeof(wchar_t), L'\0');
+    if (::RegQueryValueExW(handle.get(), kRunKeyValue, nullptr, nullptr,
+                           reinterpret_cast<BYTE*>(&value[0]), &bytes) != ERROR_SUCCESS) {
+        return std::wstring();
+    }
+    // A registry string is not obliged to be terminated, and one that is
+    // arrives with its terminator inside the byte count.
+    value.resize(bytes / sizeof(wchar_t));
+    while (!value.empty() && value.back() == L'\0') value.pop_back();
+    return value;
+}
+
 bool IsRunAtStartupEnabled() {
     HKEY key = nullptr;
     if (::RegOpenKeyExW(HKEY_CURRENT_USER, kRunKeyPath, 0, KEY_QUERY_VALUE, &key) != ERROR_SUCCESS) {
@@ -154,8 +186,7 @@ bool SetRunAtStartup(bool enabled) {
         return result == ERROR_SUCCESS || result == ERROR_FILE_NOT_FOUND;
     }
 
-    // Quoted, because Program Files paths contain spaces.
-    const std::wstring command = L"\"" + util::ExecutablePath() + L"\"";
+    const std::wstring command = RunAtStartupCommand();
     return ::RegSetValueExW(handle.get(), kRunKeyValue, 0, REG_SZ,
                             reinterpret_cast<const BYTE*>(command.c_str()),
                             static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t)))

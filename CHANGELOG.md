@@ -8,6 +8,41 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.7.5] — 2026-09-28
+
+### Fixed
+
+- **"Run at Startup: On" opened the menu at every login.** The menu appeared
+  on its own after a restart, without anything being clicked.
+
+  Two unrelated decisions had been welded into one `if`/`else`: *should setup
+  be deferred* (only when a delay is set **and** Windows started the app) and
+  *should the menu be shown* (only when the **user** started the app). With a
+  delay set, the first branch ran and the menu correctly stayed away. With no
+  delay — which is what `On` means — the condition was false, control fell to
+  the `else`, and the menu opened along with the tray icon.
+
+  The two questions are now asked separately. A login launch never shows the
+  menu, at any delay, including none.
+
+- **Run at Startup silently stopped working after an upgrade.** The executable
+  carries its version in its file name, so the registry entry written by
+  1.7.4 named `SnipTextProUltra_1.7.4.exe` — a file that upgrading to 1.7.5
+  removes. Windows then had nothing to launch, while the menu still read
+  `Run at Startup: On`. The entry is now checked against the running
+  executable at launch and rewritten when it has gone stale, so an upgrade
+  repairs it by itself. Toggling it off and on again is no longer needed.
+
+### Changed
+
+- **A login launch is now stated rather than guessed.** The startup entry
+  carries a `--startup` argument, so the program can read what kind of launch
+  it is from its own command line. Previously it inferred this from system
+  uptime — any launch within two minutes of a boot was assumed to be
+  Windows's, which meant that starting the app by hand shortly after a restart
+  would swallow the menu. The uptime rule remains as a fallback for entries
+  written by earlier versions, and those are rewritten on first launch.
+
 ## [1.7.4] — 2026-09-28
 
 ### Fixed

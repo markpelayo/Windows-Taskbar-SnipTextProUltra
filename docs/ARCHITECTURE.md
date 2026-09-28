@@ -368,15 +368,22 @@ Two labelling rules carried over:
 
 ---
 
-## Startup delay detection
+## Startup launch detection
 
-The Run at Startup delay applies only when Windows started the app after a boot — never to a launch the user asked for.
+Two things hang off "did Windows start us, or did the user?", and they are **separate decisions** that must not be folded into one branch:
 
-Detecting which is which is not as easy as it looks. It uses **system uptime**: startup entries fire moments after the desktop appears, so a launch inside the first two minutes of uptime is a startup launch and anything later is the user.
+| Decision | Condition |
+|---|---|
+| Defer setup by the delay | a delay is set **and** Windows started us |
+| Open the menu | the **user** started us — at any delay, including none |
 
-The bias is deliberate: when unsure it starts immediately, because a missing delay is invisible while a wrong one looks like a broken app.
+They *were* folded into one `if`/`else` up to 1.7.4, and the result was that `Run at Startup: On` with no delay fell through to the `else` and opened the menu at every login. `App::Run` now asks the two questions independently, and asks `LaunchedAtLogin()` exactly once — two calls would read the clock twice, and two reads either side of the two-minute boundary below can disagree.
 
-This inherits a known inaccuracy from the macOS original, plus a Windows-specific one: fast startup and hibernate resume can leave the tick count high, so a genuine boot launch may read as manual and start without its delay. Starting too early is the failure mode this design prefers.
+Detection itself is stated, not guessed: `settings::SetRunAtStartup` writes the Run entry as `"<exe path>" --startup`, and `LaunchedAtLogin()` looks for that argument in `GetCommandLineW()`.
+
+**System uptime remains as a fallback** for entries written before 1.7.5, which carry no argument: a launch inside the first two minutes of uptime is treated as a startup launch. The bias is deliberate — when unsure it starts immediately, because a missing delay is invisible while a wrong one looks like a broken app. It is also wrong in both directions: a manual launch just after a boot reads as a login launch, and fast startup or hibernate resume can leave the tick count high so a genuine boot launch reads as manual. Neither matters for long, because of the next paragraph.
+
+**The Run entry self-heals.** The executable carries its version in its file name, so the entry written by one version names a file the next version removes — Windows launches nothing, while the menu still reads `Run at Startup: On` because that row only checks the value's existence. `App::Run` compares `settings::ReadRunAtStartupCommand()` against `settings::RunAtStartupCommand()` and rewrites on a mismatch. That costs one registry read per launch, writes only on the first launch after an upgrade, and incidentally retires the uptime fallback after a single restart.
 
 ---
 

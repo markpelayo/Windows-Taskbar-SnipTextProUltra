@@ -18,6 +18,7 @@
 #include "resource.h"
 
 #include <commctrl.h>
+#include <shlwapi.h>   // StrStrIW, for reading our own command line
 
 namespace {
 constexpr const wchar_t* kWindowClass = L"SnipTextProUltraMain";
@@ -429,15 +430,42 @@ bool App::Run() {
             OnRecordingFinished(path, failure);
         });
 
+    // Two separate decisions, and they were once conflated into a single
+    // if/else — which is exactly how "Run at Startup: On" with no delay ended
+    // up opening the menu in your face at every login. Keep them apart:
+    //
+    //   defer setup?  only when there is a delay AND Windows started us
+    //   show the menu? only when the USER started us, delay or no delay
+    //
+    // LaunchedAtLogin() is asked once and the answer reused. Asking twice
+    // would read the clock twice, and two reads either side of the two-minute
+    // boundary can disagree.
+    const bool atLogin = LaunchedAtLogin();
+    const int  delay   = settings::GetInt(settings::key::kStartupDelay, 0);
+
+    // Keep the Run entry pointing at *this* executable, and carrying the
+    // argument. It goes stale on its own: the file name carries the version,
+    // so an entry written by 1.7.4 names an executable that an upgrade to
+    // 1.7.5 removed, and Run at Startup would then read as On in the menu
+    // while quietly doing nothing at the next login. One registry read per
+    // launch, a write only on the launch after an upgrade.
+    if (settings::IsRunAtStartupEnabled()
+        && settings::ReadRunAtStartupCommand() != settings::RunAtStartupCommand()) {
+        settings::SetRunAtStartup(true);
+    }
+
     // The startup delay applies only when Windows started the app after a
     // boot, never to a launch the user asked for.
-    const int delay = settings::GetInt(settings::key::kStartupDelay, 0);
-    if (delay > 0 && LaunchedAtLogin()) {
+    if (delay > 0 && atLogin) {
         ::SetTimer(hwnd_, kSetupTimer, static_cast<UINT>(delay) * 1000, nullptr);
     } else {
         SetUpAfterStartupDelay();
-        // A deliberate launch means the user wants the menu, now. The pinned
-        // icon has no other way to say so.
+    }
+
+    // A deliberate launch means the user wants the menu, now. The pinned icon
+    // has no other way to say so. A login launch is not a request for
+    // anything: the program goes to the tray and waits.
+    if (!atLogin) {
         ShowMenu();
     }
 
@@ -494,13 +522,20 @@ bool App::LaunchedAtLogin() {
     if (!settings::IsRunAtStartupEnabled()) {
         return false;
     }
-    // Startup entries fire moments after the desktop appears, so a launch
-    // inside the first two minutes of uptime is a startup launch and anything
-    // later is the user. The bias is deliberate: a missing delay is
-    // invisible, while a wrong one looks like a broken app.
-    const ULONGLONG uptimeMs = ::GetTickCount64();
-    const bool isLogin = uptimeMs < 120000;
-    return isLogin;
+    // The exact answer, when the Run entry was written by this version or
+    // later: Windows hands us back the command line we asked it to store, so
+    // the launch states what it is instead of being inferred.
+    const wchar_t* const commandLine = ::GetCommandLineW();
+    if (commandLine && ::StrStrIW(commandLine, settings::kStartupArgument) != nullptr) {
+        return true;
+    }
+    // Fallback, for an entry written before the argument existed. Startup
+    // entries fire moments after the desktop appears, so a launch inside the
+    // first two minutes of uptime is a startup launch and anything later is
+    // the user. It guesses, and it is wrong for a manual launch in the first
+    // two minutes after a boot — which is why the argument above exists and
+    // why Run() rewrites a flagless entry the first time it sees one.
+    return ::GetTickCount64() < 120000;
 }
 
 // --- message routing -------------------------------------------------------

@@ -77,7 +77,18 @@ bool         Exists(const wchar_t* name);
 // HKCU\...\Run, which is the Windows equivalent of a login item. The delay is
 // our own setting and applies only when Windows started the app after a boot.
 
+// Appended to the Run entry's command line so that a login launch says so
+// outright. Entries written before v1.7.5 do not carry it, which is why the
+// uptime heuristic survives as a fallback.
+inline constexpr const wchar_t* kStartupArgument = L"--startup";
+
 bool IsRunAtStartupEnabled();
 bool SetRunAtStartup(bool enabled);
+
+// What the Run entry should say, and what it currently says. They differ
+// after an upgrade — the executable carries its version in its file name, so
+// the old entry points at an executable that is no longer there.
+std::wstring RunAtStartupCommand();
+std::wstring ReadRunAtStartupCommand();
 
 } // namespace settings

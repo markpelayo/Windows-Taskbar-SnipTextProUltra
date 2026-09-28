@@ -8,6 +8,38 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.7.6] — 2026-09-29
+
+### Fixed
+
+- **The selection border tore while dragging.** Pulling out a region left the
+  border with a horizontal jog in it, near the pointer — the line ran straight
+  down, stepped sideways by however far the mouse had moved, and carried on.
+
+  It was not jagged drawing. It was half a frame. The overlay is a
+  full-desktop, topmost, opaque window repainted on every mouse-move — a blit
+  straight into the window's surface at whatever rate the mouse reports, which
+  on a fast mouse is several hundred times a second. DWM copies that surface
+  when it composes, on its own clock, and nothing made the two take turns. A
+  blit landing while DWM was reading produced a composed frame that was part
+  new selection and part old, split along one scanline. It appeared next to
+  the pointer because the pointer is where the only changing pixels are.
+
+  A frame pulled out of a phone recording of the drag shows it outright: in a
+  single frame the right-hand border sits at one x above the split and eight
+  pixels to the left of it below.
+
+  The overlay now calls `DwmFlush` after each paint, which blocks until the
+  compositor has finished its next frame. Every blit therefore begins just
+  after a composition ended, with most of a frame interval to finish in, and a
+  blit of the dirty rectangle takes a small fraction of that.
+
+  It also makes the drag cheaper rather than slower: painting is capped at the
+  monitor's refresh rate instead of the mouse's report rate, so frames that
+  were being composed only to be overwritten before anyone saw them are no
+  longer drawn at all. Mouse-moves coalesce while it waits, so the selection
+  still tracks the pointer exactly.
+
 ## [1.7.5] — 2026-09-28
 
 ### Fixed

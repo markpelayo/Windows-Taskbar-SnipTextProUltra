@@ -98,6 +98,16 @@ Two details in that loop:
 
 This view covers every monitor. Repainting a multi-megapixel composite on every mouse-move event is exactly what makes a selection feel sluggish, and mouse-move is when this runs. The paint itself goes through an off-screen buffer the size of the dirty rectangle, then one `BitBlt` to the screen.
 
+The hint bar and the Record button are **not** covered by that 90-pixel padding and are unioned in explicitly. The bar is 560 px wide and centred on the selection, so any selection narrower than 380 px leaves it sticking out past the padded rectangle at both ends; and both the bar and the button flip to the other side of the selection when they run out of room, which moves them an arbitrary distance in one step. Asking the geometry where they are, before and after, is exact for every size and position — two extra calls per mouse-move against arithmetic this cheap costs nothing.
+
+### Painting is synchronised with the compositor
+
+`OnPaint` ends with `DwmFlush`. Without it the border **tears**: a full-desktop opaque window blitting on every mouse-move writes into its surface at the mouse's report rate, DWM copies that surface on its own clock, and a blit landing mid-copy gives a composed frame that is part new selection and part old, split along one scanline. It is visible next to the pointer because that is where the only changing pixels are — everywhere else the two frames are identical.
+
+`DwmFlush` blocks until DWM finishes its next composition, so each blit starts just after one ended and has most of a frame interval to complete in. It is the documented remedy for GDI drawing under the compositor, and the same call `capture::` makes before reading the screen.
+
+It costs nothing in responsiveness and gives some back: painting is capped at the refresh rate rather than the mouse's report rate, and mouse-moves coalesce while it waits, so no pointer positions are lost — only redraws nobody saw.
+
 ### Window picking
 
 Space toggles a mode where the window under the pointer is highlighted. Two details:

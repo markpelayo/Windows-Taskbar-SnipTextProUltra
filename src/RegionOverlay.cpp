@@ -388,6 +388,40 @@ void RegionOverlay::OnPaint(HWND hwnd) {
     }
 
     ::EndPaint(hwnd, &paint);
+
+    // Synchronise with the compositor, or the selection border tears.
+    //
+    // This window is a full-desktop, topmost, opaque WS_POPUP, and it is
+    // repainted on every mouse-move — a blit straight into the window's
+    // surface at whatever rate the mouse reports, which on a gaming mouse is
+    // several hundred times a second. DWM copies that surface when it
+    // composes, on its own clock, and nothing makes the two take turns. Land a
+    // blit while DWM is reading and the composed frame is part new selection
+    // and part old, split along one scanline: the border runs down the screen,
+    // jogs sideways by however far the mouse moved, and carries on. It shows
+    // up next to the pointer because the pointer is where the only changing
+    // pixels are.
+    //
+    // A frame pulled out of a phone recording of the drag shows it exactly:
+    // the right-hand border is at one x above the split and eight pixels left
+    // of it below, in a single frame.
+    //
+    // DwmFlush blocks until DWM's next composition finishes. Every blit
+    // therefore starts just after a composition ended, with most of a frame
+    // interval to finish in — and a blit of the dirty rectangle takes a small
+    // fraction of that. It is the documented remedy for GDI drawing under the
+    // compositor, and the same call the capture path already uses.
+    //
+    // It costs nothing in responsiveness, and gives some back: painting is now
+    // capped at the refresh rate instead of the mouse's report rate, so the
+    // frames that were being composed only to be overwritten before anyone saw
+    // them are no longer drawn at all. Mouse-moves coalesce while it waits, so
+    // the selection still follows the pointer exactly.
+    //
+    // The error is ignored on purpose: DwmFlush fails only with composition
+    // off, which cannot happen on a supported version of Windows, and a torn
+    // border beats a dead overlay.
+    ::DwmFlush();
 }
 
 // The caller has already clipped to the dirty rectangle by sizing the

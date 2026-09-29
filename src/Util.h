@@ -61,6 +61,10 @@ std::wstring DisplayPath(const std::wstring& path);
 // Used by the recording indicator, so the green frame and the Stop button
 // stay out of the video.
 bool ExcludeFromCapture(HWND hwnd);
+// The inverse: puts a window back into screen captures. Needed because
+// exclusion is now a state that can be turned off again — an editor that
+// is no longer kept on top has no reason to be invisible to the recorder.
+bool IncludeInCapture(HWND hwnd);
 
 // --- DPI and geometry ------------------------------------------------------
 

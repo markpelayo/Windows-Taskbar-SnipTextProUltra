@@ -34,10 +34,13 @@ inline constexpr const wchar_t* kSaveCaptures     = L"saveCaptures";
 // Absent (the default) means a screenshot opens the annotation editor. True
 // means it goes straight to the clipboard and nothing opens.
 inline constexpr const wchar_t* kSkipEditor       = L"screenshotSkipsEditor";
-// Absent (the default) means off. On, a Screen Capture a Region shot sticks
-// to the screen in a floating window instead of opening the editor. Region
-// only: a full-screen shot pinned over the whole desktop would cover the
-// thing it is a picture of.
+// Absent (the default) means off. On, every annotation editor window is
+// topmost — it stays above other windows so you can work beside it.
+//
+// The key name is a leftover from the first design, where this floated a
+// separate borderless copy of the capture rather than pinning the editor.
+// Renaming it would silently reset the setting for anyone upgrading, and
+// the key is not the part anyone sees.
 inline constexpr const wchar_t* kPinToScreen      = L"pinRegionToScreen";
 inline constexpr const wchar_t* kStartupDelay     = L"startupDelaySeconds";
 

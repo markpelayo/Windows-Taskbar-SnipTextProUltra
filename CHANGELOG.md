@@ -8,6 +8,68 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.8.1] — 2026-09-30
+
+Four corrections to 1.8.0, three of which are features that were built to
+answer the wrong question.
+
+### Changed
+
+- **Pin to Screen now keeps the EDITOR on top**, and is renamed *Keep the
+  Editor on Top*. The first version floated a separate borderless copy of
+  the capture with no toolbar on it, which is not what pinning is for — the
+  window worth keeping in front of you is the one you are annotating in.
+
+  It applies to every editor, so it covers full-screen captures too. The
+  original objection (a full-screen pin would cover the thing it is a
+  picture of) was wrong: the editor scales its capture down to fit, so a
+  pinned full-screen shot is a window like any other.
+
+  Toggling it — from the tray row or the toolbar button — raises or lowers
+  every open editor immediately, rather than applying to the next one.
+
+  While it is on, the editor is excluded from every capture the program
+  takes — a topmost window is always in the way, and the one thing you
+  cannot do about this one is move it aside. Turning the setting off puts
+  it back into captures.
+
+  The `PinnedWindow` class is gone, and with it about 550 lines, a window
+  class, a registry of live pins and a second reap path through `App`.
+
+- **Redact is no longer a tool. Shift-drag fills a Rectangle or an Ellipse**
+  in the colour you picked, exactly the way Shift-drag turns a Lift from a
+  copy into a cut. A tool whose only difference from Rectangle was the
+  brush had not earned a slot on the bar, and the canvas now shows the
+  modifier hint for all three tools that have one.
+
+  Eight tools instead of nine, and the swatch is back to meaning one thing:
+  Redact had forced a second hidden colour behind it, defaulting to black.
+
+  The reason a redaction must be a *flat fill* rather than pixelation or
+  blur has not changed and is kept in the header where someone will read
+  it.
+
+- **The callout's label moved to the arrow's tail.** It sat past the
+  arrowhead — on top of the very thing the arrow was drawn to single out.
+  It now sits behind the tail, in the empty space the drag started from, so
+  the arrow leaves the text and travels to the subject. The icon was
+  redrawn the same way round: the letter first, the arrow leaving it.
+
+### Fixed
+
+- **The colour picker covered the picture.** It opened upwards from the
+  swatch, and because the swatch is on the bottom bar, "upwards" is always
+  over the canvas — over the capture, in the corner, while you choose the
+  colour you are about to draw on it with.
+
+  It opens **downwards** now, outside the window entirely, which is also
+  the direction the swatch's caret has been claiming since it became
+  owner-drawn. It flips back up only when the monitor's work area has no
+  room below, so covering the canvas is the fallback rather than the rule.
+
+  v1.7.7 moved the Lift *hint* out of the picker's way, which was a real
+  collision but not this one.
+
 ## [1.8.0] — 2026-09-30
 
 A minor version rather than a patch: two new tools, a new window, and the

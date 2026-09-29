@@ -6,7 +6,6 @@
 #include "Hotkeys.h"
 #include "MediaFolder.h"
 #include "Ocr.h"
-#include "PinnedWindow.h"
 #include "RecordingIndicator.h"
 #include "RegionOverlay.h"
 #include "ScreenRecorder.h"
@@ -28,7 +27,6 @@ constexpr const wchar_t* kMutexName   = L"Local\\SnipTextProUltraSingleInstance"
 constexpr UINT WM_TRAY_ICON     = WM_APP + 10;
 constexpr UINT WM_OCR_FINISHED  = WM_APP + 11;
 constexpr UINT WM_REAP_EDITORS  = WM_APP + 12;
-constexpr UINT WM_REAP_PINS     = WM_APP + 13;
 
 constexpr UINT_PTR kRecordingTimer = 1;
 constexpr UINT_PTR kSetupTimer     = 2;
@@ -41,7 +39,7 @@ enum : int {
     ID_REC_REGION, ID_REC_FULL, ID_REC_STOP, ID_REC_SHOW,
     // ID_SET_JOINWRAPPED was here; Text Layout replaced the checkbox with the
     // two rows below. The slot is kept so ID_SET_AUTOSAVE keeps its number.
-    ID_SET_LAYOUT_RETIRED, ID_SET_AUTOSAVE, ID_SET_PIN, ID_PIN_CLOSEALL,
+    ID_SET_LAYOUT_RETIRED, ID_SET_AUTOSAVE, ID_SET_PIN, ID_PIN_RETIRED_1015,
     ID_FOLDER_SHOT_CHOOSE = 1020, ID_FOLDER_SHOT_RESET,
     ID_FOLDER_TEXT_CHOOSE, ID_FOLDER_TEXT_RESET,
     ID_FOLDER_VIDEO_CHOOSE, ID_FOLDER_VIDEO_RESET,
@@ -623,10 +621,6 @@ LRESULT App::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         OnOcrFinished(reinterpret_cast<OcrOutcome*>(lParam));
         return 0;
 
-    case WM_REAP_PINS:
-        ReapClosedPins();
-        return 0;
-
     case WM_REAP_EDITORS:
         ReapClosedEditors();
         return 0;
@@ -856,22 +850,14 @@ HMENU App::BuildMenu() {
     AppendCommand(menu, ID_SET_AUTOSAVE, L"Auto-Save Images", true,
                   settings::GetBool(settings::key::kSaveCaptures, false));
 
-    // Region only, and it says so, because a full-screen capture pinned on
-    // top of the screen would cover the thing it is a picture of. The row
-    // sits with Auto-Save rather than inside "After a Screenshot" because
-    // like Auto-Save it is a standing choice about where captures go, not
-    // one of two named behaviours.
-    {
-        const bool pinning = settings::GetBool(settings::key::kPinToScreen, false);
-        const int  livePins = PinnedWindow::LiveCount();
-        AppendCommand(menu, ID_SET_PIN, L"Pin to Screen (Region)", true, pinning);
-        if (livePins > 0) {
-            AppendCommand(menu, ID_PIN_CLOSEALL,
-                          (livePins == 1) ? std::wstring(L"Close the Pinned Capture")
-                                          : util::Format(L"Close %d Pinned Captures",
-                                                         livePins));
-        }
-    }
+    // Applies to the EDITOR, not to a separate floating copy of the
+    // picture, and to every capture that opens one — region and full
+    // screen alike. The first version of this floated a bare image with no
+    // toolbar, which is not what "pin it so I can work next to it" means:
+    // the thing worth keeping in front of you is the window you are
+    // annotating in.
+    AppendCommand(menu, ID_SET_PIN, L"Keep the Editor on Top", true,
+                  settings::GetBool(settings::key::kPinToScreen, false));
 
     // --- where the three capture commands write ---
     // Collected under one row. Three top-level folder rows, each able to grow
@@ -1286,9 +1272,7 @@ void App::OnCommand(int command) {
         EditorWindow::PinSettingChanged();
         return;
     }
-    case ID_PIN_CLOSEALL:
-        PinnedWindow::CloseAll();
-        return;
+
 
     case ID_FOLDER_SHOT_CHOOSE:  ChooseFolder(MediaFolder::Screenshots()); return;
     case ID_FOLDER_TEXT_CHOOSE:  ChooseFolder(MediaFolder::TextImages()); return;
@@ -1332,35 +1316,14 @@ void App::OnCommand(int command) {
 
 // --- capture pipelines -----------------------------------------------------
 
-std::unique_ptr<Bitmap> App::AcquireImage(capture::Mode mode, RECT* capturedFrom) {
-    if (capturedFrom) *capturedFrom = RECT{};
-
+std::unique_ptr<Bitmap> App::AcquireImage(capture::Mode mode) {
     if (mode == capture::Mode::FullScreen) {
-        HMONITOR monitor = util::MonitorUnderCursor();
-        if (capturedFrom && monitor) {
-            MONITORINFO info{};
-            info.cbSize = sizeof(info);
-            if (::GetMonitorInfoW(monitor, &info)) *capturedFrom = info.rcMonitor;
-        }
-        return capture::GrabMonitor(monitor);
+        return capture::GrabMonitor(util::MonitorUnderCursor());
     }
 
     RegionOverlay overlay;
     const RegionOverlay::Selection selection = overlay.Run(RegionOverlay::Style::Instant);
     if (!selection.confirmed || !overlay.FrozenDesktop()) return nullptr;
-
-    // Reported in VIRTUAL-DESKTOP coordinates, not frozen-image ones. The
-    // crop below wants the latter, and a pinned window placed with the
-    // former lands exactly over the region it was cut from — which on a
-    // multi-monitor desk with a secondary screen to the left of the primary
-    // are not the same numbers at all.
-    if (capturedFrom) {
-        const RECT desktop = overlay.DesktopBounds();
-        *capturedFrom = RECT{ selection.bounds.left   + desktop.left,
-                              selection.bounds.top    + desktop.top,
-                              selection.bounds.right  + desktop.left,
-                              selection.bounds.bottom + desktop.top };
-    }
     return overlay.FrozenDesktop()->Crop(selection.bounds);
 }
 
@@ -1370,8 +1333,7 @@ void App::Screenshot(capture::Mode mode) {
     }
     isCapturing_ = true;
 
-    RECT capturedFrom{};
-    std::unique_ptr<Bitmap> image = AcquireImage(mode, &capturedFrom);
+    std::unique_ptr<Bitmap> image = AcquireImage(mode);
 
     // Cleared before anything that can put a dialog on screen. A deferred
     // reset would keep the app locked out of new captures for as long as the
@@ -1392,23 +1354,6 @@ void App::Screenshot(capture::Mode mode) {
             MediaFolder::Screenshots().SaveBytes(png.data(), png.size()).empty()) {
             toast::Show(L"Couldn't auto-save the screenshot to disk");
         }
-    }
-
-    // Pin to Screen takes the place of the editor, and only for a region.
-    // Opening the editor AND floating a copy of the same picture would be
-    // two answers to one question.
-    //
-    // The other two destinations are unaffected because both are invisible:
-    // Auto-Save has already written to disk above, and "Copy to Clipboard
-    // and Close" still copies — a pin does not stop you pasting. With the
-    // editor selected there is no clipboard write, exactly as before; the
-    // pin's own Copy is there for when you want one.
-    if (mode == capture::Mode::Region &&
-        settings::GetBool(settings::key::kPinToScreen, false)) {
-        const bool alsoCopy = settings::GetBool(settings::key::kSkipEditor, false);
-        if (alsoCopy) image->CopyToClipboard(hwnd_);
-        OpenPin(std::move(image), capturedFrom);
-        return;
     }
 
     if (settings::GetBool(settings::key::kSkipEditor, false)) {
@@ -1918,47 +1863,6 @@ void App::OpenEditor(std::unique_ptr<Bitmap> image) {
         return;
     }
     editors_.emplace_back(editor);
-}
-
-void App::OpenPin(std::unique_ptr<Bitmap> image, const RECT& capturedFrom) {
-    PinnedWindow* pin = PinnedWindow::Open(
-        std::move(image), capturedFrom,
-        [this](PinnedWindow* closing) {
-            // Same deferral as the editors, for the same reason: this fires
-            // from inside the window's own destruction.
-            closingPins_.push_back(closing);
-            ::PostMessageW(hwnd_, WM_REAP_PINS, 0, 0);
-        },
-        [this](std::unique_ptr<Bitmap> copy) {
-            // "Open in Editor" from a pin. The pin keeps its own pixels and
-            // stays exactly where it is — closing it must not pull the
-            // picture out from under the editor it just opened.
-            OpenEditor(std::move(copy));
-        });
-
-    if (!pin) {
-        // A CreateWindowEx that fails AFTER WM_NCCREATE still runs the close
-        // callback, so closingPins_ can be holding a pointer to the object
-        // PinnedWindow::Open has already deleted. It is only ever COMPARED
-        // in ReapClosedPins, never dereferenced, and it matches nothing —
-        // so it is dropped by the clear at the end of the reap. Clearing it
-        // here instead would also discard legitimately queued pins whose
-        // reap has not run yet, stranding them in pins_ with a dead handle.
-        ReportFailure(L"Couldn't pin the capture to the screen.");
-        return;
-    }
-    pins_.emplace_back(pin);
-}
-
-void App::ReapClosedPins() {
-    for (PinnedWindow* closing : closingPins_) {
-        pins_.erase(std::remove_if(pins_.begin(), pins_.end(),
-                                   [closing](const std::unique_ptr<PinnedWindow>& held) {
-                                       return held.get() == closing;
-                                   }),
-                    pins_.end());
-    }
-    closingPins_.clear();
 }
 
 void App::ReapClosedEditors() {

@@ -62,13 +62,14 @@ private:
     // state appears in words — and therefore has to be rewritten whenever
     // the setting changes, not set once at creation.
     void UpdatePinTooltip();
+    // Puts this window above or below the others, from the shared setting.
+    // The entirety of what "Pin to Screen" now does.
+    void ApplyAlwaysOnTop();
     void ReturnFocusToCanvas();
 
-    // The colour the swatch is currently editing, and the colour a new mark
-    // gets. Two colours behind one control: ink for everything that draws,
-    // and a separate cover colour for Redact. Sharing one would mean either
-    // redactions defaulting to bright green or every arrow turning black the
-    // first time you redacted something.
+    // The colour a new mark gets. There were briefly two behind one
+    // swatch — ink, and a cover colour for the Redact tool — and folding
+    // that tool into Shift-drag took the second one with it.
     COLORREF ActiveColour() const;
 
     // --- coordinate mapping ---
@@ -183,9 +184,9 @@ private:
     HWND redoButton_ = nullptr;
     HWND copyButton_ = nullptr;
     HWND saveButton_ = nullptr;
-    // Toggles whether a region capture pins itself — the same setting as
-    // the tray row. Fourteen icon buttons need the tooltips, or the bar is
-    // a rebus.
+    // Toggles whether the editor stays above other windows — the same
+    // setting as the tray row. Thirteen icon buttons need the tooltips, or
+    // the bar is a rebus.
     HWND pinButton_ = nullptr;
     HWND tooltips_  = nullptr;
 
@@ -196,12 +197,6 @@ private:
     int      selectedIndex_ = -1;
     Tool     currentTool_   = Tool::Arrow;
     COLORREF currentColour_ = RGB(52, 199, 89);
-    // Black by default and deliberately so. A redaction is the one mark
-    // whose job is to be unambiguous about having hidden something, and
-    // black is what people read as "this was removed on purpose". The swatch
-    // still changes it — matching the background is genuinely useful — but
-    // that has to be a decision rather than a default.
-    COLORREF redactColour_  = RGB(0, 0, 0);
     double   currentLineWidth_ = 4.0;
 
     DragMode   dragMode_ = DragMode::None;

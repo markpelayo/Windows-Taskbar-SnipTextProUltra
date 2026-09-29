@@ -43,7 +43,7 @@ constexpr int IDC_SLIDER     = 106;
 constexpr int IDC_PINTOGGLE  = 107;
 constexpr int IDC_TOOL_FIRST = 110;
 // 200, not 120. The tool buttons run from IDC_TOOL_FIRST upwards, one per
-// tool, and at nine tools they reach 118 — two short of where this used to
+// tool, and at eight tools they reach 117 — three short of where this used to
 // sit. A tenth tool would have collided with it, and the failure would have
 // been quiet: a tool button whose click is read as an edit-control
 // notification.
@@ -60,8 +60,8 @@ constexpr UINT WM_OPEN_COLOUR_PICKER = WM_APP + 1;
 constexpr int kBarHeight     = 44;
 constexpr int kBarPadding    = 10;
 constexpr int kButtonHeight  = 28;
-// Tools are square icons now, not words. Nine text labels would have needed
-// a minimum window about 50% wider than the old seven did; nine icons need
+// Tools are square icons now, not words. Eight text labels would have needed
+// a minimum window wider than the old seven did; eight icons need markedly
 // less room than the seven words they replaced. Every glyph is drawn in GDI
 // from lines and curves — there is no image resource anywhere in the program
 // and adding one for this would have been the first.
@@ -425,33 +425,17 @@ void DrawToolGlyph(HDC dc, Tool tool, const RECT& box, COLORREF ink) {
         break;
     }
 
-    case Tool::Redact: {
-        // A solid bar laid over two lines of text — the only honest picture
-        // of what the tool does. An earlier draft showed a pixelation grid,
-        // which promised a sophistication the tool deliberately does not
-        // have; see the note on Tool::Redact in Annotation.h.
-        ScopedPen faint(::CreatePen(PS_SOLID,
-                                    (std::max)(1L, std::lround(g.unit * 1.4)),
-                                    RGB(150, 156, 162)));
-        if (faint) {
-            SelectGuard faintGuard(dc, faint.get());
-            g.Line(3.0, 5.0, 16.5, 5.0);
-            g.Line(3.0, 15.6, 13.0, 15.6);
-        }
-        g.Box(2.0, 8.0, 18.5, 13.2, fill.get());
-        break;
-    }
-
     case Tool::Callout:
-        // Literally the two halves it combines: an arrow, and a letter at the
-        // end of it. Nothing else read as "arrow that says something" at this
-        // size — a speech bubble reads as a comment, and a tag reads as a
-        // label you attach rather than one you point with.
-        g.Line(2.0, 17.0, 7.6, 11.4);
-        g.Triangle(8.8, 10.2, 4.6, 10.6, 8.4, 14.4, fill.get());
-        g.Line(10.4, 17.0, 14.2, 6.0);
-        g.Line(14.2, 6.0, 18.0, 17.0);
-        g.Line(11.8, 13.0, 16.6, 13.0);
+        // Reversed from the first draft, to say what the tool now does: the
+        // LETTER comes first and the arrow leaves it, pointing away at
+        // something off the edge of the icon. Arrow-then-letter read as
+        // "the text is the destination", which is exactly the placement
+        // this release moved away from.
+        g.Line(2.0, 17.5, 6.2, 6.5);
+        g.Line(6.2, 6.5, 10.4, 17.5);
+        g.Line(3.8, 13.5, 8.6, 13.5);
+        g.Line(12.2, 14.0, 17.4, 8.2);
+        g.Triangle(18.6, 6.8, 13.9, 7.6, 17.8, 11.5, fill.get());
         break;
     }
 
@@ -576,8 +560,36 @@ bool EditorWindow::Create() {
 
     ::ShowWindow(hwnd_, SW_SHOW);
     ::SetForegroundWindow(hwnd_);
+    ApplyAlwaysOnTop();
     ReturnFocusToCanvas();
     return true;
+}
+
+void EditorWindow::ApplyAlwaysOnTop() {
+    if (!hwnd_) return;
+    // The whole of "Pin to Screen" is this one call. The first version of
+    // the feature floated a separate borderless copy of the picture, which
+    // is not what pinning is for: the window worth keeping in front of you
+    // is the one with the tools in it, not a read-only duplicate.
+    //
+    // SWP_NOACTIVATE so that toggling it in one editor does not snatch
+    // focus into a different one.
+    const bool onTop = settings::GetBool(settings::key::kPinToScreen, false);
+    ::SetWindowPos(hwnd_, onTop ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+                   SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+
+    // A topmost window is, by definition, always in the way — so while it
+    // is on top it is also taken out of every capture the program makes.
+    // Without this, turning the setting on would mean the editor appeared
+    // in the next region shot, the next full-screen shot and every
+    // recording, and the one thing you cannot do is move it aside, because
+    // you pinned it there on purpose.
+    //
+    // Undone when the setting goes off: an ordinary window has no business
+    // being invisible to the recorder, and you may well want to capture
+    // the editor itself.
+    if (onTop) util::ExcludeFromCapture(hwnd_);
+    else       util::IncludeInCapture(hwnd_);
 }
 
 // --- message routing -------------------------------------------------------
@@ -669,7 +681,7 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
             toolButtons_[i] = MakeButton(hwnd_, L"", IDC_TOOL_FIRST + i, BS_OWNERDRAW);
         }
 
-        // Nine unlabelled squares without tooltips would be a guessing game.
+        // Unlabelled squares without tooltips would be a guessing game.
         // TTF_SUBCLASS so the tooltip control hooks each button itself; the
         // alternative is relaying every mouse message by hand.
         tooltips_ = ::CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr,
@@ -984,9 +996,9 @@ void EditorWindow::UpdatePinTooltip() {
     // is telling the truth and the label is contradicting it.
     const bool on = settings::GetBool(settings::key::kPinToScreen, false);
     const wchar_t* text =
-        on ? L"Pin to Screen: On — a region capture will stick to the screen "
-             L"instead of opening the editor.  Click to turn off."
-           : L"Pin to Screen: Off — a region capture opens the editor.  "
+        on ? L"Keep the Editor on Top: On — this window stays above other "
+             L"windows.  Click to turn off."
+           : L"Keep the Editor on Top: Off — this window behaves normally.  "
              L"Click to turn on.";
 
     TOOLINFOW info{};
@@ -1024,11 +1036,20 @@ void EditorWindow::PinSettingChanged() {
         if (!editor || !editor->pinButton_) continue;
         ::InvalidateRect(editor->pinButton_, nullptr, TRUE);
         editor->UpdatePinTooltip();
+        // Live, not on next open. The point of a switch in the window is
+        // seeing the window obey it.
+        editor->ApplyAlwaysOnTop();
     }
 }
 
 COLORREF EditorWindow::ActiveColour() const {
-    return ToolCoversPixels(currentTool_) ? redactColour_ : currentColour_;
+    // One colour again. This returned a separate black for the Redact tool,
+    // which existed because a redaction defaulting to bright green is
+    // absurd. A Shift-filled rectangle is drawn in whatever you picked, the
+    // same as every other mark, so there is nothing left to special-case —
+    // and one swatch that always means one thing is worth more than the
+    // convenience it replaced.
+    return currentColour_;
 }
 
 void EditorWindow::ReturnFocusToCanvas() {
@@ -1238,6 +1259,14 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
             // A click rather than a drag. No shape, and no undo state either.
             ::InvalidateRect(canvas_, nullptr, FALSE);
             return 0;
+        }
+
+        if (shape.tool == Tool::Rectangle || shape.tool == Tool::Ellipse) {
+            // Read at mouse-UP, like Lift's Shift, so the decision is the
+            // one you were holding when you let go rather than the one you
+            // happened to start with. Both modifiers work the same way for
+            // the same reason.
+            shape.filled = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
         }
 
         if (shape.tool == Tool::Lift) {
@@ -1495,17 +1524,25 @@ void EditorWindow::PaintCanvas(HDC dc) {
         // Lift is the only tool with a modifier, and a modifier nobody knows
         // about is a feature that does not exist. Every other tool does one
         // thing and needs no explanation, so rather than a permanent status
-        // bar taking space from all seven, the hint appears only while the
+        // bar taking space from all eight, the hint appears only while the
         // tool it describes is selected, and only while nothing is being
         // dragged — by the time a drag is under way the choice has been made,
         // and the label would just sit under the cursor.
         //
-        // The alternative was a second toolbar button, "Lift" and "Cut". That
-        // is more discoverable and costs an eighth button, which the editor's
-        // minimum width cannot currently take. This says the same thing for
-        // no width at all.
-        if (currentTool_ == Tool::Lift && !hasDraft_) {
-            const wchar_t* hint = L"Drag to copy a piece  ·  Shift-drag to cut it out";
+        // The alternative was a second toolbar button per variant — "Lift"
+        // and "Cut", "Rectangle" and "Filled Rectangle". That is more
+        // discoverable and costs three more buttons. This says the same
+        // thing for no width at all.
+        if (ToolHasShiftVariant(currentTool_) && !hasDraft_) {
+            // One line per tool that has a modifier. A modifier nobody
+            // knows about is a feature that does not exist, and there are
+            // three of them now — Lift's cut, and fill on both closed
+            // shapes — so the line is chosen by tool rather than hardcoded
+            // to the only one that used to have one.
+            const wchar_t* hint =
+                (currentTool_ == Tool::Lift)
+                    ? L"Drag to copy a piece  ·  Shift-drag to cut it out"
+                    : L"Drag for an outline  ·  Shift-drag to fill it";
 
             Gdiplus::FontFamily family(L"Segoe UI");
             Font font(&family, 12.0f, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
@@ -1634,25 +1671,12 @@ void EditorWindow::SetCurrentTool(Tool tool) {
     // compares values, so re-picking the tool you already had must not count
     // as a change.
     if (tool == currentTool_) return;
-    const bool coverChanged = ToolCoversPixels(tool) != ToolCoversPixels(currentTool_);
     currentTool_ = tool;
     editor_settings::SetTool(tool);
-    // Crossing between ink and cover swaps which colour the swatch is
-    // showing, so it has to repaint even though no colour was chosen.
-    if (coverChanged && swatch_) ::InvalidateRect(swatch_, nullptr, TRUE);
 }
 
 void EditorWindow::SetCurrentColour(COLORREF colour) {
-    // With Redact active the swatch is choosing a cover, not ink. It is NOT
-    // persisted: a redaction colour that came back black next session is
-    // right, and one that came back as whatever background you matched three
-    // weeks ago is a redaction you have to remember to check.
-    if (ToolCoversPixels(currentTool_)) {
-        if (colour != redactColour_) {
-            redactColour_ = colour;
-            if (swatch_) ::InvalidateRect(swatch_, nullptr, TRUE);
-        }
-    } else if (colour != currentColour_) {
+    if (colour != currentColour_) {
         currentColour_ = colour;
         editor_settings::SetColour(colour);
         if (swatch_) ::InvalidateRect(swatch_, nullptr, TRUE);
@@ -1705,9 +1729,15 @@ void EditorWindow::BeginTextEntry(PointD anchor) {
     // three changes, all three must, or the text jumps on commit.
     const int height = static_cast<int>(Annotation::TextBoxHeight(fontSize) * scale);
 
+    // Clamped for the same reason RepositionCalloutField clamps: a callout
+    // whose label sits back from its tail can start at a negative x when
+    // the arrow was drawn near the left edge, and the part that falls off
+    // is the part being typed.
+    const int fieldX = (std::max)(0L, origin.x);
+
     textEdit_ = ::CreateWindowExW(0, L"EDIT", L"",
                                   WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-                                  origin.x, origin.y, width, (std::max)(18, height),
+                                  fieldX, origin.y, width, (std::max)(18, height),
                                   canvas_,
                                   reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_TEXTEDIT)),
                                   ::GetModuleHandleW(nullptr), nullptr);
@@ -1747,9 +1777,13 @@ void EditorWindow::RepositionCalloutField() {
 
     const Annotation& arrow = annotations_[calloutIndex_];
     if (arrow.tool != Tool::Callout) return;
-    // A right-pointing callout is anchored at the tip and never moves, so
-    // there is nothing to do and no reason to measure.
-    if (arrow.end.x >= arrow.start.x) return;
+    // Which side moves flipped when the label moved to the tail. The label
+    // now sits BEHIND the start point, so an arrow travelling RIGHT puts
+    // its label to the left of the tail — positioned by its right edge,
+    // which means its left edge walks with every character typed. An arrow
+    // travelling left puts the label to the right of the tail, anchored by
+    // its left edge, and that never moves.
+    if (arrow.end.x < arrow.start.x) return;
 
     const int length = ::GetWindowTextLengthW(textEdit_);
     std::wstring typed;
@@ -1877,9 +1911,46 @@ void EditorWindow::ShowColourPopup() {
     RECT swatchRect{};
     ::GetWindowRect(swatch_, &swatchRect);
 
+    // DOWNWARDS, out of the window entirely.
+    //
+    // It used to open upwards, which is the only direction that guarantees
+    // covering the thing you are working on: the swatch lives on the bottom
+    // bar, so "above the swatch" is always over the canvas — over the
+    // picture, in the corner, while you are choosing the colour you are
+    // about to draw on it with. A popup is a top-level window and is under
+    // no obligation to stay inside its parent, so below the swatch is
+    // simply the desktop, and the capture stays visible the whole time.
+    //
+    // The swatch already grew a downward caret when it became owner-drawn,
+    // so this is also the direction it has been claiming to open in.
+    int left = swatchRect.left;
+    int top  = swatchRect.bottom + 4;
+
+    // Unless there is no room down there. Clamped against the WORK AREA of
+    // the monitor the swatch is on, not the primary one and not the full
+    // monitor rectangle — a window dragged to the bottom of a secondary
+    // screen, or sitting above the taskbar, would otherwise open its picker
+    // behind the taskbar or off the end of the desk.
+    // From the SWATCH, not the frame. An editor straddling two screens is
+    // "mostly on" whichever holds more of the window, which need not be the
+    // one the bottom-left corner — and therefore the picker — is on.
+    HMONITOR monitor = ::MonitorFromRect(&swatchRect, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO info{};
+    info.cbSize = sizeof(info);
+    if (monitor && ::GetMonitorInfoW(monitor, &info)) {
+        if (top + height > info.rcWork.bottom) {
+            // Flip back above the swatch, which is where it always was.
+            // Covering the canvas is the fallback now rather than the rule.
+            top = swatchRect.top - height - 4;
+        }
+        left = (std::max)(static_cast<int>(info.rcWork.left),
+                          (std::min)(left, static_cast<int>(info.rcWork.right) - width));
+        top  = (std::max)(static_cast<int>(info.rcWork.top), top);
+    }
+
     colourPopup_ = ::CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, kPopupClass, L"",
                                      WS_POPUP | WS_BORDER,
-                                     swatchRect.left, swatchRect.top - height - 4,
+                                     left, top,
                                      width, height, hwnd_, nullptr,
                                      ::GetModuleHandleW(nullptr), this);
     if (!colourPopup_) return;

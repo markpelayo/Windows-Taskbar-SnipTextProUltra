@@ -199,27 +199,46 @@ std::wstring DisplayPath(const std::wstring& path) {
 #define WDA_EXCLUDEFROMCAPTURE 0x00000011
 #endif
 
-bool ExcludeFromCapture(HWND hwnd) {
-    if (!hwnd) return false;
+namespace {
+// One resolver for both directions. Both functions have existed in user32
+// since Windows 7, but importing them statically would make the program
+// refuse to start on anything older to buy a cosmetic feature.
+using SetAffinityFn = BOOL (WINAPI*)(HWND, DWORD);
+using GetAffinityFn = BOOL (WINAPI*)(HWND, DWORD*);
 
-    // Resolved dynamically. Both functions have existed in user32 since
-    // Windows 7, but importing them statically would make the program refuse
-    // to start on anything older to buy a cosmetic feature.
-    using SetAffinity = BOOL (WINAPI*)(HWND, DWORD);
-    using GetAffinity = BOOL (WINAPI*)(HWND, DWORD*);
-    static SetAffinity setAffinity = nullptr;
-    static GetAffinity getAffinity = nullptr;
+bool ResolveAffinity(SetAffinityFn* setAffinity, GetAffinityFn* getAffinity) {
+    static SetAffinityFn resolvedSet = nullptr;
+    static GetAffinityFn resolvedGet = nullptr;
     static bool resolved = false;
     if (!resolved) {
         resolved = true;
         if (HMODULE user32 = ::GetModuleHandleW(L"user32.dll")) {
-            setAffinity = reinterpret_cast<SetAffinity>(
+            resolvedSet = reinterpret_cast<SetAffinityFn>(
                 ::GetProcAddress(user32, "SetWindowDisplayAffinity"));
-            getAffinity = reinterpret_cast<GetAffinity>(
+            resolvedGet = reinterpret_cast<GetAffinityFn>(
                 ::GetProcAddress(user32, "GetWindowDisplayAffinity"));
         }
     }
-    if (!setAffinity || !getAffinity) return false;
+    *setAffinity = resolvedSet;
+    *getAffinity = resolvedGet;
+    return resolvedSet != nullptr && resolvedGet != nullptr;
+}
+} // namespace
+
+bool IncludeInCapture(HWND hwnd) {
+    if (!hwnd) return false;
+    SetAffinityFn setAffinity = nullptr;
+    GetAffinityFn getAffinity = nullptr;
+    if (!ResolveAffinity(&setAffinity, &getAffinity)) return false;
+    return setAffinity(hwnd, WDA_NONE) != FALSE;
+}
+
+bool ExcludeFromCapture(HWND hwnd) {
+    if (!hwnd) return false;
+
+    SetAffinityFn setAffinity = nullptr;
+    GetAffinityFn getAffinity = nullptr;
+    if (!ResolveAffinity(&setAffinity, &getAffinity)) return false;
     if (!setAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)) return false;
 
     // Read back and insist on the exact value. WDA_EXCLUDEFROMCAPTURE is

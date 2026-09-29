@@ -16,7 +16,7 @@ Everything runs locally. OCR is Windows' own `Windows.Media.Ocr`, capture is GDI
 
 One executable, no installer, no third-party dependencies — nothing but the Windows SDK. The binary is statically linked, so there is no runtime to install.
 
-This is version 1.8.0. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
+This is version 1.8.1. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
 
 ### Trying it on sample text
 
@@ -48,7 +48,7 @@ A **tray icon** sits in the notification area whenever the program is running, s
 
 ### Pinning it
 
-1. Build it (below), then run `build\SnipTextProUltra_1.8.0.exe` once.
+1. Build it (below), then run `build\SnipTextProUltra_1.8.1.exe` once.
 2. Right-click its taskbar button → **Pin to taskbar**.
 
 That's it. The pinned icon is now the app.
@@ -68,7 +68,7 @@ That's it. The pinned icon is now the app.
 A `SHA-256` checksum is published beside each release binary. It is not a signature and does not pretend to be one; it only lets you confirm the file you downloaded is the file CI produced:
 
 ```
-Get-FileHash .\SnipTextProUltra_1.8.0.exe -Algorithm SHA256
+Get-FileHash .\SnipTextProUltra_1.8.1.exe -Algorithm SHA256
 ```
 
 ## Requirements
@@ -211,7 +211,7 @@ SnipTextProUltra · v1.5.0 · markpelayo
   Shutter Sound          ✓ ▸
   After a Screenshot     ▸
   Auto-Save Images
-  Pin to Screen (Region)
+  Keep the Editor on Top
   Save Locations         ▸
   Screen Recording Settings ▸
   Show Saved Files       ▸
@@ -295,45 +295,33 @@ If the clipboard write fails — another program can hold the clipboard open —
 
 ## The annotation editor
 
-Opened by the Screenshot commands. Nine tools: **arrow, rectangle, ellipse, line, freehand pen, text, lift, redact, callout**, with a colour swatch and a stroke-width slider (the slider also sets text size).
+Opened by the Screenshot commands. Eight tools: **arrow, rectangle, ellipse, line, freehand pen, text, lift, callout**, with a colour swatch and a stroke-width slider (the slider also sets text size).
 
-Everything on the bar is an icon with a tooltip. Along the top: Undo and Redo on the left, the **Pin to Screen** toggle in the centre, Copy and Save on the right. Along the bottom: the colour swatch, the width slider, and the nine tools. Every glyph is drawn in GDI — there is no image resource anywhere in this program.
+Everything on the bar is an icon with a tooltip. Along the top: Undo and Redo on the left, the **Keep the Editor on Top** toggle in the centre, Copy and Save on the right. Along the bottom: the colour swatch, the width slider, and the eight tools. Every glyph is drawn in GDI — there is no image resource anywhere in this program.
 
 ![The editor toolbar, drawn to scale](docs/editor-toolbar.png)
 
-### Pin to Screen
+### Keep the Editor on Top
 
-Turn it on and **Screen Capture a Region** sticks the capture to the screen in a floating, always-on-top window instead of opening the editor. An error message, a part number, a diagram from a manual — it stays visible while you work in something else, which is the one thing a screenshot on the clipboard cannot do.
+Turn it on and every annotation editor stays above other windows, so you can work beside it — reading an error message while you type, or keeping a diagram in view. It applies to both region and full-screen captures.
 
-Region only. A full-screen capture pinned on top of the screen would cover the thing it is a picture of.
+While it is on, the editor is left out of every capture the program takes — a window kept deliberately in front of everything else would otherwise land in every screenshot you took next, and moving it aside is the one thing you have ruled out. Switch it off and the editor appears in captures again.
 
-The pin opens exactly over the region it was cut from, so it lifts off the screen in place rather than materialising somewhere else and making you find it.
+The setting has two switches, the menu row and the pin button in the centre of the editor's top bar, and they write the same value. Toggling either raises or lowers every open editor immediately. Switched on, the button takes the same filled face and accent ring a selected tool takes; its tooltip names the state in words.
 
-| Gesture | What it does |
-|---|---|
-| Drag anywhere on it | Move it |
-| Scroll wheel | Zoom, around the pointer |
-| Double-click | Open it in the editor, which gets a copy |
-| Right-click | Open in Editor · Copy · Save… · Actual Size · Close Every Other Pin · Close |
-| Esc | Close the focused pin — the one you last clicked |
+### Filling a shape
 
-Pins are excluded from every capture the program takes, the same way the recording indicator is — otherwise you could not screenshot or record the area one was sitting over, and that area is usually what you pinned it to help you work on.
+**Shift-drag** a rectangle or an ellipse and it fills with the colour you picked, instead of being drawn as an outline. Plain drag gives the outline. It is the same modifier idea as Lift, and like Lift the canvas shows a hint along the bottom while one of those tools is selected, so the shortcut is not a secret.
 
-It replaces the editor, not the rest: Auto-Save still writes to disk, and *Copy to Clipboard and Close* still copies.
+A filled rectangle is also how you redact something. Worth knowing why it is a flat fill and not a blur: pixelation and blur both *look* like protection while leaving the original recoverable. A screenshot has a known font at a known size, so the attack is not to invert the blur but to run it forwards — render candidate text, pixelate it on the same grid, compare, one glyph at a time. A flat fill's output does not depend on the pixels underneath, so there is nothing to work back from.
 
-The setting has two switches — the menu row and a toggle in the centre of the editor's top bar — and they write the same value, so flipping either updates the other and any other open editor. Switched on, the button takes the same filled face and accent ring a selected tool takes; its tooltip names the state in words.
-
-### Redact
-
-Drag a rectangle; it fills solid and opaque. Black by default — the swatch changes it while Redact is selected, which is useful for matching a background, but that has to be a decision rather than a default.
-
-It is a flat fill and nothing cleverer, on purpose. Pixelation and blur both *look* like protection while leaving the original recoverable: a screenshot has a known font at a known size, so the attack is to render candidate text, pixelate it on the same grid and compare — forwards, not backwards, one glyph at a time. A flat fill is the only version whose output does not depend on the pixels underneath.
-
-> If **Auto-Save Images** is on, the untouched original went to disk the moment the shot was taken, before you redacted anything. Redact, save, send the clean copy, and the readable original is still in your screenshots folder.
+> If **Auto-Save Images** is on, the untouched original went to disk the moment the shot was taken, before you covered anything. Redact, save, send the clean copy, and the readable original is still in your screenshots folder.
 
 ### Callout
 
-Drag an arrow, then type a label that sits at its tip. One annotation rather than an arrow plus a separate text mark, so moving it moves both halves and the label cannot be left behind pointing at nothing. The label goes on the far side of the head and flips to the left when the arrow points left, so it never covers what is being pointed at. Esc during typing keeps the arrow and drops the words.
+Drag an arrow, then type a label that sits at its **tail** — the end you dragged from. The arrow leaves the text and travels to whatever you are pointing at, so the label never covers the subject. Drag from where there is room, towards the thing you mean.
+
+It is one annotation rather than an arrow plus a separate text mark, so moving it moves both halves and the label cannot be left behind pointing at nothing. Esc during typing keeps the arrow and drops the words.
 
 ### Lift
 
@@ -348,7 +336,7 @@ It is for the times when pointing at something is weaker than showing it. Instea
 
 Either way the piece lands exactly on top of where it came from, so nothing appears to happen until you drag it — which is the point. What you do next says whether it was a copy or a move.
 
-You do not have to remember the Shift part: while Lift is the selected tool, the canvas shows *Drag to copy a piece · Shift-drag to cut it out* along the bottom. It appears only for this tool, because Lift is the only one with a modifier, and it disappears while you are dragging — by then the choice is already made.
+You do not have to remember the Shift part: while Lift is the selected tool, the canvas shows *Drag to copy a piece · Shift-drag to cut it out* along the bottom. It appears only for the tools that have a modifier — Lift, Rectangle and Ellipse — and it disappears while you are dragging — by then the choice is already made.
 
 A lifted piece is an ordinary mark: select it, drag it, resize it from its handles, undo it. **The capture underneath is never modified**, so nothing is destroyed and every lift is reversible, including the Shift one — the blanked patch is part of the mark, not a change to the pixels.
 

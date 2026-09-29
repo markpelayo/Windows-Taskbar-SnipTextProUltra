@@ -26,7 +26,6 @@ set(SOURCES
     src/Hotkeys.cpp
     src/MediaFolder.cpp
     src/Ocr.cpp
-    src/PinnedWindow.cpp
     src/RecordingIndicator.cpp
     src/RegionOverlay.cpp
     src/ScreenRecorder.cpp
@@ -119,7 +118,7 @@ endif()
 add_executable(SnipTextProUltra WIN32 ${SOURCES})
 
 # The CMake target stays "SnipTextProUltra" so the generated project names are short;
-# the file on disk is SnipTextProUltra_1.8.0.exe.
+# the file on disk is SnipTextProUltra_1.8.1.exe.
 #
 # The version in the file name comes from the VERSION file rather than being
 # typed here, so it cannot drift from what the binary reports about itself.

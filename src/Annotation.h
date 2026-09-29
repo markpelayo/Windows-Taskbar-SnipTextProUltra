@@ -25,30 +25,25 @@ namespace Gdiplus { class Graphics; class Image; }
 // it stays movable, resizable and undoable like any other mark, and the
 // original capture is never modified.
 //
-// Redact is a solid opaque fill and nothing cleverer, on purpose. Pixelation
-// and blur both LOOK like protection while leaving the original recoverable:
-// a screenshot has a known font at a known size, so an attacker renders
-// candidate text, pixelates it on the same grid and compares — forwards, not
-// backwards, one glyph at a time. A flat fill is the only version whose
-// output does not depend on the pixels underneath.
-//
-// Callout is an Arrow that carries a label at its tip. It is one annotation
+// Callout is an Arrow that carries a label at its TAIL. It is one annotation
 // rather than an arrow plus a separate Text mark so that moving it moves both
 // halves, and so the label cannot be left behind pointing at nothing.
-enum class Tool { Arrow, Rectangle, Ellipse, Line, Pen, Text, Lift, Redact, Callout };
+enum class Tool { Arrow, Rectangle, Ellipse, Line, Pen, Text, Lift, Callout };
 
 // The toolbar builds its buttons, maps their command IDs back to tools, and
 // sizes its button array from this. It was a literal 6 in four separate
 // places, which is three chances to add a tool and update only some of them —
 // and the failure is quiet: the button simply never appears, or appears and
 // selects the wrong tool.
-inline constexpr int kToolCount = 9;
+inline constexpr int kToolCount = 8;
 
-// Whether the swatch is choosing ink or choosing a cover. The editor keeps a
-// separate colour for each, because a redaction that defaults to the drawing
-// colour is a bright green box, and one that shares the drawing colour makes
-// every arrow turn black the moment you redact something.
-inline constexpr bool ToolCoversPixels(Tool tool) { return tool == Tool::Redact; }
+// Which tools do something different when Shift is held. Lift cuts instead
+// of copying; Rectangle and Ellipse fill instead of outlining. The canvas
+// shows a hint while one of these is selected, and nothing at all while the
+// others are, so the hint line always describes the tool in hand.
+inline constexpr bool ToolHasShiftVariant(Tool tool) {
+    return tool == Tool::Lift || tool == Tool::Rectangle || tool == Tool::Ellipse;
+}
 
 const wchar_t* ToolKeyValue(Tool tool);     // the persisted string
 const wchar_t* ToolTitle(Tool tool);
@@ -92,15 +87,33 @@ struct Annotation {
     static double TextBoxHeight(double fontSize) { return std::ceil(fontSize * 1.6); }
     static constexpr double kTextInset = 2.0;
 
-    // Callout only: where the label sits relative to the arrow's tip. On the
-    // far side of the head, so the text never covers the thing the arrow is
-    // pointing at, and flipped to the left when the arrow points left — a
-    // label always pinned to the right would sit back across the shaft.
+    // Rectangle and Ellipse only: Shift-drag fills the shape with `colour`
+    // instead of outlining it. This is what used to be a separate Redact
+    // tool, and folding it in is the better shape — a filled rectangle IS a
+    // redaction, and a tool whose only difference from Rectangle is the
+    // brush did not earn a slot on the bar.
     //
-    // Needs a Graphics to measure the string when the arrow points left,
-    // because the box has to be placed by its right edge. Null is legal and
-    // gives the unflipped position, which is what an unmeasurable caller
-    // wants: somewhere sensible rather than nothing.
+    // The security argument the Redact tool carried still applies and is
+    // worth keeping where someone will read it: a flat fill is the ONLY
+    // safe way to cover text. Pixelation and blur both look like protection
+    // while leaving the original recoverable — a screenshot has a known
+    // font at a known size, so the attack is to render candidate text,
+    // pixelate it on the same grid and compare. Forwards, not backwards,
+    // one glyph at a time. A flat fill's output does not depend on the
+    // pixels underneath, so there is nothing to work back from.
+    bool filled = false;
+
+    // Callout only: where the label sits relative to the arrow.
+    //
+    // At the TAIL, not the head. The head is on the thing you are pointing
+    // at, so a label there covers the very pixels the arrow was drawn to
+    // single out. At the tail the text sits in whatever empty space you
+    // dragged out of, which is where you would have written it by hand.
+    //
+    // Needs a Graphics to measure the string when the arrow travels
+    // rightwards, because the box then has to be placed by its right edge.
+    // Null is legal and gives the unmeasured position: somewhere sensible
+    // rather than nothing.
     static constexpr double kCalloutGap = 6.0;
     RectD CalloutLabelBox(Gdiplus::Graphics* measureWith) const;
 

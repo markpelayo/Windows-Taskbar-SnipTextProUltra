@@ -83,7 +83,6 @@ const wchar_t* ToolKeyValue(Tool tool) {
     case Tool::Pen:       return L"pen";
     case Tool::Text:      return L"text";
     case Tool::Lift:      return L"lift";
-    case Tool::Redact:    return L"redact";
     case Tool::Callout:   return L"callout";
     default:              return L"arrow";
     }
@@ -97,7 +96,6 @@ const wchar_t* ToolTitle(Tool tool) {
     case Tool::Pen:       return L"Pen";
     case Tool::Text:      return L"Text";
     case Tool::Lift:      return L"Lift";
-    case Tool::Redact:    return L"Redact";
     case Tool::Callout:   return L"Callout";
     default:              return L"Arrow";
     }
@@ -110,7 +108,6 @@ Tool ToolFromKeyValue(const std::wstring& value) {
     if (value == L"pen")       return Tool::Pen;
     if (value == L"text")      return Tool::Text;
     if (value == L"lift")      return Tool::Lift;
-    if (value == L"redact")    return Tool::Redact;
     if (value == L"callout")   return Tool::Callout;
     return Tool::Arrow;
 }
@@ -138,12 +135,13 @@ RectD Annotation::CalloutLabelBox(Graphics* measureWith) const {
     const double width  = MeasureText(measureWith, text, FontSize()).Width
                           + 8.0 + kTextInset;
 
-    // Centred on the tip vertically; horizontally on whichever side the arrow
-    // is travelling towards, so the label continues the gesture rather than
-    // doubling back over the shaft.
-    const double y = end.y - height / 2.0;
-    const double x = (end.x >= start.x) ? end.x + kCalloutGap
-                                        : end.x - kCalloutGap - width;
+    // Anchored to `start` — the tail, where the drag began — and set BACK
+    // from it, away from the direction of travel. So the arrow leaves the
+    // text and runs to whatever it is pointing at, and the label occupies
+    // the empty space the gesture started in rather than the subject.
+    const double y = start.y - height / 2.0;
+    const double x = (end.x >= start.x) ? start.x - kCalloutGap - width
+                                        : start.x + kCalloutGap;
     return RectD{ x, y, width, height };
 }
 
@@ -225,34 +223,32 @@ void Annotation::Draw(Graphics& graphics, double scale, PointD offset,
         break;
     }
     case Tool::Rectangle: {
-        pen.SetLineJoin(LineJoinRound);
         const RectD rect = RectBetween(start, end);
         const PointF a = Map({ rect.MinX(), rect.MinY() }, scale, offset);
         const PointF b = Map({ rect.MaxX(), rect.MaxY() }, scale, offset);
-        graphics.DrawRectangle(&pen, a.X, a.Y, b.X - a.X, b.Y - a.Y);
+        if (filled) {
+            // Shift-drag. No outline as well: an outline in the same colour
+            // is invisible, and in any other colour it is a second decision
+            // the gesture never made.
+            graphics.FillRectangle(&brush, a.X, a.Y, b.X - a.X, b.Y - a.Y);
+        } else {
+            pen.SetLineJoin(LineJoinRound);
+            graphics.DrawRectangle(&pen, a.X, a.Y, b.X - a.X, b.Y - a.Y);
+        }
         break;
     }
     case Tool::Ellipse: {
         const RectD rect = RectBetween(start, end);
         const PointF a = Map({ rect.MinX(), rect.MinY() }, scale, offset);
         const PointF b = Map({ rect.MaxX(), rect.MaxY() }, scale, offset);
-        graphics.DrawEllipse(&pen, a.X, a.Y, b.X - a.X, b.Y - a.Y);
+        if (filled) graphics.FillEllipse(&brush, a.X, a.Y, b.X - a.X, b.Y - a.Y);
+        else        graphics.DrawEllipse(&pen,   a.X, a.Y, b.X - a.X, b.Y - a.Y);
         break;
     }
     case Tool::Line: {
         pen.SetStartCap(LineCapRound);
         pen.SetEndCap(LineCapRound);
         graphics.DrawLine(&pen, Map(start, scale, offset), Map(end, scale, offset));
-        break;
-    }
-    case Tool::Redact: {
-        // One flat fill. Everything the comment in the header argues for
-        // comes down to this line: the pixels written do not depend on the
-        // pixels underneath, so there is nothing left to work back from.
-        const RectD rect = RectBetween(start, end);
-        const PointF a = Map({ rect.MinX(), rect.MinY() }, scale, offset);
-        const PointF b = Map({ rect.MaxX(), rect.MaxY() }, scale, offset);
-        graphics.FillRectangle(&brush, a.X, a.Y, b.X - a.X, b.Y - a.Y);
         break;
     }
     case Tool::Callout:
@@ -295,7 +291,7 @@ void Annotation::Draw(Graphics& graphics, double scale, PointD offset,
             StringFormat format(StringFormat::GenericTypographic());
             format.SetFormatFlags(format.GetFormatFlags() | StringFormatFlagsNoWrap);
             // Near, not Center, and not because centring looks wrong: the
-            // box's top is already half a line above the tip, so laying the
+            // box's top is already half a line above the tail, so laying the
             // glyphs from the top edge centres them on the tip anyway. What
             // it buys is that the label sits exactly where the inline edit
             // control had it, so the text does not hop on commit — the same
@@ -353,11 +349,14 @@ void Annotation::Draw(Graphics& graphics, double scale, PointD offset,
 bool Annotation::HitTest(PointD point, double tolerance, Graphics* measureWith) const {
     switch (tool) {
     case Tool::Rectangle: {
-        // Closed shapes are hit on their OUTLINE, never their interior:
-        // clicking inside an empty rectangle starts a new drawing, which is
-        // nearly always what you meant.
+        // An OUTLINE is hit on its outline, never its interior: clicking
+        // inside an empty rectangle starts a new drawing, which is nearly
+        // always what you meant. A FILLED one is solid, for the same reason
+        // Lift is — there is no empty middle to click through to, and its
+        // middle is the only part of it there is.
         const RectD rect = NormalizedRect();
         if (!Contains(Inset(rect, -tolerance, -tolerance), point)) return false;
+        if (filled) return true;
         return !Contains(Inset(rect, tolerance, tolerance), point);
     }
     case Tool::Ellipse: {
@@ -366,8 +365,13 @@ bool Annotation::HitTest(PointD point, double tolerance, Graphics* measureWith) 
         const double ry = (std::max)(rect.height / 2, 0.001);
         const double dx = (point.x - rect.MidX()) / rx;
         const double dy = (point.y - rect.MidY()) / ry;
+        const double distance = dx * dx + dy * dy;
+        if (filled) {
+            const double band = (std::max)(tolerance / (std::min)(rx, ry) * 2, 0.15);
+            return distance <= 1.0 + band;
+        }
         const double band = (std::max)(tolerance / (std::min)(rx, ry) * 2, 0.15);
-        return std::fabs(dx * dx + dy * dy - 1.0) < band;
+        return std::fabs(distance - 1.0) < band;
     }
     case Tool::Line:
     case Tool::Arrow:
@@ -400,11 +404,8 @@ bool Annotation::HitTest(PointD point, double tolerance, Graphics* measureWith) 
         // has no meaningful outline to aim at.
         return Contains(Inset(BoundingBox(measureWith), -tolerance, -tolerance), point);
     case Tool::Lift:
-    case Tool::Redact:
-        // Same reasoning: both are solid, so aiming at the outline would be
-        // aiming at an edge that carries no meaning. A redaction in
-        // particular is a thing you want to be able to grab and reposition
-        // by its middle, because its middle is all there is.
+        // Solid, so aiming at the outline would be aiming at an edge that
+        // carries no meaning.
         return Contains(Inset(NormalizedRect(), -tolerance, -tolerance), point);
     }
     return false;
@@ -416,9 +417,9 @@ std::vector<std::pair<Handle, PointD>> Annotation::Handles() const {
     case Tool::Line:
     case Tool::Arrow:
     // A callout resizes by its two ends like the arrow it is built on. The
-    // label follows the tip, so dragging the End handle swings the arrow and
-    // carries the text round with it — which is the behaviour you want when
-    // the thing you were pointing at has moved.
+    // label follows the TAIL, so dragging Start carries the text with it,
+    // while dragging End only re-aims the arrow — and can flip which side
+    // of the tail the label sits on, if the arrow crosses back over itself.
     case Tool::Callout:
         // The raw endpoints, deliberately not normalised: an arrow has a
         // direction and its two ends must stay distinguishable.
@@ -427,10 +428,6 @@ std::vector<std::pair<Handle, PointD>> Annotation::Handles() const {
         break;
     case Tool::Rectangle:
     case Tool::Ellipse:
-    // A redaction is a box and resizes like one. Being able to stretch it
-    // after the fact matters more here than for most marks: a redaction that
-    // is a few pixels short is not a cosmetic problem.
-    case Tool::Redact:
     // A lifted piece resizes from its destination rectangle, like any other
     // box. The source rectangle is fixed once the lift is made: changing where
     // the pixels came from after the fact is a different operation, and not

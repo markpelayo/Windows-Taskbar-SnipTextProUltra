@@ -17,7 +17,6 @@ No Visual Studio project file. `build.bat` compiles `src/*.cpp` with `cl.exe`, l
 | `framework.h` | Windows configuration macros and the RAII wrappers |
 | `Util.cpp` | Strings, code points, paths, time, DPI, geometry |
 | `Hotkeys.cpp` | The six shortcuts: bindings, persistence, and the rebinding window |
-| `PinnedWindow.cpp` | A capture stuck to the screen: topmost, draggable, zoomable |
 | `Settings.cpp` | Registry-backed settings, and Run-at-Startup |
 | `MediaFolder.cpp` | One output folder — three instances |
 | `Bitmap.cpp` | 32-bit BGRA DIB section, PNG encoding, clipboard |
@@ -379,45 +378,47 @@ Two labelling rules carried over:
 
 ---
 
-## Pinned captures
+## Keeping the editor on top
 
-`PinnedWindow` is a borderless `WS_EX_TOPMOST | WS_EX_TOOLWINDOW` popup holding one `Bitmap`. It is deliberately **not** an `EditorWindow` with the chrome hidden: the editor owns an undo stack, an annotation array, a scaled cache and two toolbars, while a pin owns a bitmap and a rectangle. Reusing the editor would have made every pin cost what an open editor costs, and a pin has to be cheap enough that leaving four of them around is not a decision.
+`Pin to Screen` is one `SetWindowPos(HWND_TOPMOST | HWND_NOTOPMOST)` call in `EditorWindow::ApplyAlwaysOnTop`, applied at creation and re-applied to every live editor whenever the setting changes.
 
-Ownership mirrors the editors exactly, because the hazard is the same: the close callback fires from inside the window's own teardown, so `App` pushes the pointer onto `closingPins_` and posts `WM_REAP_PINS` rather than freeing it there.
+It was not always that. 1.8.0 shipped a `PinnedWindow` class — a borderless topmost window holding a `Bitmap`, with its own window class, drag and zoom handling, a registry of live pins and a second reap path through `App`. It worked. It answered the wrong question: the window worth keeping in front of you is the one with the tools in it, not a read-only copy of the picture. Deleting it removed about 550 lines and a whole ownership protocol, and the feature got *better*.
 
-Three details that are not obvious:
+`ApplyAlwaysOnTop` also calls `util::ExcludeFromCapture` while the setting is on, and `util::IncludeInCapture` when it goes off. Without it, switching the setting on would put the editor into the next region shot, the next full-screen shot and every recording — and unlike any other window in the way, this one cannot be moved aside, because being in the way is the feature. `IncludeInCapture` is new; exclusion used to be a one-way door because the only thing that used it, the recording indicator, is destroyed rather than un-excluded.
 
-- **It opens over the region it was cut from.** `AcquireImage` now reports the capture's origin in *virtual-desktop* coordinates, not frozen-image ones. The crop wants the latter; on a desk whose secondary monitor sits left of the primary they are not the same numbers.
-- **Zoom is anchored at the pointer**, so the pixel under the cursor stays under it. Without that, zooming walks the picture out from under you.
-- **Pins are excluded from capture** via `util::ExcludeFromCapture`, the same call the recording indicator makes. A topmost window that could not be screenshotted *around* would make the area it covers unreachable, and that area is usually the reason it was pinned.
+It applies to full-screen captures too, which the first version excluded on the grounds that a full-screen pin would cover the thing it is a picture of. That was wrong — the editor scales its capture down to fit a window.
 
-`Pin to Screen` replaces the editor for region captures and nothing else. Auto-Save has already run by then and the clipboard branch is unaffected, but opening the editor *and* floating a copy of the same picture would be two answers to one question.
+The registry key is still `pinRegionToScreen`, a leftover from the first design. Renaming it would silently reset the setting for anyone upgrading, and the key is not the part anyone sees.
 
 ---
 
-## Redaction is a flat fill, and that is the whole design
+## Shift is the modifier, and it means one thing per tool
 
-`Tool::Redact` fills its rectangle with one opaque colour. It does not pixelate and it does not blur, and that is a security decision rather than a simplification.
+Three tools change behaviour when Shift is held at mouse-**up**: Lift cuts instead of copying, and Rectangle and Ellipse fill instead of outlining. Read at mouse-up rather than mouse-down, so the decision is the one you were holding when you let go.
 
-Pixelation and blur leave the original recoverable, not by inverting the averaging — which genuinely destroys information — but by running it forwards. A screenshot has a known font at a known size and known anti-aliasing, so an attacker renders a candidate string, pixelates it on the same grid, and compares. It does not explode combinatorially either: each character is pinned by the few blocks it touches, so it solves left to right, one glyph at a time. Published tooling has been doing this to pixelated text since 2022.
+`ToolHasShiftVariant()` is what the canvas hint keys off, so the hint line always describes the tool in hand and disappears for the five tools that have no modifier. A modifier nobody knows about is a feature that does not exist.
 
-A flat fill is the only version whose output does not depend on the pixels underneath. Worse than useless is the right description of the alternative: pixelation *looks* more professional than a black box, so it produces confidence in a protection that is not there.
+Filling used to be a separate `Tool::Redact`. Its only difference from Rectangle was the brush, and it forced a second hidden colour behind the swatch — black, so that redactions did not default to bright green — which meant the one control on the bar that should always mean one thing meant two. Folding it into a modifier removed the tool, the second colour and the `ToolCoversPixels` branch.
 
-The one hole no drawing can close is `Auto-Save Images`, which writes the untouched original to disk before the editor ever opens. That is documented rather than fixed, because fixing it means deleting a file the user asked for.
+**The security argument survived the refactor, and it matters.** A redaction must be a *flat fill*. Pixelation and blur leave the original recoverable, not by inverting the averaging — that genuinely destroys information — but by running it forwards: a screenshot has a known font at a known size and known anti-aliasing, so the attacker renders a candidate string, pixelates it on the same grid and compares. It does not explode combinatorially either, since each character is pinned by the few blocks it touches. A flat fill's output does not depend on the pixels underneath. That note lives on `Annotation::filled`, where the next person to ask "why not blur it?" will find it.
+
+The one hole no drawing can close is `Auto-Save Images`, which writes the untouched original to disk before the editor opens. Documented rather than fixed, because fixing it means deleting a file the user asked for.
 
 ---
 
 ## The editor toolbar
 
-Two bars, and everything on both of them is owner-drawn. The top carries three groups: Undo and Redo anchored left, the Pin toggle centred, Copy and Save anchored right. The bottom carries the swatch, the width slider and the nine tools.
+Two bars, and everything on both of them is owner-drawn. The top carries three groups: Undo and Redo anchored left, the Pin toggle centred, Copy and Save anchored right. The bottom carries the swatch, the width slider and the eight tools.
 
-All fourteen icon buttons are 34 × 28 and go through one `DrawIconButtonFace`, so the two bars cannot drift apart the first time one of them is adjusted. (The colour swatch is owner-drawn too but keeps its own branch at 44 × 28: it shows a colour, not a glyph.) Only *switched-on* buttons get the filled face, the doubled ring and accent-coloured ink — the selected tool, and Pin when enabled — because that is the only state which survives letting go of the mouse. Save's permanent ring, inherited from `BS_DEFPUSHBUTTON`, was the last thing making the top row look like a separate toolbar, and it is gone.
+All thirteen icon buttons are 34 × 28 and go through one `DrawIconButtonFace`, so the two bars cannot drift apart the first time one of them is adjusted. (The colour swatch is owner-drawn too but keeps its own branch at 44 × 28: it shows a colour, not a glyph.) Only *switched-on* buttons get the filled face, the doubled ring and accent-coloured ink — the selected tool, and Pin when enabled — because that is the only state which survives letting go of the mouse. Save's permanent ring, inherited from `BS_DEFPUSHBUTTON`, was the last thing making the top row look like a separate toolbar, and it is gone.
 
 Anchoring each group to its own edge is what makes overlap impossible by construction rather than by clamping — widening the window only grows the gaps. The single failure mode left is the window being too narrow, and `WM_GETMINMAXINFO` forbids it: `34 + (82 + 12) × 2 = 222`, where 82 is a flank of two icon buttons plus padding. The centred control must clear the *wider* flank on both sides because centring is symmetrical; here the flanks are equal by construction, both being two icon buttons.
 
-222 is far below the tool row's 540, so the **bottom** row now sets the floor — the first time it has since the editor was written. The minimum went 700 (seven text tools) → 678 (a text command group) → 540, narrower than it has ever been with two more tools than it has ever had.
+222 is far below the tool row's 502, so the **bottom** row now sets the floor — the first time it has since the editor was written. The minimum went 700 (seven text tools) → 678 (a text command group) → 540 (nine icon tools) → 502, narrower than it has ever been with one more tool than it has ever had.
 
 Pin is a real toggle rather than a label, writing the same registry value the tray row writes. `EditorWindow::PinSettingChanged` repaints it in every live editor and is called from both switches and from Sanitize, so two windows cannot disagree about one setting. `LiveEditors()` is maintained by the constructor and destructor rather than by `WM_CREATE`/`WM_DESTROY`, because the object outlives its window by one message-loop turn — App defers the delete. `WM_DESTROY` nulls `pinButton_` for exactly that gap, so a notification arriving in it has nothing to invalidate. The list itself is deliberately never destroyed: `App` is a function-local static constructed *before* the first editor, so this vector would be torn down first, and `~App` destroying `editors_` would then erase from a dead container.
+
+The colour picker opens **downwards**, out of the window. It used to open upwards, which is the only direction guaranteed to cover the canvas: the swatch is on the bottom bar, so "above the swatch" is always over the picture being edited. A popup is a top-level window under no obligation to stay inside its parent, so below the swatch is simply the desktop. It flips back up only when the monitor's *work area* has no room — work area rather than monitor rectangle, or a window sitting above the taskbar opens its picker behind it.
 
 Pin is icon-only, so its state lives entirely in its appearance plus its tooltip, and `UpdatePinTooltip` rewrites that text on every toggle. Setting it once at creation would leave a tooltip saying "Off" over a button drawn as on — the one place on screen contradicting the control.
 
@@ -427,7 +428,7 @@ Glyphs are drawn from lines, arcs and Béziers into a notional 20 × 20 box that
 
 Making the tool buttons owner-drawn removed a duplicate copy of state: `BS_AUTOCHECKBOX | BS_PUSHLIKE` kept "which tool is selected" inside the control as well as in `currentTool_`.
 
-One swatch now edits **two** colours — ink for everything that draws, and a separate cover colour for Redact that defaults to black and is not persisted. Sharing one would mean either redactions defaulting to bright green, or every arrow turning black the first time you redacted something. A redaction colour restored from three weeks ago is a redaction you have to remember to check, which is why it is the one style value that does not survive a restart.
+The swatch edits one colour again: the second, Redact-only cover colour went with the tool it existed for.
 
 ---
 
@@ -439,7 +440,9 @@ The arrow is committed on mouse-up, *before* the label is typed, and the text en
 
 `calloutIndex_` is assigned only after `BeginTextEntry` has actually created the field, and `CommitTextEntry` checks both the range and that the slot still holds a Callout. Set earlier, it would be consumed by the `CommitTextEntry` that `BeginTextEntry` opens with, and left set after a failed `CreateWindowEx` it would swallow the next ordinary label typed anywhere on the canvas.
 
-The label sits beyond the arrow's tip, flipping to the left when the arrow points left. A left-pointing label is positioned by its **right** edge, so its left edge moves with every keystroke — `RepositionCalloutField` follows the field along on `EN_CHANGE`, or the text would jump the full width of the string on commit.
+The label sits behind the arrow's **tail**, not past its head. The head is on the thing you are pointing at, so a label there covers the very pixels the arrow was drawn to single out — which is what 1.8.0 shipped and 1.8.1 corrected.
+
+An arrow travelling rightwards puts its label to the left of the tail, positioned by its **right** edge, so its left edge moves with every keystroke — `RepositionCalloutField` follows the field along on `EN_CHANGE`, or the text would jump the full width of the string on commit. An arrow travelling left anchors by its left edge and never moves.
 
 ---
 

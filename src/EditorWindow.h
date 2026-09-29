@@ -26,6 +26,19 @@ public:
 
     static EditorWindow* Open(std::unique_ptr<Bitmap> image, CloseCallback onClose);
 
+    // Offered every keyboard message before it is dispatched, and returns
+    // true when it consumed one.
+    //
+    // This has to happen in the message loop rather than in a window
+    // procedure, because the editor is a frame full of child controls and
+    // a key only ever reaches the one with focus. Handling Esc in the
+    // canvas meant Esc worked on the canvas and nowhere else — click a
+    // tool button first and the key went to the button, which drops it.
+    // From here it does not matter what has focus, only that the message
+    // is bound for this editor's window tree, which for keyboard input is
+    // the same statement as "this editor is the active window".
+    static bool PreTranslateMessage(const MSG& message);
+
     // Repaints the Pin toggle in every open editor. Called by the editor's
     // own toggle and by the tray row, because they write one setting and
     // two windows must not disagree about what it says.
@@ -66,6 +79,16 @@ private:
     // The entirety of what "Pin to Screen" now does.
     void ApplyAlwaysOnTop();
     void ReturnFocusToCanvas();
+
+    // Runs the editor-wide key bindings. Returns true if the key was
+    // used, so the caller knows not to dispatch it.
+    bool HandleEditorKey(UINT key, UINT modifiers);
+
+    // What the pointer should look like at a given canvas point, resolved
+    // in the same order WM_LBUTTONDOWN resolves a click — so the cursor is
+    // a promise about what clicking will do rather than a decoration.
+    HCURSOR CursorForPoint(POINT view) const;
+    static HCURSOR CursorForHandle(Handle handle);
 
     // The colour a new mark gets. There were briefly two behind one
     // swatch — ink, and a cover colour for the Redact tool — and folding

@@ -471,6 +471,12 @@ bool App::Run() {
 
     MSG message{};
     while (::GetMessageW(&message, nullptr, 0, 0) > 0) {
+        // The editor's own shortcuts get first refusal, because a key only
+        // ever reaches the control that has focus and an editor is a frame
+        // full of controls. Handled in the canvas proc, Esc closed the
+        // window from the canvas and did nothing at all once you had
+        // clicked a tool button.
+        if (EditorWindow::PreTranslateMessage(message)) continue;
         ::TranslateMessage(&message);
         ::DispatchMessageW(&message);
     }
@@ -587,6 +593,12 @@ LRESULT App::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
             ToggleRecording(true); return 0;
         case hotkeys::Action::RecordFullScreen:
             ToggleRecording(false); return 0;
+        // Never registered, so this message cannot carry it — but the
+        // switch has no default and /W4 /WX turns an unhandled enumerator
+        // into a build failure, which is exactly the reminder you want the
+        // next time an action is added.
+        case hotkeys::Action::CloseEditor:
+            return 0;
         }
         return 0;
 
@@ -720,8 +732,19 @@ HMENU App::BuildMenu() {
     {
         HMENU shortcuts = ::CreatePopupMenu();
         if (shortcuts) {
+            bool localHeaderShown = false;
             for (int i = 0; i < hotkeys::kActionCount; ++i) {
                 const hotkeys::Action action = hotkeys::kAllActions[i];
+                // The global shortcuts come first, then a header and the
+                // ones that only work inside a window of ours. Worth
+                // separating: a global binding is taken away from every
+                // other program, a local one is not, and that difference
+                // decides whether a bare key is a reasonable choice.
+                if (!hotkeys::IsGlobal(action) && !localHeaderShown) {
+                    localHeaderShown = true;
+                    AppendSeparator(shortcuts);
+                    AppendHeader(shortcuts, L"Only inside the editor:");
+                }
                 AppendCommand(shortcuts, ID_SHORTCUT_BASE + i,
                               std::wstring(hotkeys::ActionTitle(action)) + L"\t"
                                   + hotkeys::Describe(hotkeys::Current(action)));
@@ -1147,6 +1170,17 @@ void App::OnCommand(int command) {
             if (captured.IsBound()) {
                 for (hotkeys::Action other : hotkeys::kAllActions) {
                     if (other == action) continue;
+                    // Only within the same scope. A global shortcut and an
+                    // editor-only one are not in competition: the global
+                    // one is claimed from the system, the local one is
+                    // matched inside a window of ours, and Esc meaning
+                    // "close the editor" takes nothing away from a
+                    // Ctrl+Shift+1 that happens to... well, it cannot
+                    // happen to be Esc, but a user is free to bind an
+                    // editor action to a combination a global one already
+                    // uses, and unbinding the global one under them would
+                    // be a surprise with no cause.
+                    if (hotkeys::IsGlobal(other) != hotkeys::IsGlobal(action)) continue;
                     if (hotkeys::Current(other) == captured) {
                         hotkeys::Set(other, hotkeys::Binding{});
                     }
@@ -1736,7 +1770,7 @@ void App::Sanitize() {
     }
     message += L"These settings return to their defaults:\r\n"
                L"    • the three folder locations\r\n"
-               L"    • all six keyboard shortcuts\r\n"
+               L"    • all seven keyboard shortcuts\r\n"
                L"    • Text Layout, Shutter Sound, After a Screenshot, Auto-Save\r\n"
                L"    • all Screen Recording Settings\r\n"
                L"    • the annotation tool, colour and stroke width\r\n"

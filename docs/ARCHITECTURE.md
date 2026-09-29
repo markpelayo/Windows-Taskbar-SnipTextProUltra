@@ -16,7 +16,7 @@ No Visual Studio project file. `build.bat` compiles `src/*.cpp` with `cl.exe`, l
 | `App.cpp` | The flyout menu, hotkeys, both capture pipelines, recording state |
 | `framework.h` | Windows configuration macros and the RAII wrappers |
 | `Util.cpp` | Strings, code points, paths, time, DPI, geometry |
-| `Hotkeys.cpp` | The six shortcuts: bindings, persistence, and the rebinding window |
+| `Hotkeys.cpp` | The seven shortcuts: bindings, persistence, and the rebinding window |
 | `Settings.cpp` | Registry-backed settings, and Run-at-Startup |
 | `MediaFolder.cpp` | One output folder — three instances |
 | `Bitmap.cpp` | 32-bit BGRA DIB section, PNG encoding, clipboard |
@@ -229,7 +229,7 @@ Ctrl+Z, Ctrl+Y, Ctrl+C and Ctrl+S are handled in the canvas's `WM_KEYDOWN`, not 
 
 That is the whole mechanism by which they stand down while a label is being typed. An accelerator table is consulted before the focused control sees the keystroke, so Ctrl+Z while typing would run the canvas's undo instead of the text control's, and Ctrl+C would copy the whole screenshot instead of the selected characters. Because the shortcuts live in the canvas's own procedure, the inline edit control simply never delivers them there.
 
-Every toolbar action calls `ReturnFocusToCanvas()` afterwards, or focus stays on a button and Delete and Esc silently stop working on the selection.
+Every toolbar action calls `ReturnFocusToCanvas()` afterwards, or focus stays on a button and Delete silently stops working on the selection.
 
 ### Text entry
 
@@ -418,7 +418,7 @@ Anchoring each group to its own edge is what makes overlap impossible by constru
 
 Pin is a real toggle rather than a label, writing the same registry value the tray row writes. `EditorWindow::PinSettingChanged` repaints it in every live editor and is called from both switches and from Sanitize, so two windows cannot disagree about one setting. `LiveEditors()` is maintained by the constructor and destructor rather than by `WM_CREATE`/`WM_DESTROY`, because the object outlives its window by one message-loop turn — App defers the delete. `WM_DESTROY` nulls `pinButton_` for exactly that gap, so a notification arriving in it has nothing to invalidate. The list itself is deliberately never destroyed: `App` is a function-local static constructed *before* the first editor, so this vector would be torn down first, and `~App` destroying `editors_` would then erase from a dead container.
 
-The colour picker opens **downwards**, out of the window. It used to open upwards, which is the only direction guaranteed to cover the canvas: the swatch is on the bottom bar, so "above the swatch" is always over the picture being edited. A popup is a top-level window under no obligation to stay inside its parent, so below the swatch is simply the desktop. It flips back up only when the monitor's *work area* has no room — work area rather than monitor rectangle, or a window sitting above the taskbar opens its picker behind it.
+The colour picker opens **upwards**, above the swatch. 1.8.1 moved it downwards out of the window, on the diagnosis that rising into the canvas was what covered the picture; the real cause was the colour wheel in the tenth cell being drawn at a radius of a whole cell instead of half of one, unclipped, so it escaped the popup entirely. A swatch on the bottom bar opens upwards. It is clamped to the monitor's *work area* — work area rather than monitor rectangle, or a window near the top of the screen pushes its picker off the desk.
 
 Pin is icon-only, so its state lives entirely in its appearance plus its tooltip, and `UpdatePinTooltip` rewrites that text on every toggle. Setting it once at creation would leave a tooltip saying "Off" over a button drawn as on — the one place on screen contradicting the control.
 
@@ -443,6 +443,36 @@ The arrow is committed on mouse-up, *before* the label is typed, and the text en
 The label sits behind the arrow's **tail**, not past its head. The head is on the thing you are pointing at, so a label there covers the very pixels the arrow was drawn to single out — which is what 1.8.0 shipped and 1.8.1 corrected.
 
 An arrow travelling rightwards puts its label to the left of the tail, positioned by its **right** edge, so its left edge moves with every keystroke — `RepositionCalloutField` follows the field along on `EN_CHANGE`, or the text would jump the full width of the string on commit. An arrow travelling left anchors by its left edge and never moves.
+
+---
+
+## One shortcut that is not global
+
+`hotkeys::` registers six actions with `RegisterHotKey`, which claims a combination from the entire system. `Action::CloseEditor` is the first that must not be: its default is a bare Esc, and a system-wide Esc would take the key from every program on the machine.
+
+`IsGlobal()` is what separates them. `Register`/`Unregister` skip the local ones; the editor calls `hotkeys::Matches()` from its own `WM_KEYDOWN`; the menu groups them under a heading; and `App`'s de-confliction only reassigns a binding away from another action **in the same scope**, since a global and a local action sharing a combination are not in competition.
+
+Two traps worth recording. The capture window uses Esc to cancel, which would have made Esc permanently unbindable for the one action whose default it is — so Esc is capturable there for local actions, and the footer says *click away to cancel* instead, which the window already supports through `WM_ACTIVATE`. And `Matches()` returns false for an unbound action, or every unmodified keystroke would match a binding whose key is 0.
+
+Esc in the editor is a cascade — label, then selection, then the window — so the rebindable action is only consulted when there is nothing smaller left to cancel.
+
+The check runs from `EditorWindow::PreTranslateMessage`, called by `App`'s message loop before `TranslateMessage`, not from a window procedure. A keyboard message only reaches the control that has focus, and an editor is a frame full of controls: handled in the canvas proc, Esc worked on the canvas and stopped working as soon as you clicked a tool button. It is also what makes Ctrl- and Alt-based bindings reachable, since the canvas proc's Ctrl block returns unconditionally and Alt arrives as `WM_SYSKEYDOWN`, which it never handled.
+
+Matching `message.hwnd` against the editor's window tree is the whole "is this editor active?" test. Keyboard messages go only to the focused window, and focus lives only in the active window's tree, so there is nothing further to ask. The hook stands aside for **every** key while a label is being typed, not just Esc. `CloseEditor` is the one action for which a bare letter is a legal binding — it is never registered globally, so the "unmodified keys must be function keys" rule does not apply — and a guard that only covered Esc would let a binding of `T` destroy the editor in the middle of a word. The canvas handler could not do this, because the canvas never saw keys while the field had focus; hoisting the shortcut into the message loop is what created the possibility.
+
+The colour picker is the one window inside the editor the hook does not reach: it is `WS_POPUP` with the frame as its *owner*, not its parent, so `IsChild` is false for it. It handles Esc itself, dismissing the picker rather than the editor — which is the correct rung of the cascade, and the reason the hook does not simply walk the owner chain.
+
+---
+
+## The cursor is a promise
+
+`CursorForPoint` resolves in the same order `WM_LBUTTONDOWN` does: handles of the selection, then any mark under the pointer, then empty canvas. Any other order and the cursor lies at exactly the boundaries where it matters — the edge of a handle that overlaps the mark beneath it.
+
+Mid-gesture it is frozen on the drag's own answer, because a cursor that flickers while you drag reads as a fault.
+
+Line and arrow endpoints get the move cursor rather than a diagonal: a rectangle's corner travels on an axis, so a diagonal is true, while an endpoint goes wherever you put it and a direction would be false.
+
+The canvas class registers `hCursor = nullptr`. A class cursor is applied by `DefWindowProc` before the window is consulted, which is why the crosshair used to win everywhere regardless of what was underneath it.
 
 ---
 

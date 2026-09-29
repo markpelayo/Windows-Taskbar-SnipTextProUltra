@@ -16,7 +16,7 @@ Everything runs locally. OCR is Windows' own `Windows.Media.Ocr`, capture is GDI
 
 One executable, no installer, no third-party dependencies — nothing but the Windows SDK. The binary is statically linked, so there is no runtime to install.
 
-This is version 1.8.1. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
+This is version 1.8.2. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
 
 ### Trying it on sample text
 
@@ -48,7 +48,7 @@ A **tray icon** sits in the notification area whenever the program is running, s
 
 ### Pinning it
 
-1. Build it (below), then run `build\SnipTextProUltra_1.8.1.exe` once.
+1. Build it (below), then run `build\SnipTextProUltra_1.8.2.exe` once.
 2. Right-click its taskbar button → **Pin to taskbar**.
 
 That's it. The pinned icon is now the app.
@@ -68,7 +68,7 @@ That's it. The pinned icon is now the app.
 A `SHA-256` checksum is published beside each release binary. It is not a signature and does not pretend to be one; it only lets you confirm the file you downloaded is the file CI produced:
 
 ```
-Get-FileHash .\SnipTextProUltra_1.8.1.exe -Algorithm SHA256
+Get-FileHash .\SnipTextProUltra_1.8.2.exe -Algorithm SHA256
 ```
 
 ## Requirements
@@ -179,11 +179,17 @@ Those are the defaults. The numbers run top to bottom in menu order, so the menu
 
 In any region capture: drag to select, **Space** switches to click-a-whole-window, **Esc** cancels.
 
+### Closing the editor
+
+**Esc** closes the annotation editor whenever it is the active window — it does not matter whether the canvas, a tool button or the slider has focus, or whether the window is pinned. It does not ask whether you want to save — nothing there has been written to disk, and Copy and Save are one keystroke each. It is a cascade: Esc cancels an in-progress label first, then clears the selection, and only closes the window when there is neither.
+
+It is rebindable in *Change Keyboard Shortcut*, under its own heading, because it is the one shortcut in the program that is **not** global. The capture shortcuts are claimed from the whole system; this one is matched inside the editor, which is what makes a bare Esc a safe default rather than a catastrophe.
+
 ### Changing them
 
-**Settings → Change Keyboard Shortcut** lists all six with their current bindings. Pick one and a small window appears; press the combination you want and Enter to save.
+**Settings → Change Keyboard Shortcut** lists all seven with their current bindings. Pick one and a small window appears; press the combination you want and Enter to save.
 
-Anything the keyboard can produce works, including a bare function key — press `F9` and that is the binding, no modifier required. **Delete** unbinds a shortcut entirely, leaving the action reachable only from the menu. **Esc** cancels without changing anything, and **Reset to Defaults** puts all six back.
+Anything the keyboard can produce works, including a bare function key — press `F9` and that is the binding, no modifier required. **Delete** unbinds a shortcut entirely, leaving the action reachable only from the menu. **Esc** cancels without changing anything — except when the shortcut being changed is the editor-only one, where Esc is a legal binding and you cancel by clicking away instead, and **Reset to Defaults** puts all seven back.
 
 While that window is open the app's own shortcuts stand down. They have to: a global hotkey fires before the foreground window sees the key, so otherwise pressing the shortcut you were trying to change would trigger its action instead of being captured.
 
@@ -351,6 +357,10 @@ On Shift: the fill is the most common colour in a two-pixel ring around the regi
 Clicking the colour swatch drops a grid of nine presets — one click, no dialog. The colour-wheel cell opens the full system colour picker.
 
 Click with the text tool to type a label in place; Enter commits, Esc discards.
+
+### What the pointer tells you
+
+The cursor changes to say what a click will do: a diagonal arrow over a corner handle, a horizontal or vertical one over a side, the four-way move cursor over any mark you could pick up, an I-beam on empty canvas with the Text tool, and the crosshair everywhere else. It is worked out in the same order a click is, so it cannot promise one thing and do another — and it stays put mid-drag, because the gesture has already been decided.
 
 ### Marks stay editable
 

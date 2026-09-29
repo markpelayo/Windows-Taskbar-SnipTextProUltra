@@ -8,6 +8,73 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.8.2] — 2026-09-30
+
+### Added
+
+- **Esc closes the editor**, and it is rebindable. A new row in Change
+  Keyboard Shortcut, under a *Only inside the editor* heading, because it is
+  the first shortcut in the program that is **not** global — the six above it
+  are claimed from the whole system with `RegisterHotKey`, and doing that to
+  a bare Esc would take the key away from every other program on the machine.
+  This one is matched by the editor itself.
+
+  It works whenever the editor is the **active window**, whatever has focus
+  inside it. That takes a `PreTranslateMessage` hook in the message loop
+  rather than a handler in a window procedure: a key only ever reaches the
+  control with focus, and an editor is a frame full of controls, so handling
+  it in the canvas meant Esc worked on the canvas and stopped working the
+  moment you clicked a tool button. Reaching the hook at all means the
+  message is bound for this editor's window tree, which for keyboard input
+  is the same statement as "this editor is in front".
+
+  Esc is a cascade, not a single meaning: it cancels an in-progress label
+  first, then clears the selection, and only closes the window when there is
+  neither. So a mistyped label costs one press, not the editor. While a
+  label is open the hook stands aside for every key, not only Esc — this
+  is the one action a bare letter can be bound to, and a narrower guard
+  would let such a binding close the editor mid-word. The colour picker
+  handles Esc itself, dismissing the picker first.
+
+  No save prompt. Nothing has been written to disk, Copy and Save are one
+  keystroke each, and a confirmation on a scratch window is the kind of
+  dialog people learn to dismiss without reading. Unbind it if that is not
+  the trade you want.
+
+- **The pointer now says what a click will do.** The canvas showed a
+  crosshair over everything, including the marks you were trying to grab.
+
+  | Where the pointer is | Cursor |
+  |---|---|
+  | A corner handle | diagonal resize, matching the corner |
+  | A side or top/bottom handle | horizontal or vertical resize |
+  | A line or arrow endpoint | move — an endpoint is not constrained to an axis |
+  | Any mark that would be picked up | move |
+  | Empty canvas, Text tool | I-beam |
+  | Empty canvas, anything else | crosshair |
+
+  Resolved in the same order `WM_LBUTTONDOWN` resolves a click, so the
+  cursor is a promise about what clicking will do rather than a decoration —
+  any other order and it would be lying at the boundaries. Mid-drag the
+  answer is frozen, so a gesture does not change its mind because the
+  pointer wandered over something else on the way.
+
+### Fixed
+
+- **The colour wheel spilled out of the colour picker.** The tenth cell —
+  the one that opens the system picker — was drawn with a radius of a whole
+  cell rather than half of one, and nothing clipped it, so the wheel
+  overflowed its square by 16px in every direction. That square is the last
+  column of the bottom row, so the overflow left the popup entirely and sat
+  on the toolbar and the canvas. It has been wrong since the picker was
+  written.
+
+- **The picker opens upwards again.** 1.8.1 moved it below the swatch, out
+  of the window, on the theory that rising into the canvas was what made it
+  cover the picture. It was not — the escaping wheel above was. A swatch on
+  the bottom bar opens upwards, the way every other bottom-anchored menu on
+  Windows does. It still flips the other way if the work area has no room.
+
 ## [1.8.1] — 2026-09-30
 
 Four corrections to 1.8.0, three of which are features that were built to

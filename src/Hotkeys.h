@@ -1,4 +1,6 @@
-// Hotkeys.h — the six global shortcuts, and the ability to rebind them.
+// Hotkeys.h — the seven rebindable shortcuts. Six are global; the last is
+// matched inside the editor. See IsGlobal below for why that distinction
+// is not a detail.
 //
 // A binding is a modifier mask plus a virtual-key code. Both halves are
 // optional in the sense that matters: a binding with no modifiers is allowed,
@@ -25,10 +27,30 @@ enum class Action {
     TextFullScreen,
     RecordRegion,
     RecordFullScreen,
+    // Editor-only, and the first of its kind. Everything above is a GLOBAL
+    // hotkey: registered with RegisterHotKey, fires wherever you are, and
+    // is therefore taken away from every other program. This one must not
+    // be — its default is Esc on its own, and a system-wide Esc would be a
+    // catastrophe. It is checked by the editor's own key handler instead.
+    CloseEditor,
 };
 
-constexpr int kActionCount = 6;
+constexpr int kActionCount = 7;
 extern const Action kAllActions[kActionCount];
+
+// Whether an action is registered system-wide. False means the window that
+// cares about it looks for the key itself, so the binding is rebindable and
+// unbindable in exactly the same way without ever leaving this process.
+bool IsGlobal(Action action);
+
+// Does this keystroke match the action's current binding? `modifiers` is a
+// MOD_* mask, which the caller assembles from GetKeyState — VK codes and
+// MOD_ flags are different vocabularies and mixing them silently matches
+// nothing.
+bool Matches(Action action, UINT key, UINT modifiers);
+
+// The MOD_* mask for the modifier keys held down right now.
+UINT CurrentModifiers();
 
 struct Binding {
     UINT modifiers = 0;   // MOD_CONTROL | MOD_SHIFT | MOD_ALT | MOD_WIN

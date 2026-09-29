@@ -8,6 +8,7 @@ const Action kAllActions[kActionCount] = {
     Action::ScreenshotRegion, Action::ScreenshotFullScreen,
     Action::TextRegion,       Action::TextFullScreen,
     Action::RecordRegion,     Action::RecordFullScreen,
+    Action::CloseEditor,
 };
 
 namespace {
@@ -136,8 +137,14 @@ LRESULT CALLBACK CaptureProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
             ::SetTextColor(dc, RGB(150, 150, 150));
             RECT row = client;
             row.bottom -= 16;
-            ::DrawTextW(dc,
-                        L"Enter to save  ·  Delete to unbind  ·  Esc to cancel",
+            // The footer has to tell the truth about Esc, which means one
+            // of two sentences depending on whether Esc is a legal binding
+            // for the action being changed.
+            const wchar_t* footerText =
+                IsGlobal(state->action)
+                    ? L"Enter to save  ·  Delete to unbind  ·  Esc to cancel"
+                    : L"Enter to save  ·  Delete to unbind  ·  click away to cancel";
+            ::DrawTextW(dc, footerText,
                         -1, &row, DT_CENTER | DT_BOTTOM | DT_SINGLELINE | DT_NOPREFIX);
         }
 
@@ -157,7 +164,13 @@ LRESULT CALLBACK CaptureProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
     case WM_SYSKEYDOWN: {
         const UINT key = static_cast<UINT>(wParam);
 
-        if (key == VK_ESCAPE) {
+        // Esc backs out — except for an action whose whole point is that
+        // Esc can be bound to it. There the key has to be capturable, or
+        // unbinding Close the Screenshot Editor once would make its own
+        // default unreachable forever without resetting every other
+        // shortcut too. Deactivating the window still cancels, so there is
+        // always a way out.
+        if (key == VK_ESCAPE && IsGlobal(state->action)) {
             Finish(hwnd, state, false);
             return 0;
         }
@@ -189,7 +202,13 @@ LRESULT CALLBACK CaptureProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
         // Binding a plain letter would register it globally and swallow it in
         // every program on the machine — including this window, so the user
         // could not type the combination needed to undo it.
-        if (modifiers == 0 && !(key >= VK_F1 && key <= VK_F24)) {
+        // The bare-key rule applies to GLOBAL bindings only. It exists
+        // because registering an unmodified key takes it from every
+        // program on the machine; a local action registers nothing, so
+        // the reason does not apply — and Esc, its own default, would
+        // otherwise be impossible to bind back after one unbind.
+        if (modifiers == 0 && IsGlobal(state->action) &&
+            !(key >= VK_F1 && key <= VK_F24)) {
             ::MessageBeep(MB_ICONWARNING);
             return 0;
         }
@@ -231,11 +250,50 @@ const wchar_t* ActionTitle(Action action) {
     case Action::TextFullScreen:       return L"ScreenshotToText Full Screen";
     case Action::RecordRegion:         return L"Screen Record a Region";
     case Action::RecordFullScreen:     return L"Screen Record Full Screen";
+    case Action::CloseEditor:          return L"Close the Screenshot Editor";
     }
     return L"";
 }
 
+bool IsGlobal(Action action) {
+    return action != Action::CloseEditor;
+}
+
+UINT CurrentModifiers() {
+    UINT modifiers = 0;
+    if (::GetKeyState(VK_CONTROL) & 0x8000) modifiers |= MOD_CONTROL;
+    if (::GetKeyState(VK_SHIFT)   & 0x8000) modifiers |= MOD_SHIFT;
+    if (::GetKeyState(VK_MENU)    & 0x8000) modifiers |= MOD_ALT;
+    // GetAsyncKeyState for the Windows keys, matching what the capture
+    // window uses. GetKeyState reports the state as of the message being
+    // processed, and the shell swallows most Win combinations before that
+    // message exists — so the two would disagree and a captured Win binding
+    // would never match.
+    if ((::GetAsyncKeyState(VK_LWIN) & 0x8000) || (::GetAsyncKeyState(VK_RWIN) & 0x8000)) {
+        modifiers |= MOD_WIN;
+    }
+    return modifiers;
+}
+
+bool Matches(Action action, UINT key, UINT modifiers) {
+    const Binding binding = Current(action);
+    // An unbound action matches nothing — that is what unbinding means, and
+    // without this check every keystroke with no modifiers would match a
+    // binding whose key is 0.
+    if (!binding.IsBound()) return false;
+    return binding.key == key && binding.modifiers == modifiers;
+}
+
 Binding Default(Action action) {
+    // Esc, alone. The editor is a window you dismiss rather than a command
+    // you invoke, and this is the only binding in the set that is not
+    // global — so a bare key is safe here and nowhere else.
+    if (action == Action::CloseEditor) {
+        Binding binding;
+        binding.key = VK_ESCAPE;
+        return binding;
+    }
+
     // Ctrl+Shift+1 through 6, in menu order.
     Binding binding;
     binding.modifiers = MOD_CONTROL | MOD_SHIFT;
@@ -289,6 +347,7 @@ std::wstring Describe(const Binding& binding) {
     // Named keys first, because GetKeyNameText gives some of them names that
     // are localised or simply unhelpful.
     switch (binding.key) {
+    case VK_ESCAPE: return out + L"Esc";
     case VK_SPACE:  return out + L"Space";
     case VK_RETURN: return out + L"Enter";
     case VK_TAB:    return out + L"Tab";
@@ -335,6 +394,10 @@ std::wstring Describe(const Binding& binding) {
 void Register(HWND owner) {
     if (!owner) return;
     for (Action action : kAllActions) {
+        // Editor-only actions are never handed to RegisterHotKey. Doing so
+        // would take the key away from every other program on the machine,
+        // and the default for the only one of these is a bare Esc.
+        if (!IsGlobal(action)) continue;
         const Binding binding = Current(action);
         if (!binding.IsBound()) continue;
 
@@ -353,6 +416,7 @@ void Register(HWND owner) {
 void Unregister(HWND owner) {
     if (!owner) return;
     for (Action action : kAllActions) {
+        if (!IsGlobal(action)) continue;   // never registered; see Register
         ::UnregisterHotKey(owner, static_cast<int>(action));
     }
 }

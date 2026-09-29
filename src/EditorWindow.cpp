@@ -1,6 +1,7 @@
 #include "EditorWindow.h"
 
 #include "EditorSettings.h"
+#include "Hotkeys.h"
 #include "MediaFolder.h"
 #include "Settings.h"
 #include "Util.h"
@@ -498,7 +499,11 @@ bool EditorWindow::Create() {
         canvas.style         = CS_HREDRAW | CS_VREDRAW;
         canvas.lpfnWndProc   = &EditorWindow::CanvasProc;
         canvas.hInstance     = ::GetModuleHandleW(nullptr);
-        canvas.hCursor       = ::LoadCursorW(nullptr, IDC_CROSS);
+        // Null, deliberately. A class cursor is applied by DefWindowProc
+        // before the window ever gets a say, which is why the canvas used
+        // to show a crosshair over everything including the marks you were
+        // trying to grab. WM_SETCURSOR picks one per position instead.
+        canvas.hCursor       = nullptr;
         canvas.hbrBackground = nullptr;
         canvas.lpszClassName = kCanvasClass;
         ::RegisterClassExW(&canvas);
@@ -1028,6 +1033,76 @@ std::vector<EditorWindow*>& EditorWindow::LiveEditors() {
     return *editors;
 }
 
+bool EditorWindow::PreTranslateMessage(const MSG& message) {
+    if (message.message != WM_KEYDOWN && message.message != WM_SYSKEYDOWN) {
+        return false;
+    }
+    if (!message.hwnd) return false;
+
+    for (EditorWindow* editor : LiveEditors()) {
+        // IsWindow as well as null: between WM_DESTROY and App's deferred
+        // reap, a live entry can hold a handle that no longer exists.
+        if (!editor || !editor->hwnd_ || !::IsWindow(editor->hwnd_)) continue;
+        // The frame itself, or anything inside it. Keyboard messages only
+        // go to the focused window, and focus only lives in the active
+        // window's tree — so reaching here at all means this editor is the
+        // one in front.
+        if (message.hwnd != editor->hwnd_ && !::IsChild(editor->hwnd_, message.hwnd)) {
+            continue;
+        }
+        return editor->HandleEditorKey(static_cast<UINT>(message.wParam),
+                                       hotkeys::CurrentModifiers());
+    }
+    return false;
+}
+
+bool EditorWindow::HandleEditorKey(UINT key, UINT modifiers) {
+    // While a label is being typed, the inline EDIT owns EVERY key, not
+    // just Esc — and this guard has to come first for that reason.
+    //
+    // Nested inside the Esc test, it let any other binding through: this
+    // is the one action for which a bare letter is a legal binding, since
+    // it is never registered globally, so rebinding it to "T" and then
+    // typing a word with a T in it would have destroyed the editor
+    // mid-word. The old canvas handler could not do this, because the
+    // canvas never saw keys while the field had focus; hoisting the
+    // shortcut into the message loop is exactly what introduced the
+    // possibility.
+    if (textEntryActive_) {
+        // Esc with the field open belongs to TextEditProc, which cancels
+        // without committing. The exception is focus having left the
+        // field without EN_KILLFOCUS to clear the flag — then nobody else
+        // is going to handle it.
+        if (key == VK_ESCAPE && modifiers == 0 && ::GetFocus() != textEdit_) {
+            CancelTextEntry();
+            return true;
+        }
+        return false;
+    }
+
+    // Esc backs out of the smallest outstanding thing first, and does so
+    // whether or not the close binding is still on Esc — dropping a
+    // selection is what the key means in a drawing surface, not a feature
+    // of the shortcut.
+    if (key == VK_ESCAPE && modifiers == 0 && selectedIndex_ >= 0) {
+        ClearSelection();
+        return true;
+    }
+
+    if (hotkeys::Matches(hotkeys::Action::CloseEditor, key, modifiers)) {
+        // Posted rather than sent: this is running inside the message
+        // loop, and WM_CLOSE tears the window down. Let the loop finish
+        // with this message before that starts.
+        //
+        // No save prompt. Nothing here has been written to disk, Copy and
+        // Save are one keystroke each, and the binding can be removed in
+        // Change Keyboard Shortcut.
+        ::PostMessageW(hwnd_, WM_CLOSE, 0, 0);
+        return true;
+    }
+    return false;
+}
+
 void EditorWindow::PinSettingChanged() {
     // Called from here when the editor's own toggle is clicked, and from
     // App when the tray row is. One setting, two switches, and no editor
@@ -1174,8 +1249,32 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
         return 0;
     }
 
+    case WM_SETCURSOR: {
+        // Only for the canvas itself. DefWindowProc sends WM_SETCURSOR to
+        // the PARENT first and stops if the parent returns TRUE — so
+        // without the wParam test this would answer on behalf of the
+        // inline text field too, computing a cursor from the canvas point
+        // underneath it and taking the EDIT control's I-beam away.
+        if (reinterpret_cast<HWND>(wParam) != canvas_ ||
+            LOWORD(lParam) != HTCLIENT) {
+            break;
+        }
+        POINT cursor{};
+        ::GetCursorPos(&cursor);
+        ::ScreenToClient(canvas_, &cursor);
+        ::SetCursor(CursorForPoint(cursor));
+        return TRUE;
+    }
+
     case WM_MOUSEMOVE: {
-        if (dragMode_ == DragMode::None) return 0;
+        if (dragMode_ == DragMode::None) {
+            // Nothing is being dragged, but the answer still changes as
+            // the pointer crosses a mark or a handle. WM_SETCURSOR alone
+            // fires often enough in practice, and this makes it certain.
+            ::SetCursor(CursorForPoint(POINT{ GET_X_LPARAM(lParam),
+                                              GET_Y_LPARAM(lParam) }));
+            return 0;
+        }
         POINT view{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
         const PointD point = ToImagePoint(view);
         const double scale = ImageScale();
@@ -1341,6 +1440,7 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
         const bool control = (::GetKeyState(VK_CONTROL) & 0x8000) != 0;
         const bool shift   = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
 
+
         // Shortcuts live here rather than in an accelerator table precisely
         // so they stand down while the inline text control has focus: when a
         // label is being typed, this window proc never sees the keystroke, so
@@ -1360,11 +1460,9 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
         case VK_BACK:
             DeleteSelection();
             return 0;
-        case VK_ESCAPE:
-            // Cancel an in-progress label first; only if there is none does
-            // Esc drop the selection.
-            if (!CancelTextEntry()) ClearSelection();
-            return 0;
+        // Esc is not handled here at all. It runs through
+        // PreTranslateMessage, so it behaves the same whether the canvas,
+        // a tool button or the slider has focus — see HandleEditorKey.
         }
         return 0;
     }
@@ -1771,6 +1869,70 @@ void EditorWindow::BeginTextEntry(PointD anchor) {
     ::SetFocus(textEdit_);
 }
 
+HCURSOR EditorWindow::CursorForPoint(POINT view) const {
+    // Resolved in exactly the order WM_LBUTTONDOWN resolves a click, so
+    // what the pointer promises is what the click will do. Any other order
+    // and the cursor is a lie at the boundaries.
+    auto load = [](const wchar_t* name) { return ::LoadCursorW(nullptr, name); };
+
+    // Mid-gesture the answer is fixed: a drag does not change its mind
+    // because the pointer wandered over something else on the way.
+    if (dragMode_ == DragMode::Moving)   return load(IDC_SIZEALL);
+    if (dragMode_ == DragMode::Resizing) return CursorForHandle(activeHandle_);
+    if (dragMode_ == DragMode::Drawing)  return load(IDC_CROSS);
+
+    // 1. A handle of the selected mark, pointing the way it will stretch.
+    if (selectedIndex_ >= 0 && selectedIndex_ < static_cast<int>(annotations_.size())) {
+        for (const auto& entry : annotations_[selectedIndex_].Handles()) {
+            const POINT handleView = ToViewPoint(entry.second);
+            if (std::hypot(view.x - handleView.x, view.y - handleView.y) <= kHandleSize) {
+                return CursorForHandle(entry.first);
+            }
+        }
+    }
+
+    // 2. Any mark under the pointer — this one would be picked up and
+    //    moved, so say so before the button goes down rather than after.
+    if (canvas_ && image_) {
+        const PointD point = ToImagePoint(view);
+        const double tolerance = kHitTolerance / ImageScale();
+        Graphics measure(canvas_);
+        for (int i = static_cast<int>(annotations_.size()) - 1; i >= 0; --i) {
+            if (annotations_[i].HitTest(point, tolerance, &measure)) return load(IDC_SIZEALL);
+        }
+    }
+
+    // 3. Empty canvas. The crosshair is right for every tool that draws by
+    //    dragging — it is a precision cursor and it says "this is where the
+    //    mark starts". Text is the exception: it does not drag out a shape,
+    //    it puts a caret down, and an I-beam is what a caret looks like
+    //    before you place it.
+    return load(currentTool_ == Tool::Text ? IDC_IBEAM : IDC_CROSS);
+}
+
+HCURSOR EditorWindow::CursorForHandle(Handle handle) {
+    // The diagonal pair share a cursor because they share an axis of
+    // travel; so do the other diagonal, the two sides and the two ends.
+    switch (handle) {
+    case Handle::TopLeft:
+    case Handle::BottomRight: return ::LoadCursorW(nullptr, IDC_SIZENWSE);
+    case Handle::TopRight:
+    case Handle::BottomLeft:  return ::LoadCursorW(nullptr, IDC_SIZENESW);
+    case Handle::Left:
+    case Handle::Right:       return ::LoadCursorW(nullptr, IDC_SIZEWE);
+    case Handle::Top:
+    case Handle::Bottom:      return ::LoadCursorW(nullptr, IDC_SIZENS);
+    case Handle::Start:
+    case Handle::End:
+        // A line's endpoints are not constrained to an axis — they go
+        // wherever you put them — so the four-way move cursor is the
+        // honest one, not a diagonal that implies a direction.
+        return ::LoadCursorW(nullptr, IDC_SIZEALL);
+    case Handle::None:
+    default:                  return ::LoadCursorW(nullptr, IDC_CROSS);
+    }
+}
+
 void EditorWindow::RepositionCalloutField() {
     if (!textEntryActive_ || !textEdit_ || calloutIndex_ < 0) return;
     if (calloutIndex_ >= static_cast<int>(annotations_.size())) return;
@@ -1911,41 +2073,35 @@ void EditorWindow::ShowColourPopup() {
     RECT swatchRect{};
     ::GetWindowRect(swatch_, &swatchRect);
 
-    // DOWNWARDS, out of the window entirely.
+    // UPWARDS, above the swatch, which is where it has always opened.
     //
-    // It used to open upwards, which is the only direction that guarantees
-    // covering the thing you are working on: the swatch lives on the bottom
-    // bar, so "above the swatch" is always over the canvas — over the
-    // picture, in the corner, while you are choosing the colour you are
-    // about to draw on it with. A popup is a top-level window and is under
-    // no obligation to stay inside its parent, so below the swatch is
-    // simply the desktop, and the capture stays visible the whole time.
+    // 1.8.1 briefly opened it downwards, out of the window, on the theory
+    // that rising into the canvas was what made it cover the picture. It
+    // was not: the picker was the right size and in the right place, and
+    // the colour WHEEL inside it was drawn at twice its cell, spilling out
+    // of the popup entirely. That is fixed where it is drawn. Opening
+    // downwards fixed nothing and put the picker somewhere it did not
+    // belong — a swatch on the bottom bar opens upwards, the way every
+    // other bottom-anchored menu on Windows does.
     //
-    // The swatch already grew a downward caret when it became owner-drawn,
-    // so this is also the direction it has been claiming to open in.
+    // Clamped to the work area all the same, so a window dragged to the
+    // top of the screen cannot put the picker off the top of the desk.
     int left = swatchRect.left;
-    int top  = swatchRect.bottom + 4;
+    int top  = swatchRect.top - height - 4;
 
-    // Unless there is no room down there. Clamped against the WORK AREA of
-    // the monitor the swatch is on, not the primary one and not the full
-    // monitor rectangle — a window dragged to the bottom of a secondary
-    // screen, or sitting above the taskbar, would otherwise open its picker
-    // behind the taskbar or off the end of the desk.
-    // From the SWATCH, not the frame. An editor straddling two screens is
-    // "mostly on" whichever holds more of the window, which need not be the
-    // one the bottom-left corner — and therefore the picker — is on.
     HMONITOR monitor = ::MonitorFromRect(&swatchRect, MONITOR_DEFAULTTONEAREST);
     MONITORINFO info{};
     info.cbSize = sizeof(info);
     if (monitor && ::GetMonitorInfoW(monitor, &info)) {
-        if (top + height > info.rcWork.bottom) {
-            // Flip back above the swatch, which is where it always was.
-            // Covering the canvas is the fallback now rather than the rule.
-            top = swatchRect.top - height - 4;
+        if (top < info.rcWork.top) {
+            top = swatchRect.bottom + 4;
+            // And clamp the flip, or a work area too short for either
+            // direction drops the picker off the bottom of the desk.
+            top = (std::min)(top, static_cast<int>(info.rcWork.bottom) - height);
+            top = (std::max)(top, static_cast<int>(info.rcWork.top));
         }
         left = (std::max)(static_cast<int>(info.rcWork.left),
                           (std::min)(left, static_cast<int>(info.rcWork.right) - width));
-        top  = (std::max)(static_cast<int>(info.rcWork.top), top);
     }
 
     colourPopup_ = ::CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, kPopupClass, L"",
@@ -1996,7 +2152,20 @@ LRESULT EditorWindow::OnSwatchMessage(HWND hwnd, UINT message, WPARAM wParam, LP
                 };
                 const int cx = (cell.left + cell.right) / 2;
                 const int cy = (cell.top + cell.bottom) / 2;
-                const int radius = kCellSize;   // overshoot, so wedges reach the corners
+                // Half the cell, less a margin for the border drawn below.
+                //
+                // This was kCellSize — the WHOLE cell — with a comment
+                // claiming it overshot "so wedges reach the corners". It
+                // overshot by a factor of two, and nothing clipped it: Pie
+                // takes a bounding box, not a cell, so the wheel was drawn
+                // 16px past every edge of its square. That square is the
+                // last column of the bottom row, so the overflow left the
+                // popup itself and sat on the toolbar and the canvas.
+                //
+                // A circle inscribed in the cell is also the conventional
+                // way to say "custom colour", so nothing is lost by it
+                // staying inside.
+                const int radius = kCellSize / 2 - 2;
                 for (int w = 0; w < 6; ++w) {
                     ScopedBrush brush(::CreateSolidBrush(wedges[w]));
                     if (!brush) continue;
@@ -2062,6 +2231,24 @@ LRESULT EditorWindow::OnSwatchMessage(HWND hwnd, UINT message, WPARAM wParam, LP
     case WM_ACTIVATE:
         if (LOWORD(wParam) == WA_INACTIVE) HideColourPopup();
         return 0;
+
+    case WM_KEYDOWN:
+        // The popup is an OWNED window, not a child — WS_POPUP with hwnd_
+        // as its parent parameter — so IsChild is false for it and
+        // PreTranslateMessage skips it entirely. It also takes the
+        // foreground when it opens, so while it is up it holds focus and
+        // Esc would otherwise reach DefWindowProc and be dropped.
+        //
+        // Deliberately NOT routed to the editor's close binding: an open
+        // picker is the smallest outstanding thing, so Esc dismisses it
+        // and a second Esc closes the window. Widening the hook to walk
+        // the owner chain would have skipped that rung.
+        if (wParam == VK_ESCAPE) {
+            HideColourPopup();
+            ReturnFocusToCanvas();
+            return 0;
+        }
+        break;
 
     case WM_KILLFOCUS:
         HideColourPopup();

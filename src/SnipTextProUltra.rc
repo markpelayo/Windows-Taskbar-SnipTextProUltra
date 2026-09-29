@@ -5,7 +5,7 @@ IDI_SNIPTEXT ICON "..\\assets\\SnipTextProUltra.ico"
 
 // The manifest is embedded rather than shipped alongside, so the executable
 // stays a single self-contained file. It declares three things:
-//   * comctl32 version 6, for the modern trackbar and task dialog
+//   * comctl32 version 6, for tooltips and the task dialog
 //   * Per-Monitor-V2 DPI awareness, so every coordinate is a real pixel
 //   * Windows 10/11 compatibility, so the OS does not apply shims
 1 RT_MANIFEST "SnipTextProUltra.manifest"

@@ -34,6 +34,7 @@ namespace {
 constexpr const wchar_t* kFrameClass  = L"SnipTextProUltraEditorFrame";
 constexpr const wchar_t* kCanvasClass = L"SnipTextProUltraEditorCanvas";
 constexpr const wchar_t* kPopupClass  = L"SnipTextProUltraColourPopup";
+constexpr const wchar_t* kSliderClass = L"SnipTextProUltraWidthSlider";
 
 constexpr int IDC_UNDO       = 101;
 constexpr int IDC_REDO       = 102;
@@ -336,19 +337,69 @@ void DrawCommandGlyph(HDC dc, Command command, const RECT& box, COLORREF ink) {
 // enabled. It is the only state that survives letting go of the mouse, so
 // it gets a doubled ring: at 34px one pixel of blue is easy to miss across
 // a desk, and two is not.
-void DrawIconButtonFace(HDC dc, const RECT& box, bool active, bool pressed) {
-    ScopedBrush face(::CreateSolidBrush(
-        (active || pressed) ? RGB(204, 228, 246) : RGB(253, 253, 253)));
-    if (face) ::FillRect(dc, &box, face.get());
+// A rounded rectangle as a GDI+ path: four arcs and the lines between them.
+//
+// GDI has RoundRect and it is not usable here. GDI does not antialias, so a
+// GDI rounded corner is a staircase — visibly worse than the square corner
+// it replaces. GDI+ is already linked and already initialised for
+// annotations, so this costs a different drawing call rather than a new
+// dependency.
+Gdiplus::GraphicsPath* MakeRoundedPath(Gdiplus::GraphicsPath* path,
+                                       const Gdiplus::RectF& box, REAL radius) {
+    const REAL d = radius * 2.0f;
+    path->Reset();
+    path->AddArc(box.X,                 box.Y,                  d, d, 180.0f, 90.0f);
+    path->AddArc(box.X + box.Width - d, box.Y,                  d, d, 270.0f, 90.0f);
+    path->AddArc(box.X + box.Width - d, box.Y + box.Height - d, d, d,   0.0f, 90.0f);
+    path->AddArc(box.X,                 box.Y + box.Height - d, d, d,  90.0f, 90.0f);
+    path->CloseFigure();
+    return path;
+}
 
-    ScopedBrush edge(::CreateSolidBrush(active ? RGB(0, 103, 192) : RGB(195, 199, 204)));
-    if (!edge) return;
-    ::FrameRect(dc, &box, edge.get());
-    if (active) {
-        RECT inner = box;
-        ::InflateRect(&inner, -1, -1);
-        ::FrameRect(dc, &inner, edge.get());
-    }
+void DrawIconButtonFace(HDC dc, const RECT& box, bool active, bool pressed) {
+    // The corners this leaves uncovered have to be SOMETHING, and owner-draw
+    // hands over a DC with no promise about what is already in it. The frame
+    // class paints itself COLOR_BTNFACE, so that is what the toolbar behind
+    // a button is, and filling the square first is what makes the rounded
+    // shape read as a button on a bar rather than a button on a smear.
+    ::FillRect(dc, &box, ::GetSysColorBrush(COLOR_BTNFACE));
+
+    Gdiplus::Graphics graphics(dc);
+    graphics.SetSmoothingMode(SmoothingModeAntiAlias);
+    // Pixel offset matters at this size: without it a one-pixel border
+    // straddles the pixel grid and comes out as two half-covered greys
+    // instead of one line.
+    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+
+    const int height = util::RectHeight(box);
+    // Derived from the control, so it stays proportionate if the bar is ever
+    // made taller or the program is run at a scaling factor.
+    const REAL radius = static_cast<REAL>((std::max)(3, height / 7));
+
+    // Inset by half a pen width. A GDI+ outline is centred on the path, so
+    // drawing on the exact bounds puts half the line outside the rectangle,
+    // where the neighbouring button then paints over it.
+    Gdiplus::RectF shape(static_cast<REAL>(box.left) + 0.5f,
+                         static_cast<REAL>(box.top) + 0.5f,
+                         static_cast<REAL>(util::RectWidth(box)) - 1.0f,
+                         static_cast<REAL>(height) - 1.0f);
+
+    Gdiplus::GraphicsPath path;
+    MakeRoundedPath(&path, shape, radius);
+
+    const Gdiplus::Color faceColour = (active || pressed)
+        ? Gdiplus::Color(255, 204, 228, 246)
+        : Gdiplus::Color(255, 253, 253, 253);
+    SolidBrush face(faceColour);
+    graphics.FillPath(&face, &path);
+
+    const Gdiplus::Color edgeColour = active ? Gdiplus::Color(255, 0, 103, 192)
+                                             : Gdiplus::Color(255, 195, 199, 204);
+    // 1.6 rather than 2 for the active ring: antialiased, a two-pixel line
+    // reads heavier than the old doubled GDI frame did, and the point was
+    // emphasis rather than weight.
+    Pen edge(edgeColour, active ? 1.6f : 1.0f);
+    graphics.DrawPath(&edge, &path);
 }
 
 void DrawToolGlyph(HDC dc, Tool tool, const RECT& box, COLORREF ink) {
@@ -522,6 +573,15 @@ bool EditorWindow::Create() {
         canvas.lpszClassName = kCanvasClass;
         ::RegisterClassExW(&canvas);
 
+        WNDCLASSEXW slider{};
+        slider.cbSize        = sizeof(slider);
+        slider.lpfnWndProc   = &EditorWindow::SliderProc;
+        slider.hInstance     = ::GetModuleHandleW(nullptr);
+        slider.hCursor       = ::LoadCursorW(nullptr, IDC_ARROW);
+        slider.hbrBackground = nullptr;   // fully painted; a brush would flash
+        slider.lpszClassName = kSliderClass;
+        ::RegisterClassExW(&slider);
+
         WNDCLASSEXW popup{};
         popup.cbSize        = sizeof(popup);
         popup.lpfnWndProc   = &EditorWindow::SwatchProc;
@@ -669,17 +729,18 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
 
         swatch_ = MakeButton(hwnd_, L"", IDC_SWATCH, BS_OWNERDRAW);
 
+        // Still needed: the tooltip control below comes from comctl32 even
+        // though the slider no longer does.
         ::InitCommonControls();
-        slider_ = ::CreateWindowExW(0, TRACKBAR_CLASSW, L"",
-                                    WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS,
+
+        // Ours. It holds no value of its own — currentLineWidth_ is the
+        // single copy, and the slider reads and writes that — so there is
+        // no TBM_SETPOS/TBM_GETPOS round trip and no way for the control
+        // and the editor to disagree about the stroke width.
+        slider_ = ::CreateWindowExW(0, kSliderClass, L"", WS_CHILD | WS_VISIBLE,
                                     0, 0, 10, 10, hwnd_,
                                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SLIDER)),
-                                    ::GetModuleHandleW(nullptr), nullptr);
-        if (slider_) {
-            ::SendMessageW(slider_, TBM_SETRANGE, TRUE, MAKELPARAM(kSliderMin, kSliderMax));
-            ::SendMessageW(slider_, TBM_SETPOS, TRUE,
-                           static_cast<LPARAM>(static_cast<int>(currentLineWidth_)));
-        }
+                                    ::GetModuleHandleW(nullptr), this);
 
         // A real toggle, writing the same registry value the tray row does,
         // so the two are one setting with two switches.
@@ -780,17 +841,31 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
 
         if (item->CtlID == IDC_SWATCH) {
             RECT box = item->rcItem;
+            ::FillRect(item->hDC, &box, ::GetSysColorBrush(COLOR_BTNFACE));
             ::InflateRect(&box, -2, -3);
-            ScopedBrush fill(::CreateSolidBrush(ActiveColour()));
-            if (fill) ::FillRect(item->hDC, &box, fill.get());
+
+            Gdiplus::Graphics graphics(item->hDC);
+            graphics.SetSmoothingMode(SmoothingModeAntiAlias);
+            graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+
+            Gdiplus::RectF shape(static_cast<REAL>(box.left) + 0.5f,
+                                 static_cast<REAL>(box.top) + 0.5f,
+                                 static_cast<REAL>(util::RectWidth(box)) - 1.0f,
+                                 static_cast<REAL>(util::RectHeight(box)) - 1.0f);
+            Gdiplus::GraphicsPath path;
+            MakeRoundedPath(&path, shape,
+                            static_cast<REAL>((std::max)(3, util::RectHeight(box) / 6)));
+
+            const COLORREF swatchColour = ActiveColour();
+            SolidBrush fill(Gdiplus::Color(255, GetRValue(swatchColour),
+                                           GetGValue(swatchColour),
+                                           GetBValue(swatchColour)));
+            graphics.FillPath(&fill, &path);
+
             // A white swatch needs the outline to be visible at all against
             // the toolbar behind it.
-            ScopedPen border(::CreatePen(PS_SOLID, 1, RGB(128, 128, 128)));
-            if (border) {
-                SelectGuard penGuard(item->hDC, border.get());
-                SelectGuard brushGuard(item->hDC, ::GetStockObject(NULL_BRUSH));
-                ::Rectangle(item->hDC, box.left, box.top, box.right, box.bottom);
-            }
+            Pen border(Gdiplus::Color(255, 128, 128, 128), 1.0f);
+            graphics.DrawPath(&border, &path);
             return TRUE;
         }
 
@@ -845,16 +920,6 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
             return TRUE;
         }
         break;
-    }
-
-    case WM_HSCROLL: {
-        if (reinterpret_cast<HWND>(lParam) != slider_) break;
-        const int position = static_cast<int>(::SendMessageW(slider_, TBM_GETPOS, 0, 0));
-        SetCurrentLineWidth(static_cast<double>(position));
-        // Focus must come back or Delete and Esc silently stop working on
-        // the selection.
-        ReturnFocusToCanvas();
-        return 0;
     }
 
     case WM_COMMAND: {
@@ -1145,6 +1210,155 @@ void EditorWindow::ReturnFocusToCanvas() {
     if (canvas_ && !textEntryActive_) ::SetFocus(canvas_);
 }
 
+// --- the width slider ------------------------------------------------------
+
+LRESULT CALLBACK EditorWindow::SliderProc(HWND hwnd, UINT message,
+                                          WPARAM wParam, LPARAM lParam) {
+    auto* self = reinterpret_cast<EditorWindow*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (message == WM_NCCREATE) {
+        auto* create = reinterpret_cast<CREATESTRUCTW*>(lParam);
+        self = static_cast<EditorWindow*>(create->lpCreateParams);
+        ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+    }
+    if (!self) return ::DefWindowProcW(hwnd, message, wParam, lParam);
+    return self->OnSliderMessage(hwnd, message, wParam, lParam);
+}
+
+// The usable travel of the thumb CENTRE, inset by its own radius at each
+// end. Without the inset the thumb would hang off both ends at the
+// extremes, and the value under the pointer would not be the value drawn.
+namespace {
+constexpr int kThumbRadius = 7;
+}
+
+double EditorWindow::SliderValueForX(int x) const {
+    if (!slider_) return currentLineWidth_;
+    RECT client{};
+    ::GetClientRect(slider_, &client);
+    const int left  = kThumbRadius;
+    const int right = (std::max)(left + 1, util::RectWidth(client) - kThumbRadius);
+    const double t  = (std::min)(1.0, (std::max)(0.0,
+        static_cast<double>(x - left) / static_cast<double>(right - left)));
+    return kSliderMin + t * (kSliderMax - kSliderMin);
+}
+
+int EditorWindow::SliderXForValue(double value) const {
+    if (!slider_) return kThumbRadius;
+    RECT client{};
+    ::GetClientRect(slider_, &client);
+    const int left  = kThumbRadius;
+    const int right = (std::max)(left + 1, util::RectWidth(client) - kThumbRadius);
+    const double t  = (std::min)(1.0, (std::max)(0.0,
+        (value - kSliderMin) / static_cast<double>(kSliderMax - kSliderMin)));
+    return left + static_cast<int>(std::lround(t * (right - left)));
+}
+
+LRESULT EditorWindow::OnSliderMessage(HWND hwnd, UINT message,
+                                      WPARAM wParam, LPARAM lParam) {
+    switch (message) {
+    case WM_PAINT: {
+        PAINTSTRUCT paint{};
+        HDC dc = ::BeginPaint(hwnd, &paint);
+        if (!dc) { ::EndPaint(hwnd, &paint); return 0; }
+
+        RECT client{};
+        ::GetClientRect(hwnd, &client);
+        ::FillRect(dc, &client, ::GetSysColorBrush(COLOR_BTNFACE));
+
+        // Scoped, and that is not tidiness. ~Graphics calls
+        // GdipDeleteGraphics, which touches the HDC — so a Graphics still
+        // alive when EndPaint returns is using a DC that has been released.
+        // The two WM_DRAWITEM sites do not need this because their DC
+        // belongs to the caller and outlives them.
+        {
+        Gdiplus::Graphics graphics(dc);
+        graphics.SetSmoothingMode(SmoothingModeAntiAlias);
+        graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+
+        // Everything is measured from the MIDDLE of the control, which is
+        // the whole point of replacing the trackbar: a horizontal trackbar
+        // without TBS_BOTH gets a downward-pointing thumb, and Windows
+        // makes room for the point by pushing the channel above centre.
+        const REAL midY  = static_cast<REAL>(util::RectHeight(client)) / 2.0f;
+        const int  thumbX = SliderXForValue(currentLineWidth_);
+        const REAL trackLeft  = static_cast<REAL>(kThumbRadius);
+        const REAL trackRight = static_cast<REAL>(
+            (std::max)(kThumbRadius + 1, util::RectWidth(client) - kThumbRadius));
+
+        constexpr REAL kTrackThickness = 4.0f;
+
+        // The unfilled remainder first, full width, then the filled part
+        // over it. Drawing them as two abutting rounded bars would leave a
+        // seam where the antialiased ends meet.
+        SolidBrush rest(Gdiplus::Color(255, 205, 209, 214));
+        graphics.FillRectangle(&rest, trackLeft, midY - kTrackThickness / 2.0f,
+                               trackRight - trackLeft, kTrackThickness);
+
+        SolidBrush filled(Gdiplus::Color(255, 0, 103, 192));
+        graphics.FillRectangle(&filled, trackLeft, midY - kTrackThickness / 2.0f,
+                               static_cast<REAL>(thumbX) - trackLeft, kTrackThickness);
+
+        // The thumb last, so it covers both ends of the track it sits on.
+        const REAL r  = static_cast<REAL>(kThumbRadius);
+        const REAL cx = static_cast<REAL>(thumbX);
+        SolidBrush white(Gdiplus::Color(255, 255, 255, 255));
+        Pen        ring(Gdiplus::Color(255, 0, 103, 192), 2.0f);
+        graphics.FillEllipse(&white, cx - r, midY - r, r * 2, r * 2);
+        graphics.DrawEllipse(&ring,  cx - r + 1.0f, midY - r + 1.0f,
+                             r * 2 - 2.0f, r * 2 - 2.0f);
+        }
+
+        ::EndPaint(hwnd, &paint);
+        return 0;
+    }
+
+    case WM_ERASEBKGND:
+        return 1;   // fully painted above
+
+    case WM_LBUTTONDOWN:
+        draggingSlider_ = true;
+        ::SetCapture(hwnd);
+        SetCurrentLineWidth(SliderValueForX(GET_X_LPARAM(lParam)), false);
+        ::InvalidateRect(hwnd, nullptr, FALSE);
+        return 0;
+
+    case WM_MOUSEMOVE:
+        if (!draggingSlider_) return 0;
+        SetCurrentLineWidth(SliderValueForX(GET_X_LPARAM(lParam)), false);
+        ::InvalidateRect(hwnd, nullptr, FALSE);
+        return 0;
+
+    case WM_LBUTTONUP:
+        if (draggingSlider_) {
+            draggingSlider_ = false;
+            ::ReleaseCapture();
+            // Written once, at the end of the gesture.
+            editor_settings::SetLineWidth(currentLineWidth_);
+            // Focus must come back or Delete and Esc silently stop working
+            // on the selection.
+            ReturnFocusToCanvas();
+        }
+        return 0;
+
+    case WM_CAPTURECHANGED:
+        // Capture can be taken away — Alt-Tab, a lock screen, a UAC prompt.
+        // Without this the thumb keeps following the pointer afterwards.
+        draggingSlider_ = false;
+        return 0;
+
+    case WM_MOUSEWHEEL: {
+        const int notches = GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;
+        if (notches == 0) return 0;
+        SetCurrentLineWidth((std::min)(static_cast<double>(kSliderMax),
+                            (std::max)(static_cast<double>(kSliderMin),
+                                       currentLineWidth_ + notches)));
+        ::InvalidateRect(hwnd, nullptr, FALSE);
+        return 0;
+    }
+    }
+    return ::DefWindowProcW(hwnd, message, wParam, lParam);
+}
+
 // --- coordinate mapping ----------------------------------------------------
 
 double EditorWindow::ImageScale() const {
@@ -1270,6 +1484,24 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
         hasDraft_ = true;
         ::InvalidateRect(canvas_, nullptr, FALSE);
         return 0;
+    }
+
+    case WM_MOUSEWHEEL: {
+        // Forwarded, because a wheel message goes to the FOCUSED window and
+        // the slider never takes focus — the canvas does. Windows 10 and 11
+        // default "Scroll inactive windows when I hover over them" to on,
+        // which delivers it to the slider directly, but that is a setting
+        // and can be off. Then it arrives here instead, and without this it
+        // would silently do nothing.
+        if (slider_) {
+            POINT cursor{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };   // screen
+            RECT sliderRect{};
+            ::GetWindowRect(slider_, &sliderRect);
+            if (::PtInRect(&sliderRect, cursor)) {
+                return ::SendMessageW(slider_, WM_MOUSEWHEEL, wParam, lParam);
+            }
+        }
+        break;
     }
 
     case WM_SETCURSOR: {
@@ -1949,10 +2181,14 @@ void EditorWindow::SetCurrentColour(COLORREF colour) {
     }
 }
 
-void EditorWindow::SetCurrentLineWidth(double width) {
+void EditorWindow::SetCurrentLineWidth(double width, bool persist) {
     if (std::fabs(width - currentLineWidth_) < 0.001) return;
     currentLineWidth_ = width;
-    editor_settings::SetLineWidth(width);
+    if (persist) editor_settings::SetLineWidth(width);
+    // The slider draws itself from currentLineWidth_, so anything that
+    // changes the width has to tell it — including the paths that do not
+    // come from the slider at all.
+    if (slider_) ::InvalidateRect(slider_, nullptr, FALSE);
 
     if (selectedIndex_ >= 0 && selectedIndex_ < static_cast<int>(annotations_.size())) {
         SnapshotStyleChangeIfNeeded();

@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <assemblyIdentity type="win32" name="markpelayo.SnipTextProUltra" version="1.8.3.0"
+  <assemblyIdentity type="win32" name="markpelayo.SnipTextProUltra" version="1.8.4.0"
                     processorArchitecture="amd64"/>
   <description>SnipTextProUltra</description>
 
-  <!-- comctl32 version 6: the trackbar, the task dialog, and themed buttons. -->
+  <!-- comctl32 version 6: tooltips, the task dialog, and themed buttons. -->
   <dependency>
     <dependentAssembly>
       <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls"

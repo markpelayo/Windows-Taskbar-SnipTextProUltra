@@ -61,11 +61,21 @@ private:
     static LRESULT CALLBACK FrameProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK SwatchProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+    // The width slider is ours now rather than a comctl32 trackbar. The
+    // trackbar's thumb shape is the system's and cannot be restyled, and it
+    // was also the reason the thumb sat above the track: without TBS_BOTH
+    // Windows gives a horizontal trackbar a downward-POINTING thumb and
+    // leaves room for it by pushing the channel up.
+    static LRESULT CALLBACK SliderProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK TextEditProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 
     LRESULT OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam);
     LRESULT OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam);
     LRESULT OnSwatchMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+    LRESULT OnSliderMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+    // Maps a pointer x within the slider to a stroke width, and back.
+    double SliderValueForX(int x) const;
+    int    SliderXForValue(double value) const;
 
     // Every editor currently open. A file-static would do, except
     // PinSettingChanged has to reach a private member of each one.
@@ -117,7 +127,10 @@ private:
 
     void SetCurrentTool(Tool tool);
     void SetCurrentColour(COLORREF colour);
-    void SetCurrentLineWidth(double width);
+    // `persist` is false while the slider is being dragged: the registry
+    // would otherwise take a write per pixel of travel, about a hundred per
+    // drag, for a value only the last of which matters.
+    void SetCurrentLineWidth(double width, bool persist = true);
 
     // --- text entry ---
     void BeginTextEntry(PointD anchor);
@@ -282,6 +295,9 @@ private:
     Annotation draft_;
 
     ULONGLONG lastStyleChangeAt_ = 0;
+    // Set between mouse-down and mouse-up on the slider. Without it, moving
+    // the pointer across the slider on the way somewhere else would drag it.
+    bool      draggingSlider_ = false;
 
     PointD       textAnchor_{};
     COLORREF     textEntryColour_ = RGB(52, 199, 89);

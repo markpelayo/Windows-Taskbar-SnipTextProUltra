@@ -410,7 +410,7 @@ The one hole no drawing can close is `Auto-Save Images`, which writes the untouc
 
 Two bars, and everything on both of them is owner-drawn. The top carries three groups: Undo and Redo anchored left, the Pin toggle centred, Copy and Save anchored right. The bottom carries the swatch, the width slider and the nine tools.
 
-All thirteen icon buttons are 34 × 28 and go through one `DrawIconButtonFace`, so the two bars cannot drift apart the first time one of them is adjusted. (The colour swatch is owner-drawn too but keeps its own branch at 44 × 28: it shows a colour, not a glyph.) Only *switched-on* buttons get the filled face, the doubled ring and accent-coloured ink — the selected tool, and Pin when enabled — because that is the only state which survives letting go of the mouse. Save's permanent ring, inherited from `BS_DEFPUSHBUTTON`, was the last thing making the top row look like a separate toolbar, and it is gone.
+All thirteen icon buttons are 34 × 28 and go through one `DrawIconButtonFace`, which draws an antialiased rounded rectangle with GDI+ — GDI does not antialias, so a GDI rounded corner is a staircase, worse than the square corner it replaces, so the two bars cannot drift apart the first time one of them is adjusted. (The colour swatch is owner-drawn too but keeps its own branch at 44 × 28: it shows a colour, not a glyph.) Only *switched-on* buttons get the filled face, a heavier accent outline and accent-coloured ink — the selected tool, and Pin when enabled — because that is the only state which survives letting go of the mouse. Save's permanent ring, inherited from `BS_DEFPUSHBUTTON`, was the last thing making the top row look like a separate toolbar, and it is gone.
 
 Anchoring each group to its own edge is what makes overlap impossible by construction rather than by clamping — widening the window only grows the gaps. The single failure mode left is the window being too narrow, and `WM_GETMINMAXINFO` forbids it: `34 + (82 + 12) × 2 = 222`, where 82 is a flank of two icon buttons plus padding. The centred control must clear the *wider* flank on both sides because centring is symmetrical; here the flanks are equal by construction, both being two icon buttons.
 
@@ -443,6 +443,21 @@ The arrow is committed on mouse-up, *before* the label is typed, and the text en
 The label sits behind the arrow's **tail**, not past its head. The head is on the thing you are pointing at, so a label there covers the very pixels the arrow was drawn to single out — which is what 1.8.0 shipped and 1.8.1 corrected.
 
 An arrow travelling rightwards puts its label to the left of the tail, positioned by its **right** edge, so its left edge moves with every keystroke — `RepositionCalloutField` follows the field along on `EN_CHANGE`, or the text would jump the full width of the string on commit. An arrow travelling left anchors by its left edge and never moves.
+
+---
+
+## The width slider is ours
+
+It was a comctl32 trackbar until 1.8.4. Two reasons it is not any more: its thumb sat above the track, because a horizontal trackbar created without `TBS_BOTH` gets a downward-*pointing* thumb and Windows pushes the channel up to make room for the point; and the thumb's shape belongs to the system, so matching the rest of the bar was impossible from outside.
+
+It stores no value. `currentLineWidth_` is the single copy and the control reads and writes it, so there is no `TBM_SETPOS` round trip and no way for the two to disagree.
+
+Two things the replacement had to get right that the trackbar gave for free:
+
+- **The wheel.** A wheel message goes to the FOCUSED window, and the slider never takes focus — the canvas does. Windows defaults "Scroll inactive windows when I hover over them" to on, which delivers it directly, but that is a setting; when it is off the message arrives at the canvas, which forwards it if the pointer is over the slider.
+- **Accessibility.** The trackbar exposed itself to screen readers through MSAA/UIA. The custom class implements no accessibility interface at all, and that is a real regression rather than an oversight — worth revisiting if the program ever needs to be usable without sight.
+
+The registry write is deferred to mouse-up. Writing on every changed mouse-move is about a hundred writes per drag for a value only the last of which matters.
 
 ---
 

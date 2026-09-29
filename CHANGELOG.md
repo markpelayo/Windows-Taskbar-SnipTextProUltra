@@ -8,6 +8,48 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.8.4] — 2026-09-30
+
+### Fixed
+
+- **The slider's thumb sat above its track.** Not a styling quirk: a
+  horizontal comctl32 trackbar without `TBS_BOTH` gets a downward-*pointing*
+  thumb, and Windows makes room for the point by pushing the channel above
+  centre. It is centred now, because it is no longer a trackbar.
+
+### Changed
+
+- **The width slider is drawn by the editor**, not by comctl32. A trackbar's
+  thumb shape belongs to the system and cannot be restyled, so matching the
+  rest of the bar meant owning it: a rounded track, the travelled part in
+  the accent colour, and a round white thumb with an accent ring.
+
+  It holds no value of its own. `currentLineWidth_` is the single copy and
+  the slider reads and writes that directly, so there is no `TBM_SETPOS`
+  round trip and no way for the control and the editor to disagree. It also
+  takes the mouse wheel — forwarded from the canvas when Windows' "scroll
+  inactive windows" setting is off, since a wheel message goes to the
+  focused window and the slider never takes focus.
+
+  It gives up one thing the trackbar had: the MSAA/UIA interface it exposed
+  to screen readers. Nothing else in the program implements one either, so
+  it is consistent rather than newly broken, but it is a door closing.
+
+- **Every button on both bars has antialiased rounded corners.** Drawn with
+  GDI+ rather than GDI, because GDI does not antialias and a GDI rounded
+  corner is a staircase — visibly worse than the square corner it replaces.
+  GDI+ was already linked and already initialised for annotations, so this
+  is a different drawing call rather than a new dependency.
+
+  **No measurable cost.** The toolbar is not in any hot path: `WM_DRAWITEM`
+  fires only when a button is invalidated, and the thing that runs on every
+  mouse-move is the canvas, which is untouched.
+
+  **One real cost, stated plainly:** hand-drawn chrome does not follow
+  Windows. No dark mode, no high-contrast mode, no accent-colour follow. The
+  buttons gave that up in 1.8.0 when they became owner-drawn; the slider was
+  the last control the system still themed, and it gives it up here.
+
 ## [1.8.3] — 2026-09-30
 
 ### Added

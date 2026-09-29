@@ -28,14 +28,20 @@ namespace Gdiplus { class Graphics; class Image; }
 // Callout is an Arrow that carries a label at its TAIL. It is one annotation
 // rather than an arrow plus a separate Text mark so that moving it moves both
 // halves, and so the label cannot be left behind pointing at nothing.
-enum class Tool { Arrow, Rectangle, Ellipse, Line, Pen, Text, Lift, Callout };
+//
+// Crop is the odd one out twice over: it is not a mark at all. Selecting it
+// and dragging changes what part of the capture the editor is looking at,
+// and no Annotation is ever committed — the only thing it draws is the
+// marquee while the drag is happening. It lives in this enum because the
+// toolbar is built from it, which is cheaper than a second kind of button.
+enum class Tool { Arrow, Rectangle, Ellipse, Line, Pen, Text, Lift, Callout, Crop };
 
 // The toolbar builds its buttons, maps their command IDs back to tools, and
 // sizes its button array from this. It was a literal 6 in four separate
 // places, which is three chances to add a tool and update only some of them —
 // and the failure is quiet: the button simply never appears, or appears and
 // selects the wrong tool.
-inline constexpr int kToolCount = 8;
+inline constexpr int kToolCount = 9;
 
 // Which tools do something different when Shift is held. Lift cuts instead
 // of copying; Rectangle and Ellipse fill instead of outlining. The canvas
@@ -43,6 +49,14 @@ inline constexpr int kToolCount = 8;
 // others are, so the hint line always describes the tool in hand.
 inline constexpr bool ToolHasShiftVariant(Tool tool) {
     return tool == Tool::Lift || tool == Tool::Rectangle || tool == Tool::Ellipse;
+}
+
+// Which tools want a line of explanation on the canvas while they are
+// selected. The Shift variants above, plus Crop — which has no modifier but
+// does something no other tool does, and says so rather than letting you
+// find out by losing the rest of the picture.
+inline constexpr bool ToolHasCanvasHint(Tool tool) {
+    return ToolHasShiftVariant(tool) || tool == Tool::Crop;
 }
 
 const wchar_t* ToolKeyValue(Tool tool);     // the persisted string

@@ -2,13 +2,16 @@
 //
 // Nothing is baked into the image until you copy or save. Every mark stays
 // selectable, movable, resizable and restylable, and undo works on all of
-// those on the same footing as drawing, because undo stores whole-array
-// snapshots rather than a list of added shapes.
+// those on the same footing as drawing, because undo stores whole-STATE
+// snapshots rather than a list of added shapes — the annotation array and
+// the crop rectangle together, so cropping is an undoable edit like any
+// other.
 
 #pragma once
 
 #include "Annotation.h"
 #include "Bitmap.h"
+#include "Util.h"
 #include "framework.h"
 
 // Forward-declared rather than including gdiplus.h here. Gdiplus::Bitmap and
@@ -181,6 +184,10 @@ private:
     //     A small capture therefore costs nothing at all.
     //   - Freed with the window.
     std::unique_ptr<Bitmap> scaledImage_;
+    // Which crop scaledImage_ was built from. Part of its cache key: two
+    // different crops can produce the same destination size, and without
+    // this the canvas would keep showing the region it was scaled from.
+    RECT scaledFrom_{};
 
     // The colour to paint over a region that has been lifted away with Shift.
     // Sampled from the ring of pixels just outside the region, because that is
@@ -213,9 +220,53 @@ private:
     HWND pinButton_ = nullptr;
     HWND tooltips_  = nullptr;
 
-    std::vector<Annotation>              annotations_;
-    std::vector<std::vector<Annotation>> undoStack_;
-    std::vector<std::vector<Annotation>> redoStack_;
+    // What the crop tool changes, and why it is a RECTANGLE rather than a
+    // smaller bitmap.
+    //
+    // Cropping destructively — replacing image_ with a cut-down copy and
+    // shifting every annotation — would mean the undo stack had to hold a
+    // bitmap per step to be reversible. At 33 MB for a 4K capture and a cap
+    // of fifty steps, that is a gigabyte and a half of undo history for a
+    // screenshot editor.
+    //
+    // A rectangle costs sixteen bytes. The capture is never modified, marks
+    // keep the coordinates they were drawn in, a mark that falls outside the
+    // crop still exists and comes back if you undo, and re-cropping is just
+    // another rectangle. Everything downstream — the canvas, the export, the
+    // title — reads the crop instead of the image's own size.
+    //
+    // In ORIGINAL image pixels, always. Starts as the whole capture.
+    RECT crop_{};
+
+    int CropWidth()  const { return util::RectWidth(crop_); }
+    int CropHeight() const { return util::RectHeight(crop_); }
+
+    // Applies a crop and pushes the previous state for undo. `region` is in
+    // original image coordinates and is clamped to the current crop: you can
+    // only ever narrow the view, never widen it by dragging.
+    // Returns false when the region was rejected — too small, or already
+    // the crop — so the caller knows the gesture did nothing and can leave
+    // the tool armed for another try.
+    bool ApplyCrop(const RectD& region);
+
+    // Is this mark inside the visible picture at all? Used to keep a mark
+    // that a crop pushed out of view from being clickable in the grey
+    // letterbox beside the image.
+    bool IsWithinCrop(const Annotation& annotation, Gdiplus::Graphics* measureWith) const;
+    // The title carries the size, and a crop changes it.
+    void UpdateTitleForCrop();
+
+    // One undo step. The crop travels with the annotations because a crop
+    // IS an edit — Ctrl+Z after cropping has to put the picture back, not
+    // just the marks.
+    struct EditorState {
+        std::vector<Annotation> annotations;
+        RECT                    crop{};
+    };
+
+    std::vector<Annotation>  annotations_;
+    std::vector<EditorState> undoStack_;
+    std::vector<EditorState> redoStack_;
 
     int      selectedIndex_ = -1;
     Tool     currentTool_   = Tool::Arrow;

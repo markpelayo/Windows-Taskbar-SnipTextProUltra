@@ -84,6 +84,7 @@ const wchar_t* ToolKeyValue(Tool tool) {
     case Tool::Text:      return L"text";
     case Tool::Lift:      return L"lift";
     case Tool::Callout:   return L"callout";
+    case Tool::Crop:      return L"crop";
     default:              return L"arrow";
     }
 }
@@ -97,6 +98,7 @@ const wchar_t* ToolTitle(Tool tool) {
     case Tool::Text:      return L"Text";
     case Tool::Lift:      return L"Lift";
     case Tool::Callout:   return L"Callout";
+    case Tool::Crop:      return L"Crop";
     default:              return L"Arrow";
     }
 }
@@ -109,6 +111,9 @@ Tool ToolFromKeyValue(const std::wstring& value) {
     if (value == L"text")      return Tool::Text;
     if (value == L"lift")      return Tool::Lift;
     if (value == L"callout")   return Tool::Callout;
+    // Deliberately absent: "crop" never round-trips. It is an action, not a
+    // mode, so the editor reverts to Arrow after one and there is nothing
+    // sensible to restore a session into.
     return Tool::Arrow;
 }
 
@@ -249,6 +254,20 @@ void Annotation::Draw(Graphics& graphics, double scale, PointD offset,
         pen.SetStartCap(LineCapRound);
         pen.SetEndCap(LineCapRound);
         graphics.DrawLine(&pen, Map(start, scale, offset), Map(end, scale, offset));
+        break;
+    }
+    case Tool::Crop: {
+        // The only thing Crop ever draws. There is no committed Crop
+        // annotation — EditorWindow intercepts the mouse-up and changes the
+        // view instead — so this is strictly the in-progress marquee, and
+        // it is dashed for the same reason Lift's is: it marks a region
+        // rather than adding ink.
+        Pen marquee(ToGdipColour(colour), 1.0f);
+        marquee.SetDashStyle(DashStyleDash);
+        const RectD box = RectBetween(start, end);
+        const PointF p0 = Map({ box.MinX(), box.MinY() }, scale, offset);
+        const PointF p1 = Map({ box.MaxX(), box.MaxY() }, scale, offset);
+        graphics.DrawRectangle(&marquee, p0.X, p0.Y, p1.X - p0.X, p1.Y - p0.Y);
         break;
     }
     case Tool::Callout:
@@ -403,6 +422,12 @@ bool Annotation::HitTest(PointD point, double tolerance, Graphics* measureWith) 
         // Text is the one exception: its whole box counts, because a label
         // has no meaningful outline to aim at.
         return Contains(Inset(BoundingBox(measureWith), -tolerance, -tolerance), point);
+    case Tool::Crop:
+        // Unreachable: a Crop annotation is never committed, so there is
+        // never one in the array to test. Present because the switch has no
+        // default and /W4 turns a missing enumerator into a build failure —
+        // which is the reminder you want when a tool is added.
+        return false;
     case Tool::Lift:
         // Solid, so aiming at the outline would be aiming at an edge that
         // carries no meaning.

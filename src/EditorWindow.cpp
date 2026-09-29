@@ -44,7 +44,7 @@ constexpr int IDC_SLIDER     = 106;
 constexpr int IDC_PINTOGGLE  = 107;
 constexpr int IDC_TOOL_FIRST = 110;
 // 200, not 120. The tool buttons run from IDC_TOOL_FIRST upwards, one per
-// tool, and at eight tools they reach 117 — three short of where this used to
+// tool, and at nine tools they reach 118 — two short of where this used to
 // sit. A tenth tool would have collided with it, and the failure would have
 // been quiet: a tool button whose click is read as an edit-control
 // notification.
@@ -61,8 +61,8 @@ constexpr UINT WM_OPEN_COLOUR_PICKER = WM_APP + 1;
 constexpr int kBarHeight     = 44;
 constexpr int kBarPadding    = 10;
 constexpr int kButtonHeight  = 28;
-// Tools are square icons now, not words. Eight text labels would have needed
-// a minimum window wider than the old seven did; eight icons need markedly
+// Tools are square icons now, not words. Nine text labels would have needed
+// a minimum window far wider than the old seven did; nine icons need markedly
 // less room than the seven words they replaced. Every glyph is drawn in GDI
 // from lines and curves — there is no image resource anywhere in the program
 // and adding one for this would have been the first.
@@ -426,6 +426,18 @@ void DrawToolGlyph(HDC dc, Tool tool, const RECT& box, COLORREF ink) {
         break;
     }
 
+    case Tool::Crop: {
+        // The photographer's crop mark: two overlapping L-shaped corners,
+        // each overshooting the other so they read as a frame being closed
+        // in rather than a rectangle. Distinct from Rectangle, which is a
+        // closed outline, and from Lift, which is a dashed marquee.
+        g.Line(6.5, 1.5, 6.5, 13.5);
+        g.Line(6.5, 13.5, 18.5, 13.5);
+        g.Line(1.5, 6.5, 13.5, 6.5);
+        g.Line(13.5, 6.5, 13.5, 18.5);
+        break;
+    }
+
     case Tool::Callout:
         // Reversed from the first draft, to say what the tool now does: the
         // LETTER comes first and the arrow leaves it, pointing away at
@@ -464,6 +476,8 @@ EditorWindow::EditorWindow(std::unique_ptr<Bitmap> image, CloseCallback onClose)
     currentColour_    = editor_settings::Colour();
     currentLineWidth_ = editor_settings::LineWidth();
     textEntryColour_  = currentColour_;
+    // The whole capture, until the crop tool says otherwise.
+    if (image_) crop_ = util::MakeRect(0, 0, image_->Width(), image_->Height());
     LiveEditors().push_back(this);
 }
 
@@ -1137,9 +1151,12 @@ double EditorWindow::ImageScale() const {
     if (!canvas_ || !image_) return 1.0;
     RECT client{};
     ::GetClientRect(canvas_, &client);
+    // Against the CROP, not the capture. Everything the canvas does is in
+    // terms of the region currently being shown; the capture behind it may
+    // be much larger and is none of the canvas's business.
     const double scale = (std::min)(1.0,
-        (std::min)(static_cast<double>(util::RectWidth(client)) / (std::max)(1, image_->Width()),
-                   static_cast<double>(util::RectHeight(client)) / (std::max)(1, image_->Height())));
+        (std::min)(static_cast<double>(util::RectWidth(client)) / (std::max)(1, CropWidth()),
+                   static_cast<double>(util::RectHeight(client)) / (std::max)(1, CropHeight())));
     return (std::max)(scale, 0.0001);
 }
 
@@ -1147,8 +1164,8 @@ RECT EditorWindow::ImageRect() const {
     RECT client{};
     if (canvas_) ::GetClientRect(canvas_, &client);
     const double scale = ImageScale();
-    const int width  = static_cast<int>(image_->Width() * scale);
-    const int height = static_cast<int>(image_->Height() * scale);
+    const int width  = static_cast<int>(CropWidth() * scale);
+    const int height = static_cast<int>(CropHeight() * scale);
     const int left = (util::RectWidth(client) - width) / 2;
     const int top  = (util::RectHeight(client) - height) / 2;
     return util::MakeRect(left, top, left + width, top + height);
@@ -1157,14 +1174,19 @@ RECT EditorWindow::ImageRect() const {
 PointD EditorWindow::ToImagePoint(POINT view) const {
     const RECT   rect  = ImageRect();
     const double scale = ImageScale();
-    return PointD{ (view.x - rect.left) / scale, (view.y - rect.top) / scale };
+    // The crop origin is added back, so annotations are always stored in
+    // ORIGINAL capture coordinates no matter how many times the view has
+    // been cropped. That is what lets a crop be undone without touching a
+    // single mark, and what stops repeated crops accumulating an offset.
+    return PointD{ crop_.left + (view.x - rect.left) / scale,
+                   crop_.top  + (view.y - rect.top)  / scale };
 }
 
 POINT EditorWindow::ToViewPoint(PointD image) const {
     const RECT   rect  = ImageRect();
     const double scale = ImageScale();
-    POINT out{ rect.left + static_cast<int>(image.x * scale),
-               rect.top  + static_cast<int>(image.y * scale) };
+    POINT out{ rect.left + static_cast<int>((image.x - crop_.left) * scale),
+               rect.top  + static_cast<int>((image.y - crop_.top)  * scale) };
     return out;
 }
 
@@ -1218,6 +1240,7 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
         {
             Graphics measure(canvas_);
             for (int i = static_cast<int>(annotations_.size()) - 1; i >= 0; --i) {
+                if (!IsWithinCrop(annotations_[i], &measure)) continue;
                 if (annotations_[i].HitTest(point, tolerance, &measure)) {
                     selectedIndex_ = i;
                     dragMode_      = DragMode::Moving;
@@ -1384,12 +1407,20 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
             // Clamped to the picture: a selection dragged past the edge would
             // otherwise ask GDI+ to read pixels that are not there.
             RectD region = shape.NormalizedRect();
-            const double pictureWidth  = static_cast<double>(image_->Width());
-            const double pictureHeight = static_cast<double>(image_->Height());
-            const double x0 = (std::max)(0.0, (std::min)(region.MinX(), pictureWidth));
-            const double y0 = (std::max)(0.0, (std::min)(region.MinY(), pictureHeight));
-            const double x1 = (std::max)(0.0, (std::min)(region.MaxX(), pictureWidth));
-            const double y1 = (std::max)(0.0, (std::min)(region.MaxY(), pictureHeight));
+            // Clamped to the CROP, not the whole capture. A drag that
+            // starts in the grey letterbox maps to coordinates outside the
+            // crop, and the capture still holds those pixels — so clamping
+            // to the capture would let a lift carry cropped-away content
+            // back into the exported file, where there is no clip to hide
+            // it.
+            const double cropLeft   = static_cast<double>(crop_.left);
+            const double cropTop    = static_cast<double>(crop_.top);
+            const double cropRight  = static_cast<double>(crop_.right);
+            const double cropBottom = static_cast<double>(crop_.bottom);
+            const double x0 = (std::max)(cropLeft, (std::min)(region.MinX(), cropRight));
+            const double y0 = (std::max)(cropTop,  (std::min)(region.MinY(), cropBottom));
+            const double x1 = (std::max)(cropLeft, (std::min)(region.MaxX(), cropRight));
+            const double y1 = (std::max)(cropTop,  (std::min)(region.MaxY(), cropBottom));
             if (x1 - x0 < 1.0 || y1 - y0 < 1.0) {
                 ::InvalidateRect(canvas_, nullptr, FALSE);
                 return 0;
@@ -1404,6 +1435,25 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
                 shape.blankSource = true;
                 shape.blankColour = DominantEdgeColour(region);
             }
+        }
+
+        if (shape.tool == Tool::Crop) {
+            // Intercepted before the push: a Crop is never a mark. It
+            // changes what the editor is looking at and then gets out of
+            // the way.
+            // Only disarm if it actually did something. A drag too small
+            // to be a crop is a mis-drag, and switching to Arrow behind
+            // the user's back means their second attempt draws an arrow.
+            if (ApplyCrop(shape.NormalizedRect())) {
+                // Back to Arrow. Crop is an action, not a mode — leaving
+                // it armed means the next drag silently crops again,
+                // which is the sort of thing you only discover after
+                // losing work.
+                SetCurrentTool(Tool::Arrow);
+            }
+            RefreshToolbarState();
+            ::InvalidateRect(canvas_, nullptr, FALSE);
+            return 0;
         }
 
         const bool isCallout = (shape.tool == Tool::Callout);
@@ -1518,18 +1568,22 @@ void EditorWindow::PaintCanvas(HDC dc) {
         const int destWidth  = util::RectWidth(rect);
         const int destHeight = util::RectHeight(rect);
 
-        if (destWidth == image_->Width() && destHeight == image_->Height()) {
+        if (destWidth == CropWidth() && destHeight == CropHeight()) {
             // Shown at 1:1 — nothing to scale, so blit the original and hold
             // no cache at all. This is why a small capture costs no extra
             // memory, and it is also why the wobble was never visible on one.
             scaledImage_.reset();
             ::BitBlt(target, rect.left, rect.top, destWidth, destHeight,
-                     image_->MemoryDC(), 0, 0, SRCCOPY);
+                     image_->MemoryDC(), crop_.left, crop_.top, SRCCOPY);
         } else {
             // Scaled ONCE, with the good resampler, and kept. The size is the
             // cache key, so a window resize rebuilds it and nothing else does.
+            // The crop is part of the cache key. Two different crops can
+            // land on the same destination size, and without this the
+            // canvas would keep showing the region it was scaled from.
             if (!scaledImage_ || scaledImage_->Width() != destWidth ||
-                scaledImage_->Height() != destHeight) {
+                scaledImage_->Height() != destHeight ||
+                !util::RectsEqual(scaledFrom_, crop_)) {
                 // Released before allocating, so a resize never holds two.
                 scaledImage_.reset();
                 scaledImage_ = Bitmap::Create(destWidth, destHeight);
@@ -1542,8 +1596,9 @@ void EditorWindow::PaintCanvas(HDC dc) {
                     ::SetStretchBltMode(scaledImage_->MemoryDC(), HALFTONE);
                     ::SetBrushOrgEx(scaledImage_->MemoryDC(), 0, 0, nullptr);
                     ::StretchBlt(scaledImage_->MemoryDC(), 0, 0, destWidth, destHeight,
-                                 image_->MemoryDC(), 0, 0,
-                                 image_->Width(), image_->Height(), SRCCOPY);
+                                 image_->MemoryDC(), crop_.left, crop_.top,
+                                 CropWidth(), CropHeight(), SRCCOPY);
+                    scaledFrom_ = crop_;
                 } else {
                     scaledImage_.reset();
                 }
@@ -1561,8 +1616,8 @@ void EditorWindow::PaintCanvas(HDC dc) {
                 ::SetStretchBltMode(target, HALFTONE);
                 ::SetBrushOrgEx(target, 0, 0, nullptr);
                 ::StretchBlt(target, rect.left, rect.top, destWidth, destHeight,
-                             image_->MemoryDC(), 0, 0,
-                             image_->Width(), image_->Height(), SRCCOPY);
+                             image_->MemoryDC(), crop_.left, crop_.top,
+                             CropWidth(), CropHeight(), SRCCOPY);
             }
         }
     }
@@ -1580,11 +1635,38 @@ void EditorWindow::PaintCanvas(HDC dc) {
         graphics.SetSmoothingMode(SmoothingModeAntiAlias);
         graphics.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);
 
-        const PointD offset{ static_cast<double>(rect.left), static_cast<double>(rect.top) };
+        // Clipped to the visible picture. Marks are stored in original
+        // capture coordinates and a crop does not move or delete them, so
+        // one that now sits outside the crop would otherwise be drawn on
+        // the grey canvas beside the image — visible, unreachable and
+        // wrong. Clipping is also what makes a mark straddling the edge
+        // look cut off rather than floating.
+        graphics.SetClip(Gdiplus::Rect(rect.left, rect.top,
+                                       util::RectWidth(rect), util::RectHeight(rect)));
+
+        // The crop origin belongs in here. Map() computes p*scale + offset,
+        // and marks are stored in ORIGINAL capture coordinates — so without
+        // subtracting the crop's top-left, every mark is displaced by
+        // crop_.topLeft * scale down and right of the picture it belongs
+        // to, while the selection outline and handles (which go through
+        // ToViewPoint, and do subtract it) stay put. Marks would separate
+        // from their own handles, and the canvas would disagree with the
+        // exported file. Invisible until you crop from somewhere other than
+        // the top-left corner, which is exactly the kind of bug that ships.
+        const PointD offset{ rect.left - crop_.left * scale,
+                             rect.top  - crop_.top  * scale };
         for (const Annotation& annotation : annotations_) {
             annotation.Draw(graphics, scale, offset, picture.get());
         }
         if (hasDraft_) draft_.Draw(graphics, scale, offset, picture.get());
+
+        // Released before the chrome. The clip exists to stop marks
+        // spilling past the picture; selection outlines sit 4px outside a
+        // mark's box and handles half a handle beyond that, so leaving it
+        // on would slice the grips off any mark touching the crop edge —
+        // and the hint bar, which lives in the canvas corner rather than
+        // the picture, would be clipped away entirely.
+        graphics.ResetClip();
 
         // Selection chrome, in view units so it stays usable at any zoom.
         if (selectedIndex_ >= 0 && selectedIndex_ < static_cast<int>(annotations_.size())) {
@@ -1631,7 +1713,7 @@ void EditorWindow::PaintCanvas(HDC dc) {
         // and "Cut", "Rectangle" and "Filled Rectangle". That is more
         // discoverable and costs three more buttons. This says the same
         // thing for no width at all.
-        if (ToolHasShiftVariant(currentTool_) && !hasDraft_) {
+        if (ToolHasCanvasHint(currentTool_) && !hasDraft_) {
             // One line per tool that has a modifier. A modifier nobody
             // knows about is a feature that does not exist, and there are
             // three of them now — Lift's cut, and fill on both closed
@@ -1640,6 +1722,8 @@ void EditorWindow::PaintCanvas(HDC dc) {
             const wchar_t* hint =
                 (currentTool_ == Tool::Lift)
                     ? L"Drag to copy a piece  ·  Shift-drag to cut it out"
+                : (currentTool_ == Tool::Crop)
+                    ? L"Drag to keep that area  ·  Marks are kept, and Ctrl+Z undoes it"
                     : L"Drag for an outline  ·  Shift-drag to fill it";
 
             Gdiplus::FontFamily family(L"Segoe UI");
@@ -1695,8 +1779,68 @@ void EditorWindow::PaintCanvas(HDC dc) {
 
 // --- editing ---------------------------------------------------------------
 
+bool EditorWindow::ApplyCrop(const RectD& region) {
+    if (!image_) return false;
+
+    // Clamped to the CURRENT crop, so a drag can only ever narrow the view.
+    // Widening would mean showing pixels the user has already cropped away,
+    // which undo is for.
+    const long left   = static_cast<long>(std::lround((std::max)(
+        static_cast<double>(crop_.left), region.MinX())));
+    const long top    = static_cast<long>(std::lround((std::max)(
+        static_cast<double>(crop_.top), region.MinY())));
+    const long right  = static_cast<long>(std::lround((std::min)(
+        static_cast<double>(crop_.right), region.MaxX())));
+    const long bottom = static_cast<long>(std::lround((std::min)(
+        static_cast<double>(crop_.bottom), region.MaxY())));
+
+    // A floor in IMAGE pixels, not view pixels. Cropping a 4K capture to
+    // eight pixels is a mis-drag every time, and the result is a window
+    // that cannot be usefully undone from because there is nothing to see.
+    constexpr long kMinimumCrop = 16;
+    if (right - left < kMinimumCrop || bottom - top < kMinimumCrop) return false;
+
+    // Nothing to do if it already is the crop — and taking a snapshot for a
+    // no-op would put a dead step on the undo stack.
+    RECT next{ left, top, right, bottom };
+    if (util::RectsEqual(next, crop_)) return false;
+
+    Snapshot();
+    crop_ = next;
+
+    // The cache was scaled from the old region.
+    scaledImage_.reset();
+    // A mark can easily be outside the new view, and a selection you cannot
+    // see with handles you cannot reach is worse than none.
+    selectedIndex_ = -1;
+
+    UpdateTitleForCrop();
+    ::InvalidateRect(canvas_, nullptr, FALSE);
+    return true;
+}
+
+bool EditorWindow::IsWithinCrop(const Annotation& annotation,
+                                Gdiplus::Graphics* measureWith) const {
+    // A crop does not move or delete marks, so one that now lies entirely
+    // outside the visible picture is still in the array — and without this
+    // it would still be CLICKABLE, out in the grey letterbox beside the
+    // image: the cursor would turn to the move shape over apparently empty
+    // space, and a click would select a mark whose selection chrome is
+    // then clipped away. Invisible and unreachable have to mean the same
+    // thing.
+    const RectD box = annotation.BoundingBox(measureWith);
+    return box.MaxX() >= crop_.left && box.MinX() <= crop_.right &&
+           box.MaxY() >= crop_.top  && box.MinY() <= crop_.bottom;
+}
+
+void EditorWindow::UpdateTitleForCrop() {
+    if (!hwnd_) return;
+    baseTitle_ = util::Format(L"Screenshot %d × %d", CropWidth(), CropHeight());
+    ::SetWindowTextW(hwnd_, baseTitle_.c_str());
+}
+
 void EditorWindow::Snapshot() {
-    undoStack_.push_back(annotations_);
+    undoStack_.push_back(EditorState{ annotations_, crop_ });
     // Nothing else trims these stacks, and an editor can stay open a long
     // time; the cap is what keeps the memory bounded by construction.
     if (undoStack_.size() > kUndoCap) undoStack_.erase(undoStack_.begin());
@@ -1729,11 +1873,16 @@ void EditorWindow::Undo() {
     if (CancelTextEntry()) { ::InvalidateRect(canvas_, nullptr, FALSE); return; }
     if (undoStack_.empty()) return;
 
-    redoStack_.push_back(annotations_);
-    annotations_ = std::move(undoStack_.back());
+    redoStack_.push_back(EditorState{ annotations_, crop_ });
+    annotations_ = std::move(undoStack_.back().annotations);
+    crop_        = undoStack_.back().crop;
     undoStack_.pop_back();
     // The index may no longer refer to the same mark.
     selectedIndex_ = -1;
+    // The crop may have changed, which invalidates the scaled cache and
+    // the size in the title.
+    scaledImage_.reset();
+    UpdateTitleForCrop();
     RefreshToolbarState();
     ::InvalidateRect(canvas_, nullptr, FALSE);
 }
@@ -1742,10 +1891,13 @@ void EditorWindow::Redo() {
     if (CancelTextEntry()) { ::InvalidateRect(canvas_, nullptr, FALSE); return; }
     if (redoStack_.empty()) return;
 
-    undoStack_.push_back(annotations_);
-    annotations_ = std::move(redoStack_.back());
+    undoStack_.push_back(EditorState{ annotations_, crop_ });
+    annotations_ = std::move(redoStack_.back().annotations);
+    crop_        = redoStack_.back().crop;
     redoStack_.pop_back();
     selectedIndex_ = -1;
+    scaledImage_.reset();
+    UpdateTitleForCrop();
     RefreshToolbarState();
     ::InvalidateRect(canvas_, nullptr, FALSE);
 }
@@ -1898,6 +2050,7 @@ HCURSOR EditorWindow::CursorForPoint(POINT view) const {
         const double tolerance = kHitTolerance / ImageScale();
         Graphics measure(canvas_);
         for (int i = static_cast<int>(annotations_.size()) - 1; i >= 0; --i) {
+            if (!IsWithinCrop(annotations_[i], &measure)) continue;
             if (annotations_[i].HitTest(point, tolerance, &measure)) return load(IDC_SIZEALL);
         }
     }
@@ -2296,11 +2449,14 @@ std::unique_ptr<Bitmap> EditorWindow::Flatten() {
     // An in-progress label must not be silently lost by pressing Copy.
     CommitTextEntry();
 
-    auto output = Bitmap::Create(image_->Width(), image_->Height());
+    // Sized to the CROP. This is the whole of what cropping means for the
+    // file you end up with: the capture behind it is untouched and still
+    // full size, and what leaves the editor is the region you chose.
+    auto output = Bitmap::Create(CropWidth(), CropHeight());
     if (!output || !output->MemoryDC() || !image_->MemoryDC()) return nullptr;
 
-    ::BitBlt(output->MemoryDC(), 0, 0, image_->Width(), image_->Height(),
-             image_->MemoryDC(), 0, 0, SRCCOPY);
+    ::BitBlt(output->MemoryDC(), 0, 0, CropWidth(), CropHeight(),
+             image_->MemoryDC(), crop_.left, crop_.top, SRCCOPY);
     output->MakeOpaque();
 
     {
@@ -2326,8 +2482,15 @@ std::unique_ptr<Bitmap> EditorWindow::Flatten() {
         // being drawn into would make each lift see the results of the ones
         // before it, so two overlapping lifts would compound instead of both
         // showing the untouched picture.
+        // Offset by the crop origin, not scaled: marks are in original
+        // capture coordinates, and the output starts at the crop's
+        // top-left. A mark outside the crop draws off the edge of the
+        // bitmap and GDI+ discards it, which is exactly right — it still
+        // exists, and undoing the crop brings it back.
+        const PointD offset{ -static_cast<double>(crop_.left),
+                             -static_cast<double>(crop_.top) };
         for (const Annotation& annotation : annotations_) {
-            annotation.Draw(graphics, 1.0, PointD{ 0.0, 0.0 }, picture.get());
+            annotation.Draw(graphics, 1.0, offset, picture.get());
         }
         // The draft is deliberately excluded: a shape still under the mouse
         // has not been committed.

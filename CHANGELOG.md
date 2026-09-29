@@ -8,6 +8,38 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.8.3] — 2026-09-30
+
+### Added
+
+- **Crop.** A ninth tool. Select it, drag a rectangle, and that region is
+  what the editor shows and what Copy and Save produce.
+
+  **Marks survive it.** A mark that straddles the new edge is clipped where
+  the picture is, and stays selectable, movable and deletable. One that
+  falls entirely outside still exists — it is not visible, but undoing the
+  crop brings it back exactly where it was.
+
+  **Ctrl+Z undoes a crop**, the same as it undoes a mark, because a crop is
+  an edit rather than a mode.
+
+  It is a one-shot: the tool reverts to Arrow once the crop is applied,
+  since leaving it armed means the next drag silently crops again.
+
+  Nothing is destroyed. The crop is stored as a **rectangle** rather than by
+  cutting down the capture — the capture is never modified at all, which is
+  what makes undo work and what keeps the undo stack cheap. A rectangle
+  costs sixteen bytes per step; a bitmap would cost 33 MB for a 4K capture,
+  and fifty of those is a gigabyte and a half of undo history for a
+  screenshot editor.
+
+  Marks keep the coordinates they were drawn in, so repeated crops cannot
+  accumulate an offset, and there is exactly one place — `ToImagePoint` /
+  `ToViewPoint` — where the crop enters the coordinate system.
+
+  The window title follows the crop, so it reports what you would get if you
+  saved.
+
 ## [1.8.2] — 2026-09-30
 
 ### Added

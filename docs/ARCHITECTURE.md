@@ -252,7 +252,7 @@ The colour-wheel cell posts a message to the frame rather than opening the picke
 
 ### Export
 
-Full resolution, always: `scale = 1, offset = 0`, with the identical drawing code the canvas uses. That is the payoff of the coordinate choice. The in-progress draft is excluded — a shape still under the mouse has not been committed.
+Full resolution, always: `scale = 1`, with `offset = -crop_.topLeft` and a crop-sized bitmap, with the identical drawing code the canvas uses. That is the payoff of the coordinate choice. The in-progress draft is excluded — a shape still under the mouse has not been committed.
 
 The clipboard gets **both** `CF_DIBV5` and a registered `PNG` format. DIBV5 carries the alpha channel that plain `CF_DIB` does not; PNG is what modern applications prefer. Offering both means neither kind of consumer has to guess.
 
@@ -396,7 +396,7 @@ The registry key is still `pinRegionToScreen`, a leftover from the first design.
 
 Three tools change behaviour when Shift is held at mouse-**up**: Lift cuts instead of copying, and Rectangle and Ellipse fill instead of outlining. Read at mouse-up rather than mouse-down, so the decision is the one you were holding when you let go.
 
-`ToolHasShiftVariant()` is what the canvas hint keys off, so the hint line always describes the tool in hand and disappears for the five tools that have no modifier. A modifier nobody knows about is a feature that does not exist.
+`ToolHasCanvasHint()` is what the canvas hint keys off — the three Shift variants plus Crop — so the hint line always describes the tool in hand and disappears for the five that have nothing to explain. A modifier nobody knows about is a feature that does not exist.
 
 Filling used to be a separate `Tool::Redact`. Its only difference from Rectangle was the brush, and it forced a second hidden colour behind the swatch — black, so that redactions did not default to bright green — which meant the one control on the bar that should always mean one thing meant two. Folding it into a modifier removed the tool, the second colour and the `ToolCoversPixels` branch.
 
@@ -408,13 +408,13 @@ The one hole no drawing can close is `Auto-Save Images`, which writes the untouc
 
 ## The editor toolbar
 
-Two bars, and everything on both of them is owner-drawn. The top carries three groups: Undo and Redo anchored left, the Pin toggle centred, Copy and Save anchored right. The bottom carries the swatch, the width slider and the eight tools.
+Two bars, and everything on both of them is owner-drawn. The top carries three groups: Undo and Redo anchored left, the Pin toggle centred, Copy and Save anchored right. The bottom carries the swatch, the width slider and the nine tools.
 
 All thirteen icon buttons are 34 × 28 and go through one `DrawIconButtonFace`, so the two bars cannot drift apart the first time one of them is adjusted. (The colour swatch is owner-drawn too but keeps its own branch at 44 × 28: it shows a colour, not a glyph.) Only *switched-on* buttons get the filled face, the doubled ring and accent-coloured ink — the selected tool, and Pin when enabled — because that is the only state which survives letting go of the mouse. Save's permanent ring, inherited from `BS_DEFPUSHBUTTON`, was the last thing making the top row look like a separate toolbar, and it is gone.
 
 Anchoring each group to its own edge is what makes overlap impossible by construction rather than by clamping — widening the window only grows the gaps. The single failure mode left is the window being too narrow, and `WM_GETMINMAXINFO` forbids it: `34 + (82 + 12) × 2 = 222`, where 82 is a flank of two icon buttons plus padding. The centred control must clear the *wider* flank on both sides because centring is symmetrical; here the flanks are equal by construction, both being two icon buttons.
 
-222 is far below the tool row's 502, so the **bottom** row now sets the floor — the first time it has since the editor was written. The minimum went 700 (seven text tools) → 678 (a text command group) → 540 (nine icon tools) → 502, narrower than it has ever been with one more tool than it has ever had.
+222 is far below the tool row's 540, so the **bottom** row now sets the floor — the first time it has since the editor was written. The minimum went 700 (seven text tools) → 678 (a text command group) → 502 (eight icon tools) → 540 with Crop as a ninth: still well under the 700 that seven text-labelled tools needed.
 
 Pin is a real toggle rather than a label, writing the same registry value the tray row writes. `EditorWindow::PinSettingChanged` repaints it in every live editor and is called from both switches and from Sanitize, so two windows cannot disagree about one setting. `LiveEditors()` is maintained by the constructor and destructor rather than by `WM_CREATE`/`WM_DESTROY`, because the object outlives its window by one message-loop turn — App defers the delete. `WM_DESTROY` nulls `pinButton_` for exactly that gap, so a notification arriving in it has nothing to invalidate. The list itself is deliberately never destroyed: `App` is a function-local static constructed *before* the first editor, so this vector would be torn down first, and `~App` destroying `editors_` would then erase from a dead container.
 
@@ -443,6 +443,27 @@ The arrow is committed on mouse-up, *before* the label is typed, and the text en
 The label sits behind the arrow's **tail**, not past its head. The head is on the thing you are pointing at, so a label there covers the very pixels the arrow was drawn to single out — which is what 1.8.0 shipped and 1.8.1 corrected.
 
 An arrow travelling rightwards puts its label to the left of the tail, positioned by its **right** edge, so its left edge moves with every keystroke — `RepositionCalloutField` follows the field along on `EN_CHANGE`, or the text would jump the full width of the string on commit. An arrow travelling left anchors by its left edge and never moves.
+
+---
+
+## Cropping is a rectangle, not a smaller bitmap
+
+`EditorWindow::crop_` is a `RECT` in **original capture pixels**. The capture is never modified; the canvas blits a sub-rectangle of it, `Flatten` creates a crop-sized bitmap and blits the same sub-rectangle, and annotations keep the coordinates they were drawn in.
+
+The alternative — cut the bitmap down, shift every mark — fails on undo. Undo snapshots state, so a destructive crop would put a **bitmap in every undo step**: 33 MB for a 4K capture, fifty steps, a gigabyte and a half of history for a screenshot editor. A rectangle is sixteen bytes. That is the whole argument, and it is why `EditorState` carries `{ annotations, crop }` rather than just the array.
+
+Three things fall out for free: undo is putting the old rectangle back; repeated crops cannot accumulate a rounding offset, because no mark is ever rewritten; and "undo the crop" restores the picture exactly rather than approximating it.
+
+The crop enters the coordinate system in exactly one place — `ToImagePoint` adds `crop_.topLeft`, `ToViewPoint` subtracts it — which is the payoff of every view↔image conversion having gone through that pair since the beginning.
+
+Four things that are easy to get wrong, and were:
+
+- **`PaintCanvas`'s annotation offset must subtract `crop_.topLeft * scale`.** `Map()` computes `p * scale + offset`, and marks are in original coordinates, so without it every mark is displaced from the picture while its selection handles — which go through `ToViewPoint` — stay correct. Invisible until you crop from somewhere other than the top-left corner.
+- **The GDI+ clip must be released before the chrome.** Selection outlines sit outside a mark's box and handles further out again, and the canvas hint bar lives in the letterbox rather than the picture; leaving the clip on slices the grips off any mark touching the crop edge and deletes the hint entirely.
+- **`scaledImage_`'s cache key includes the crop.** Two crops can land on the same on-screen size.
+- **Hit-testing and the cursor must skip marks outside the crop**, or an invisible mark stays clickable in the grey letterbox. Invisible and unreachable have to mean the same thing.
+
+The Lift clamp is against the crop rather than the capture, or a lift starting in the letterbox would carry cropped-away pixels back into the export, where there is no clip to hide them.
 
 ---
 

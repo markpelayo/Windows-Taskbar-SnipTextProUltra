@@ -85,6 +85,12 @@ RECT InflateRect(const RECT& r, int dx, int dy);
 RECT UnionRect(const RECT& a, const RECT& b);
 bool RectContains(const RECT& r, POINT p);
 inline int RectWidth(const RECT& r)  { return r.right - r.left; }
+// Plain member-wise equality. ::EqualRect exists but treats every empty
+// rectangle as equal to every other, which is wrong for a cache key.
+inline bool RectsEqual(const RECT& a, const RECT& b) {
+    return a.left == b.left && a.top == b.top &&
+           a.right == b.right && a.bottom == b.bottom;
+}
 inline int RectHeight(const RECT& r) { return r.bottom - r.top; }
 
 double PointSegmentDistance(double px, double py,

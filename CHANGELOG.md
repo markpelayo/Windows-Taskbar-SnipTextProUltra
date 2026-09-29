@@ -8,6 +8,31 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.8.5] — 2026-09-30
+
+### Fixed
+
+- **The slider and the colour picker flickered.** Not animation — there is
+  none anywhere in this program, and none was added. It was the compositor
+  showing a half-finished paint.
+
+  Every one of those surfaces was painted in layers straight to the screen.
+  The slider filled its background, then the track, then the travelled part,
+  then the thumb — four passes over the same pixels, and the eye catches the
+  intermediate states as a flash. The picker drew ten cells, a six-wedge
+  wheel and eleven outlines the same way.
+
+  They now draw into an off-screen bitmap and blit it once. That is
+  **strictly less work than before**: the overlapping fills happen in memory
+  where nothing has to be composited, and the screen is touched exactly once
+  per paint instead of once per layer.
+
+- **Owner-drawn controls no longer erase before they paint.** Every one of
+  them covers its whole rectangle, so the erase pass was a full-control fill
+  the user could see, immediately overdrawn. `InvalidateRect` now asks for a
+  repaint without an erase, and the slider and picker refuse `WM_ERASEBKGND`
+  outright.
+
 ## [1.8.4] — 2026-09-30
 
 ### Fixed

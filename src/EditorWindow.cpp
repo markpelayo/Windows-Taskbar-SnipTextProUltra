@@ -337,6 +337,59 @@ void DrawCommandGlyph(HDC dc, Command command, const RECT& box, COLORREF ink) {
 // enabled. It is the only state that survives letting go of the mouse, so
 // it gets a doubled ring: at 34px one pixel of blue is easy to miss across
 // a desk, and two is not.
+// Draws into an off-screen bitmap and blits it once, on destruction.
+//
+// This is the whole of the "blinking" fix, and it is worth being precise
+// about what the blink was: not animation — there is none anywhere in this
+// program — but the compositor showing a half-finished paint. Every one of
+// these surfaces was painted in layers straight to the screen: the slider
+// filled its background, then the track, then the filled part, then the
+// thumb, and the eye caught the intermediate states as a flash.
+//
+// One blit replaces all of that. It is also strictly LESS work than before,
+// because the overlapping fills now happen in memory where nothing has to be
+// composited, and the screen is touched exactly once per paint.
+//
+// The viewport origin is shifted so callers keep drawing in the target's own
+// coordinates and need to know nothing about the buffer.
+class BufferedDC {
+public:
+    BufferedDC(HDC target, const RECT& area)
+        : target_(target), area_(area),
+          dc_(::CreateCompatibleDC(target)),
+          bitmap_(::CreateCompatibleBitmap(target, util::RectWidth(area),
+                                           util::RectHeight(area))) {
+        if (dc_ && bitmap_) {
+            previous_ = ::SelectObject(dc_.get(), bitmap_.get());
+            ::SetViewportOrgEx(dc_.get(), -area.left, -area.top, nullptr);
+        }
+    }
+    BufferedDC(const BufferedDC&) = delete;
+    BufferedDC& operator=(const BufferedDC&) = delete;
+
+    ~BufferedDC() {
+        if (!usable()) return;
+        ::SetViewportOrgEx(dc_.get(), 0, 0, nullptr);
+        ::BitBlt(target_, area_.left, area_.top,
+                 util::RectWidth(area_), util::RectHeight(area_),
+                 dc_.get(), 0, 0, SRCCOPY);
+        // The bitmap has to come out of the DC before either is destroyed.
+        ::SelectObject(dc_.get(), previous_);
+    }
+
+    // False if either allocation failed. Callers fall back to the target
+    // directly — a flickering control beats a blank one.
+    bool usable() const { return dc_ && bitmap_; }
+    HDC  dc(HDC fallback) const { return usable() ? dc_.get() : fallback; }
+
+private:
+    HDC          target_;
+    RECT         area_;
+    ScopedDC     dc_;
+    ScopedBitmap bitmap_;
+    HGDIOBJ      previous_ = nullptr;
+};
+
 // A rounded rectangle as a GDI+ path: four arcs and the lines between them.
 //
 // GDI has RoundRect and it is not usable here. GDI does not antialias, so a
@@ -837,7 +890,16 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
     }
 
     case WM_DRAWITEM: {
-        auto* item = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
+        auto* itemInfo = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
+
+        // Every branch below paints its whole rectangle in several passes —
+        // background, then face, then outline, then glyph — and doing that
+        // straight to the screen is what made the swatch flash when clicked.
+        // Buffered once here rather than in each branch.
+        BufferedDC buffer(itemInfo->hDC, itemInfo->rcItem);
+        DRAWITEMSTRUCT buffered = *itemInfo;
+        buffered.hDC = buffer.dc(itemInfo->hDC);
+        DRAWITEMSTRUCT* item = &buffered;
 
         if (item->CtlID == IDC_SWATCH) {
             RECT box = item->rcItem;
@@ -1060,13 +1122,13 @@ void EditorWindow::RefreshToolbarState() {
     // Owner-drawn, so "which one is on" is not a control state to be set but
     // a repaint to be asked for; currentTool_ is the only copy of that fact.
     for (int i = 0; i < kToolCount; ++i) {
-        if (toolButtons_[i]) ::InvalidateRect(toolButtons_[i], nullptr, TRUE);
+        if (toolButtons_[i]) ::InvalidateRect(toolButtons_[i], nullptr, FALSE);
     }
-    if (swatch_) ::InvalidateRect(swatch_, nullptr, TRUE);
+    if (swatch_) ::InvalidateRect(swatch_, nullptr, FALSE);
 
     // Owner-drawn, and it reads the registry when it paints, so refreshing
     // it is a repaint rather than a text assignment.
-    if (pinButton_) ::InvalidateRect(pinButton_, nullptr, TRUE);
+    if (pinButton_) ::InvalidateRect(pinButton_, nullptr, FALSE);
     UpdatePinTooltip();
 }
 
@@ -1188,7 +1250,7 @@ void EditorWindow::PinSettingChanged() {
     // left showing the state the other one just changed.
     for (EditorWindow* editor : LiveEditors()) {
         if (!editor || !editor->pinButton_) continue;
-        ::InvalidateRect(editor->pinButton_, nullptr, TRUE);
+        ::InvalidateRect(editor->pinButton_, nullptr, FALSE);
         editor->UpdatePinTooltip();
         // Live, not on next open. The point of a switch in the window is
         // seeing the window obey it.
@@ -1263,15 +1325,18 @@ LRESULT EditorWindow::OnSliderMessage(HWND hwnd, UINT message,
 
         RECT client{};
         ::GetClientRect(hwnd, &client);
-        ::FillRect(dc, &client, ::GetSysColorBrush(COLOR_BTNFACE));
 
         // Scoped, and that is not tidiness. ~Graphics calls
         // GdipDeleteGraphics, which touches the HDC — so a Graphics still
         // alive when EndPaint returns is using a DC that has been released.
-        // The two WM_DRAWITEM sites do not need this because their DC
-        // belongs to the caller and outlives them.
+        // The buffer has to be torn down inside the same scope, before
+        // EndPaint, for the same reason.
         {
-        Gdiplus::Graphics graphics(dc);
+        BufferedDC buffer(dc, client);
+        HDC paintDC = buffer.dc(dc);
+        ::FillRect(paintDC, &client, ::GetSysColorBrush(COLOR_BTNFACE));
+
+        Gdiplus::Graphics graphics(paintDC);
         graphics.SetSmoothingMode(SmoothingModeAntiAlias);
         graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
 
@@ -2161,7 +2226,7 @@ void EditorWindow::SetCurrentColour(COLORREF colour) {
     if (colour != currentColour_) {
         currentColour_ = colour;
         editor_settings::SetColour(colour);
-        if (swatch_) ::InvalidateRect(swatch_, nullptr, TRUE);
+        if (swatch_) ::InvalidateRect(swatch_, nullptr, FALSE);
     }
 
     // Restyling the selection is independent of which colour the swatch was
@@ -2515,8 +2580,25 @@ LRESULT EditorWindow::OnSwatchMessage(HWND hwnd, UINT message, WPARAM wParam, LP
     switch (message) {
     case WM_PAINT: {
         PAINTSTRUCT paint{};
-        HDC dc = ::BeginPaint(hwnd, &paint);
-        if (!dc) { ::EndPaint(hwnd, &paint); return 0; }
+        HDC target = ::BeginPaint(hwnd, &paint);
+        if (!target) { ::EndPaint(hwnd, &paint); return 0; }
+
+        RECT client{};
+        ::GetClientRect(hwnd, &client);
+
+        // Buffered, like everything else that paints in passes. Ten cells,
+        // a six-wedge wheel and eleven outlines drawn straight to the
+        // screen is the flash you see when the picker opens.
+        //
+        // Scoped so the blit happens, and the buffer is destroyed, BEFORE
+        // EndPaint releases the DC it blits into.
+        {
+        BufferedDC buffer(target, client);
+        HDC dc = buffer.dc(target);
+        // The buffer starts as uninitialised memory, so the background the
+        // class used to erase for us has to be painted explicitly. Same
+        // COLOR_WINDOW the class brush uses.
+        ::FillRect(dc, &client, ::GetSysColorBrush(COLOR_WINDOW));
 
         const COLORREF accent = AccentColour();
         for (int index = 0; index < 10; ++index) {
@@ -2580,6 +2662,7 @@ LRESULT EditorWindow::OnSwatchMessage(HWND hwnd, UINT message, WPARAM wParam, LP
                 ::Rectangle(dc, cell.left, cell.top, cell.right, cell.bottom);
             }
         }
+        }
 
         ::EndPaint(hwnd, &paint);
         return 0;
@@ -2620,6 +2703,11 @@ LRESULT EditorWindow::OnSwatchMessage(HWND hwnd, UINT message, WPARAM wParam, LP
     case WM_ACTIVATE:
         if (LOWORD(wParam) == WA_INACTIVE) HideColourPopup();
         return 0;
+
+    case WM_ERASEBKGND:
+        // The buffered paint above covers every pixel, so an erase pass is
+        // a full-window fill the user can see, immediately overdrawn.
+        return 1;
 
     case WM_KEYDOWN:
         // The popup is an OWNED window, not a child — WS_POPUP with hwnd_

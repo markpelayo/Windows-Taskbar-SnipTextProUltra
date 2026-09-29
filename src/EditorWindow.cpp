@@ -2,6 +2,7 @@
 
 #include "EditorSettings.h"
 #include "MediaFolder.h"
+#include "Settings.h"
 #include "Util.h"
 
 #include <commctrl.h>
@@ -10,6 +11,7 @@
 // See the note in Bitmap.cpp: gdiplustypes.h needs min/max, and this project
 // builds with NOMINMAX.
 #include <algorithm>
+#include <cmath>
 namespace Gdiplus { using std::min; using std::max; }
 #include <objidl.h>
 #include <gdiplus.h>
@@ -38,8 +40,14 @@ constexpr int IDC_COPY       = 103;
 constexpr int IDC_SAVE       = 104;
 constexpr int IDC_SWATCH     = 105;
 constexpr int IDC_SLIDER     = 106;
+constexpr int IDC_PINTOGGLE  = 107;
 constexpr int IDC_TOOL_FIRST = 110;
-constexpr int IDC_TEXTEDIT   = 120;
+// 200, not 120. The tool buttons run from IDC_TOOL_FIRST upwards, one per
+// tool, and at nine tools they reach 118 — two short of where this used to
+// sit. A tenth tool would have collided with it, and the failure would have
+// been quiet: a tool button whose click is read as an edit-control
+// notification.
+constexpr int IDC_TEXTEDIT   = 200;
 
 constexpr UINT_PTR kTitleFlashTimer = 1;
 constexpr UINT     kTitleFlashMs    = 1200;
@@ -51,11 +59,17 @@ constexpr UINT WM_OPEN_COLOUR_PICKER = WM_APP + 1;
 
 constexpr int kBarHeight     = 44;
 constexpr int kBarPadding    = 10;
-constexpr int kButtonWidth   = 88;
 constexpr int kButtonHeight  = 28;
-constexpr int kToolWidth     = 62;
-constexpr int kSwatchWidth   = 52;
-constexpr int kSliderWidth   = 140;
+// Tools are square icons now, not words. Nine text labels would have needed
+// a minimum window about 50% wider than the old seven did; nine icons need
+// less room than the seven words they replaced. Every glyph is drawn in GDI
+// from lines and curves — there is no image resource anywhere in the program
+// and adding one for this would have been the first.
+constexpr int kToolWidth     = 34;
+constexpr int kToolGap       = 4;
+constexpr int kSwatchWidth   = 44;
+constexpr int kSliderWidth   = 120;
+
 
 // The narrowest the window may be without clipping a toolbar button off the
 // right edge. Derived, because a literal here is a number that has to be
@@ -64,13 +78,29 @@ constexpr int kSliderWidth   = 140;
 // resizing but the CREATION size still had its own copy of the old literal,
 // so any capture small enough to hit the floor opened one button short.
 //
-// The bottom bar is the widest row: padding, swatch, slider, then one button
-// per tool, each followed by a 6px gap.
-constexpr int kMinContentWidth = kBarPadding
+// Two rows have to fit now, so the floor is whichever needs more.
+//
+// Bottom: padding, swatch, slider, then the tool icons.
+constexpr int kMinToolRowWidth = kBarPadding
                                + kSwatchWidth + 6
-                               + kSliderWidth + 6
-                               + kToolCount * (kToolWidth + 6)
+                               + kSliderWidth + 12
+                               + kToolCount * kToolWidth + (kToolCount - 1) * kToolGap
                                + kBarPadding;
+
+// Top: three groups. Undo and Redo anchored left, Pin centred, Copy and
+// Save anchored right. Two icon buttons each side, so both flanks are the
+// same width by construction and the centre really is the centre.
+//
+// The floor is where the centred control would touch a flank. Because it is
+// centred, the wider flank has to be reserved on BOTH sides — plus a gutter,
+// without which the three meet exactly at the minimum width and it reads as
+// a rendering fault rather than a deliberate limit.
+constexpr int kCommandGutter   = 12;
+constexpr int kFlankWidth      = kBarPadding + kToolWidth * 2 + kToolGap;
+constexpr int kMinCommandRowWidth = kToolWidth + (kFlankWidth + kCommandGutter) * 2;
+
+constexpr int kMinContentWidth = (kMinToolRowWidth > kMinCommandRowWidth)
+                                     ? kMinToolRowWidth : kMinCommandRowWidth;
 
 // The whole client area, bars included — the same thing the width constant
 // means. Defining it as the CANVAS height instead is what let the two floors
@@ -131,6 +161,303 @@ HWND MakeButton(HWND parent, const wchar_t* text, int id, DWORD extraStyle = 0) 
     return button;
 }
 
+// --- tool glyphs -----------------------------------------------------------
+//
+// Each is drawn inside a notional 20 x 20 box and mapped into whatever the
+// button turns out to be, so the same code produces the toolbar icon and the
+// 3x version in the documentation. Lines rather than a font: a glyph font
+// would have to be either shipped (a resource, and this program has none) or
+// borrowed from the system (and Segoe MDL2 is not on every supported build).
+//
+// ExtCreatePen rather than CreatePen because round caps and joins are the
+// difference between a drawn arrow and a bundle of sticks, and the plain
+// CreatePen has no way to ask for them.
+
+constexpr double kPi = 3.14159265358979323846;
+
+struct Glyph {
+    HDC    dc;
+    double left;
+    double top;
+    double unit;    // device pixels per logical unit
+
+    POINT At(double x, double y) const {
+        return POINT{ static_cast<LONG>(std::lround(left + x * unit)),
+                      static_cast<LONG>(std::lround(top  + y * unit)) };
+    }
+    void Line(double x0, double y0, double x1, double y1) const {
+        const POINT a = At(x0, y0);
+        const POINT b = At(x1, y1);
+        ::MoveToEx(dc, a.x, a.y, nullptr);
+        ::LineTo(dc, b.x, b.y);
+    }
+    void Triangle(double x0, double y0, double x1, double y1,
+                  double x2, double y2, HBRUSH fill) const {
+        const POINT points[3] = { At(x0, y0), At(x1, y1), At(x2, y2) };
+        SelectGuard brushGuard(dc, fill);
+        SelectGuard penGuard(dc, ::GetStockObject(NULL_PEN));
+        ::Polygon(dc, points, 3);
+    }
+    void Box(double x0, double y0, double x1, double y1, HBRUSH fill) const {
+        const POINT a = At(x0, y0);
+        const POINT b = At(x1, y1);
+        RECT rect{ a.x, a.y, b.x, b.y };
+        ::FillRect(dc, &rect, fill);
+    }
+};
+
+ScopedPen MakeGlyphPen(COLORREF ink, double widthPixels) {
+    LOGBRUSH brush{};
+    brush.lbStyle = BS_SOLID;
+    brush.lbColor = ink;
+    return ScopedPen(::ExtCreatePen(
+        PS_GEOMETRIC | PS_SOLID | PS_ENDCAP_ROUND | PS_JOIN_ROUND,
+        static_cast<DWORD>((std::max)(1L, std::lround(widthPixels))), &brush, 0, nullptr));
+}
+
+// The four commands and the Pin toggle. A separate enum from Tool because
+// they are a different kind of thing — a tool changes what the next drag
+// does and stays selected; these happen once and are over — but they are
+// drawn by the same code at the same size, which is the whole point of
+// making them icons.
+enum class Command { Undo, Redo, Copy, Save, Pin };
+
+void DrawCommandGlyph(HDC dc, Command command, const RECT& box, COLORREF ink) {
+    const int side = (std::min)(util::RectWidth(box), util::RectHeight(box));
+    if (side <= 0) return;
+
+    Glyph g{};
+    g.dc   = dc;
+    g.unit = side / 20.0;
+    g.left = box.left + (util::RectWidth(box)  - side) / 2.0;
+    g.top  = box.top  + (util::RectHeight(box) - side) / 2.0;
+
+    ScopedPen pen = MakeGlyphPen(ink, g.unit * 1.7);
+    ScopedBrush fill(::CreateSolidBrush(ink));
+    if (!pen || !fill) return;
+
+    SelectGuard penGuard(dc, pen.get());
+    SelectGuard brushGuard(dc, ::GetStockObject(NULL_BRUSH));
+
+    switch (command) {
+    case Command::Undo:
+    case Command::Redo: {
+        // A straight shaft that turns into a hook: the arrow doubles back
+        // on itself, which is the whole idea of undo drawn in one stroke.
+        //
+        // Mirrored rather than drawn twice, so the pair can never drift
+        // apart — every coordinate goes through mx().
+        const bool forward = (command == Command::Redo);
+        auto mx = [forward](double x) { return forward ? 20.0 - x : x; };
+
+        constexpr double cx = 11.0, cy = 12.5, r = 4.5;
+
+        // Generated rather than hand-fitted with Béziers. GDI's Arc() takes
+        // its direction from the coordinate system, which points down here,
+        // so "counterclockwise" draws clockwise on screen and the pair of
+        // them would have to be reasoned about separately. A short
+        // polyline sidesteps that entirely, and with the round joins from
+        // ExtCreatePen nobody can see the segments at twenty pixels.
+        constexpr int kSteps = 24;
+        POINT hook[kSteps + 1];
+        for (int i = 0; i <= kSteps; ++i) {
+            // 90 degrees is the top of the circle, sweeping 240 degrees
+            // clockwise on screen: top, round the outside, back past the
+            // bottom. Stopping at a half-circle looks like a bracket; the
+            // extra 60 degrees is what makes it read as a return.
+            const double degrees = 90.0 - 240.0 * i / kSteps;
+            const double radians = degrees * kPi / 180.0;
+            hook[i] = g.At(mx(cx + r * std::cos(radians)), cy - r * std::sin(radians));
+        }
+        ::Polyline(dc, hook, kSteps + 1);
+
+        // The shaft runs left out of the top of the hook, and ends in an
+        // open chevron rather than a filled triangle — at this size a solid
+        // head closes up into a blob.
+        g.Line(mx(cx), cy - r, mx(3.5), cy - r);
+        g.Line(mx(3.5), cy - r, mx(7.3), cy - r - 3.8);
+        g.Line(mx(3.5), cy - r, mx(7.3), cy - r + 3.8);
+        break;
+    }
+
+    case Command::Copy: {
+        // Two sheets, one behind the other. The back sheet is drawn as only
+        // the part of it you would actually see — an L around the top and
+        // right — rather than a full rectangle hidden by a filled front
+        // sheet. Filling would have meant knowing the button's face colour,
+        // which changes when it is pressed, and a glyph that has to be told
+        // what it is sitting on is a glyph that will be wrong somewhere.
+        const POINT behind[5] = {
+            g.At(6.5, 6.5), g.At(6.5, 3.0), g.At(17.0, 3.0),
+            g.At(17.0, 13.5), g.At(13.5, 13.5)
+        };
+        ::Polyline(dc, behind, 5);
+
+        const POINT c = g.At(3.0, 6.5);
+        const POINT d = g.At(13.5, 17.0);
+        ::Rectangle(dc, c.x, c.y, d.x, d.y);
+        break;
+    }
+
+    case Command::Save: {
+        // A floppy disk. Nothing else is read as "save" without a caption,
+        // and every attempt at something more modern — a downward arrow, a
+        // tray — reads as "download" instead.
+        const POINT a = g.At(3.0, 3.5);
+        const POINT b = g.At(17.0, 16.5);
+        ::Rectangle(dc, a.x, a.y, b.x, b.y);
+        g.Box(7.0, 3.5, 13.0, 8.0, fill.get());      // the shutter
+        const POINT c = g.At(6.0, 10.5);
+        const POINT d = g.At(14.0, 16.5);
+        ::Rectangle(dc, c.x, c.y, d.x, d.y);          // the label
+        break;
+    }
+
+    case Command::Pin: {
+        // A pushpin seen head-on: round head, crossbar, needle. Drawn
+        // rather than borrowed, like everything else here.
+        const POINT head[2] = { g.At(6.6, 3.0), g.At(13.4, 9.8) };
+        SelectGuard headBrush(dc, fill.get());
+        ::Ellipse(dc, head[0].x, head[0].y, head[1].x, head[1].y);
+        g.Line(4.6, 11.0, 15.4, 11.0);
+        g.Line(10.0, 11.5, 10.0, 17.5);
+        break;
+    }
+    }
+}
+
+// One face for every icon button on either bar. The top row and the bottom
+// row are the same kind of control at the same size, so they are drawn by
+// the same function rather than by three near-copies that drift apart the
+// first time one of them is adjusted.
+//
+// `active` is "this is switched on" — the selected tool, or Pin when it is
+// enabled. It is the only state that survives letting go of the mouse, so
+// it gets a doubled ring: at 34px one pixel of blue is easy to miss across
+// a desk, and two is not.
+void DrawIconButtonFace(HDC dc, const RECT& box, bool active, bool pressed) {
+    ScopedBrush face(::CreateSolidBrush(
+        (active || pressed) ? RGB(204, 228, 246) : RGB(253, 253, 253)));
+    if (face) ::FillRect(dc, &box, face.get());
+
+    ScopedBrush edge(::CreateSolidBrush(active ? RGB(0, 103, 192) : RGB(195, 199, 204)));
+    if (!edge) return;
+    ::FrameRect(dc, &box, edge.get());
+    if (active) {
+        RECT inner = box;
+        ::InflateRect(&inner, -1, -1);
+        ::FrameRect(dc, &inner, edge.get());
+    }
+}
+
+void DrawToolGlyph(HDC dc, Tool tool, const RECT& box, COLORREF ink) {
+    const int side = (std::min)(util::RectWidth(box), util::RectHeight(box));
+    if (side <= 0) return;
+
+    Glyph g{};
+    g.dc   = dc;
+    g.unit = side / 20.0;
+    g.left = box.left + (util::RectWidth(box)  - side) / 2.0;
+    g.top  = box.top  + (util::RectHeight(box) - side) / 2.0;
+
+    ScopedPen pen = MakeGlyphPen(ink, g.unit * 1.7);
+    ScopedBrush fill(::CreateSolidBrush(ink));
+    if (!pen || !fill) return;
+
+    SelectGuard penGuard(dc, pen.get());
+    SelectGuard brushGuard(dc, ::GetStockObject(NULL_BRUSH));
+    const int previousBk = ::SetBkMode(dc, TRANSPARENT);
+
+    switch (tool) {
+    case Tool::Arrow:
+        g.Line(3.5, 16.5, 15.0, 5.5);
+        g.Triangle(16.5, 4.0, 9.4, 5.6, 14.9, 11.2, fill.get());
+        break;
+
+    case Tool::Rectangle: {
+        const POINT a = g.At(3, 5.5);
+        const POINT b = g.At(17, 15.5);
+        ::Rectangle(dc, a.x, a.y, b.x, b.y);
+        break;
+    }
+
+    case Tool::Ellipse: {
+        const POINT a = g.At(2.8, 5.3);
+        const POINT b = g.At(17.2, 15.7);
+        ::Ellipse(dc, a.x, a.y, b.x, b.y);
+        break;
+    }
+
+    case Tool::Line:
+        g.Line(3.5, 16.5, 16.5, 4.5);
+        break;
+
+    case Tool::Pen: {
+        // A stroke someone actually drew, rather than a picture of a pen: at
+        // twenty pixels a nib turns to mush, and the squiggle says freehand
+        // without needing to be recognised as an object.
+        const POINT curve[4] = { g.At(3, 15.5), g.At(6.5, 6.0),
+                                 g.At(11.5, 17.5), g.At(17, 6.5) };
+        ::PolyBezier(dc, curve, 4);
+        break;
+    }
+
+    case Tool::Text:
+        g.Line(4.2, 16.5, 10.0, 4.5);
+        g.Line(10.0, 4.5, 15.8, 16.5);
+        g.Line(6.9, 12.0, 13.1, 12.0);
+        break;
+
+    case Tool::Lift: {
+        // A marquee with solid corners: "take this piece out", which is what
+        // distinguishes it from the plain Rectangle above.
+        ScopedPen dashed(::CreatePen(PS_DOT, 1, ink));
+        if (dashed) {
+            SelectGuard dashGuard(dc, dashed.get());
+            const POINT a = g.At(4, 6);
+            const POINT b = g.At(16, 14.5);
+            ::Rectangle(dc, a.x, a.y, b.x, b.y);
+        }
+        g.Box(2.2, 4.2, 5.0, 7.0, fill.get());
+        g.Box(15.0, 4.2, 17.8, 7.0, fill.get());
+        g.Box(2.2, 13.4, 5.0, 16.2, fill.get());
+        g.Box(15.0, 13.4, 17.8, 16.2, fill.get());
+        break;
+    }
+
+    case Tool::Redact: {
+        // A solid bar laid over two lines of text — the only honest picture
+        // of what the tool does. An earlier draft showed a pixelation grid,
+        // which promised a sophistication the tool deliberately does not
+        // have; see the note on Tool::Redact in Annotation.h.
+        ScopedPen faint(::CreatePen(PS_SOLID,
+                                    (std::max)(1L, std::lround(g.unit * 1.4)),
+                                    RGB(150, 156, 162)));
+        if (faint) {
+            SelectGuard faintGuard(dc, faint.get());
+            g.Line(3.0, 5.0, 16.5, 5.0);
+            g.Line(3.0, 15.6, 13.0, 15.6);
+        }
+        g.Box(2.0, 8.0, 18.5, 13.2, fill.get());
+        break;
+    }
+
+    case Tool::Callout:
+        // Literally the two halves it combines: an arrow, and a letter at the
+        // end of it. Nothing else read as "arrow that says something" at this
+        // size — a speech bubble reads as a comment, and a tag reads as a
+        // label you attach rather than one you point with.
+        g.Line(2.0, 17.0, 7.6, 11.4);
+        g.Triangle(8.8, 10.2, 4.6, 10.6, 8.4, 14.4, fill.get());
+        g.Line(10.4, 17.0, 14.2, 6.0);
+        g.Line(14.2, 6.0, 18.0, 17.0);
+        g.Line(11.8, 13.0, 16.6, 13.0);
+        break;
+    }
+
+    ::SetBkMode(dc, previousBk);
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -152,9 +479,20 @@ EditorWindow::EditorWindow(std::unique_ptr<Bitmap> image, CloseCallback onClose)
     currentColour_    = editor_settings::Colour();
     currentLineWidth_ = editor_settings::LineWidth();
     textEntryColour_  = currentColour_;
+    LiveEditors().push_back(this);
 }
 
-EditorWindow::~EditorWindow() = default;
+EditorWindow::~EditorWindow() {
+    // The object outlives its window by one message-loop turn, because App
+    // defers the delete — so between WM_DESTROY and the reap this editor is
+    // still listed. That is why WM_DESTROY nulls pinButton_: a
+    // PinSettingChanged arriving in the gap would otherwise call
+    // InvalidateRect on a destroyed child. (It would return FALSE rather
+    // than crash, but a guard that works by accident is not a guard.)
+    LiveEditors().erase(
+        std::remove(LiveEditors().begin(), LiveEditors().end(), this),
+        LiveEditors().end());
+}
 
 // --- window creation -------------------------------------------------------
 
@@ -288,10 +626,15 @@ LRESULT CALLBACK EditorWindow::SwatchProc(HWND hwnd, UINT message, WPARAM wParam
 LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
     case WM_CREATE: {
-        undoButton_ = MakeButton(hwnd_, L"Undo", IDC_UNDO);
-        redoButton_ = MakeButton(hwnd_, L"Redo", IDC_REDO);
-        copyButton_ = MakeButton(hwnd_, L"Copy", IDC_COPY);
-        saveButton_ = MakeButton(hwnd_, L"Save…", IDC_SAVE, BS_DEFPUSHBUTTON);
+        // Icons, like the tools, because a bar that is half words and half
+        // pictures reads as two bars that happen to be touching. Save keeps
+        // a visual emphasis of its own — an accent ring drawn in
+        // WM_DRAWITEM — since BS_DEFPUSHBUTTON's ring goes away with
+        // owner-drawing and Save is still the primary action here.
+        undoButton_ = MakeButton(hwnd_, L"", IDC_UNDO, BS_OWNERDRAW);
+        redoButton_ = MakeButton(hwnd_, L"", IDC_REDO, BS_OWNERDRAW);
+        copyButton_ = MakeButton(hwnd_, L"", IDC_COPY, BS_OWNERDRAW);
+        saveButton_ = MakeButton(hwnd_, L"", IDC_SAVE, BS_OWNERDRAW);
 
         swatch_ = MakeButton(hwnd_, L"", IDC_SWATCH, BS_OWNERDRAW);
 
@@ -307,10 +650,59 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
                            static_cast<LPARAM>(static_cast<int>(currentLineWidth_)));
         }
 
+        // A real toggle, writing the same registry value the tray row does,
+        // so the two are one setting with two switches.
+        //
+        // Icon-only like everything else on the bar, which puts the whole
+        // weight of "is this on?" on the button's appearance: switched on,
+        // it takes the filled face and doubled accent ring that a selected
+        // tool takes, so the two bars use one visual language for one idea.
+        // The tooltip spells the state out in words for anyone who wants
+        // it confirmed, and is rewritten on every toggle.
+        pinButton_ = MakeButton(hwnd_, L"", IDC_PINTOGGLE, BS_OWNERDRAW);
+
+        // BS_OWNERDRAW, so the check state has to be tracked rather than
+        // asked for — which it already is, in currentTool_. The old
+        // BS_AUTOCHECKBOX|BS_PUSHLIKE pair kept a second copy of that state
+        // in the control, and two copies of one fact is one too many.
         for (int i = 0; i < kToolCount; ++i) {
-            Tool tool = static_cast<Tool>(i);
-            toolButtons_[i] = MakeButton(hwnd_, ToolTitle(tool), IDC_TOOL_FIRST + i,
-                                         BS_AUTOCHECKBOX | BS_PUSHLIKE);
+            toolButtons_[i] = MakeButton(hwnd_, L"", IDC_TOOL_FIRST + i, BS_OWNERDRAW);
+        }
+
+        // Nine unlabelled squares without tooltips would be a guessing game.
+        // TTF_SUBCLASS so the tooltip control hooks each button itself; the
+        // alternative is relaying every mouse message by hand.
+        tooltips_ = ::CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr,
+                                      WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP,
+                                      CW_USEDEFAULT, CW_USEDEFAULT,
+                                      CW_USEDEFAULT, CW_USEDEFAULT,
+                                      hwnd_, nullptr,
+                                      ::GetModuleHandleW(nullptr), nullptr);
+        if (tooltips_) {
+            auto addTip = [&](HWND control, const wchar_t* text) {
+                if (!control) return;
+                TOOLINFOW info{};
+                info.cbSize   = sizeof(info);
+                info.uFlags   = TTF_IDISHWND | TTF_SUBCLASS;
+                info.hwnd     = hwnd_;
+                info.uId      = reinterpret_cast<UINT_PTR>(control);
+                // const_cast: TOOLINFO's lpszText is a non-const pointer
+                // even for a string the control only ever reads.
+                info.lpszText = const_cast<LPWSTR>(text);
+                ::SendMessageW(tooltips_, TTM_ADDTOOLW, 0,
+                               reinterpret_cast<LPARAM>(&info));
+            };
+            for (int i = 0; i < kToolCount; ++i) {
+                addTip(toolButtons_[i], ToolTitle(static_cast<Tool>(i)));
+            }
+            addTip(undoButton_, L"Undo  (Ctrl+Z)");
+            addTip(redoButton_, L"Redo  (Ctrl+Y)");
+            addTip(copyButton_, L"Copy to clipboard  (Ctrl+C)");
+            addTip(saveButton_, L"Save as PNG\u2026  (Ctrl+S)");
+            // Placeholder only; UpdatePinTooltip immediately replaces it
+            // with the wording for the current state. Added here so the
+            // tool exists for TTM_UPDATETIPTEXT to find later.
+            addTip(pinButton_, L"Pin to Screen");
         }
 
         canvas_ = ::CreateWindowExW(0, kCanvasClass, L"", WS_CHILD | WS_VISIBLE,
@@ -354,21 +746,74 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
 
     case WM_DRAWITEM: {
         auto* item = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
-        if (item->CtlID != IDC_SWATCH) break;
 
-        RECT box = item->rcItem;
-        ::InflateRect(&box, -2, -3);
-        ScopedBrush fill(::CreateSolidBrush(currentColour_));
-        if (fill) ::FillRect(item->hDC, &box, fill.get());
-        // A white swatch needs the outline to be visible at all against the
-        // toolbar behind it.
-        ScopedPen border(::CreatePen(PS_SOLID, 1, RGB(128, 128, 128)));
-        if (border) {
-            SelectGuard penGuard(item->hDC, border.get());
-            SelectGuard brushGuard(item->hDC, ::GetStockObject(NULL_BRUSH));
-            ::Rectangle(item->hDC, box.left, box.top, box.right, box.bottom);
+        if (item->CtlID == IDC_SWATCH) {
+            RECT box = item->rcItem;
+            ::InflateRect(&box, -2, -3);
+            ScopedBrush fill(::CreateSolidBrush(ActiveColour()));
+            if (fill) ::FillRect(item->hDC, &box, fill.get());
+            // A white swatch needs the outline to be visible at all against
+            // the toolbar behind it.
+            ScopedPen border(::CreatePen(PS_SOLID, 1, RGB(128, 128, 128)));
+            if (border) {
+                SelectGuard penGuard(item->hDC, border.get());
+                SelectGuard brushGuard(item->hDC, ::GetStockObject(NULL_BRUSH));
+                ::Rectangle(item->hDC, box.left, box.top, box.right, box.bottom);
+            }
+            return TRUE;
         }
-        return TRUE;
+
+        // --- every icon button, top bar and bottom, drawn the same way ---
+        const bool isTool = item->CtlID >= static_cast<UINT>(IDC_TOOL_FIRST) &&
+                            item->CtlID <  static_cast<UINT>(IDC_TOOL_FIRST + kToolCount);
+        const bool isCommand = item->CtlID == IDC_UNDO || item->CtlID == IDC_REDO ||
+                               item->CtlID == IDC_COPY || item->CtlID == IDC_SAVE ||
+                               item->CtlID == IDC_PINTOGGLE;
+        if (isTool || isCommand) {
+            const bool disabled = (item->itemState & ODS_DISABLED) != 0;
+            const bool pressed  = (item->itemState & ODS_SELECTED) != 0;
+
+            // "Switched on", which only two kinds of button can be: the
+            // selected tool, and Pin when it is enabled. Undo, Redo, Copy
+            // and Save happen and are over.
+            bool active = false;
+            if (isTool) {
+                active = (static_cast<Tool>(item->CtlID - IDC_TOOL_FIRST) == currentTool_);
+            } else if (item->CtlID == IDC_PINTOGGLE) {
+                active = settings::GetBool(settings::key::kPinToScreen, false);
+            }
+
+            RECT box = item->rcItem;
+            DrawIconButtonFace(item->hDC, box, active, pressed);
+
+            RECT glyphBox = box;
+            ::InflateRect(&glyphBox, -5, -4);
+            const COLORREF ink = disabled ? RGB(167, 173, 179)
+                               : active   ? RGB(0, 90, 168)
+                                          : RGB(35, 41, 47);
+            if (isTool) {
+                DrawToolGlyph(item->hDC, static_cast<Tool>(item->CtlID - IDC_TOOL_FIRST),
+                              glyphBox, ink);
+            } else {
+                Command command = Command::Undo;
+                switch (item->CtlID) {
+                case IDC_REDO:      command = Command::Redo; break;
+                case IDC_COPY:      command = Command::Copy; break;
+                case IDC_SAVE:      command = Command::Save; break;
+                case IDC_PINTOGGLE: command = Command::Pin;  break;
+                default:            command = Command::Undo; break;
+                }
+                DrawCommandGlyph(item->hDC, command, glyphBox, ink);
+            }
+
+            if ((item->itemState & ODS_FOCUS) != 0) {
+                RECT focus = box;
+                ::InflateRect(&focus, -3, -3);
+                ::DrawFocusRect(item->hDC, &focus);
+            }
+            return TRUE;
+        }
+        break;
     }
 
     case WM_HSCROLL: {
@@ -399,6 +844,20 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
         case IDC_REDO:   Redo(); ReturnFocusToCanvas(); return 0;
         case IDC_COPY:   CopyToClipboard(); ReturnFocusToCanvas(); return 0;
         case IDC_SAVE:   SaveAsPng(); ReturnFocusToCanvas(); return 0;
+        case IDC_PINTOGGLE: {
+            // Writes the same value the tray row writes, and removes rather
+            // than stores false — so "never touched" and "switched off
+            // again" stay the same state, which is what lets Sanitize tell
+            // whether there is anything to restore.
+            const bool on = !settings::GetBool(settings::key::kPinToScreen, false);
+            if (on) settings::SetBool(settings::key::kPinToScreen, true);
+            else    settings::Remove(settings::key::kPinToScreen);
+            // Every open editor, not just this one. Two windows showing
+            // one setting must not disagree about it.
+            PinSettingChanged();
+            ReturnFocusToCanvas();
+            return 0;
+        }
         case IDC_SWATCH: ShowColourPopup(); return 0;
         case IDC_TEXTEDIT:
             if (HIWORD(wParam) == EN_KILLFOCUS) CommitTextEntry();
@@ -428,6 +887,11 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
 
     case WM_DESTROY:
         HideColourPopup();
+        // Children are destroyed after the parent's WM_DESTROY, so these
+        // handles are about to become invalid while this object is still
+        // listed in LiveEditors — see the note in the destructor.
+        pinButton_ = nullptr;
+        tooltips_  = nullptr;
         if (onClose_) onClose_(this);
         return 0;
     }
@@ -443,25 +907,50 @@ void EditorWindow::LayoutChildren() {
 
     const int topY = (kBarHeight - kButtonHeight) / 2;
     int x = kBarPadding;
-    auto place = [&](HWND control, int w, int h, int y) {
+    auto place = [&](HWND control, int w, int h, int y, int gap = 6) {
         if (control) ::MoveWindow(control, x, y, w, h, TRUE);
-        x += w + 6;
+        x += w + gap;
     };
 
-    place(undoButton_, kButtonWidth, kButtonHeight, topY);
-    place(redoButton_, kButtonWidth, kButtonHeight, topY);
+    // --- top bar: history left, the switch centred, output right ---
+    //
+    // Three groups, each anchored to its own edge, so they are positioned
+    // independently and cannot be pushed into one another by the window
+    // getting wider. What CAN collide is the centred control meeting a
+    // flank, and that is what kMinCommandRowWidth is for — WM_GETMINMAXINFO
+    // stops the window before it happens, so no clamping is needed here.
+    //
+    // Reading left to right: what you did, what will happen next, where it
+    // goes. Undo beside nothing else it could be confused with, and Save at
+    // the far end where a final action belongs.
+    x = kBarPadding;
+    place(undoButton_, kToolWidth, kButtonHeight, topY, kToolGap);
+    place(redoButton_, kToolWidth, kButtonHeight, topY, kToolGap);
 
-    // Copy and Save are right-aligned; everything else grows from the left.
-    int rightX = width - kBarPadding - kButtonWidth;
-    if (saveButton_) ::MoveWindow(saveButton_, rightX, topY, kButtonWidth, kButtonHeight, TRUE);
-    rightX -= kButtonWidth + 6;
-    if (copyButton_) ::MoveWindow(copyButton_, rightX, topY, kButtonWidth, kButtonHeight, TRUE);
+    if (pinButton_) {
+        ::MoveWindow(pinButton_, (width - kToolWidth) / 2, topY,
+                     kToolWidth, kButtonHeight, TRUE);
+    }
 
+    // Laid out from the right edge inwards, so Save is always the last
+    // thing on the row whatever the window is doing.
+    int rightX = width - kBarPadding - kToolWidth;
+    if (saveButton_) {
+        ::MoveWindow(saveButton_, rightX, topY, kToolWidth, kButtonHeight, TRUE);
+    }
+    rightX -= kToolWidth + kToolGap;
+    if (copyButton_) {
+        ::MoveWindow(copyButton_, rightX, topY, kToolWidth, kButtonHeight, TRUE);
+    }
+
+    // --- bottom bar: style, then tools ---
     const int bottomY = height - kBarHeight + (kBarHeight - kButtonHeight) / 2;
     x = kBarPadding;
     place(swatch_, kSwatchWidth, kButtonHeight, bottomY);
-    place(slider_, kSliderWidth, kButtonHeight, bottomY);
-    for (HWND button : toolButtons_) place(button, kToolWidth, kButtonHeight, bottomY);
+    place(slider_, kSliderWidth, kButtonHeight, bottomY, 12);
+    for (HWND button : toolButtons_) {
+        place(button, kToolWidth, kButtonHeight, bottomY, kToolGap);
+    }
 
     if (canvas_) {
         ::MoveWindow(canvas_, 0, kBarHeight, width,
@@ -472,12 +961,74 @@ void EditorWindow::LayoutChildren() {
 void EditorWindow::RefreshToolbarState() {
     if (undoButton_) ::EnableWindow(undoButton_, !undoStack_.empty());
     if (redoButton_) ::EnableWindow(redoButton_, !redoStack_.empty());
+    // Owner-drawn, so "which one is on" is not a control state to be set but
+    // a repaint to be asked for; currentTool_ is the only copy of that fact.
     for (int i = 0; i < kToolCount; ++i) {
-        if (!toolButtons_[i]) continue;
-        ::SendMessageW(toolButtons_[i], BM_SETCHECK,
-                       (static_cast<Tool>(i) == currentTool_) ? BST_CHECKED : BST_UNCHECKED, 0);
+        if (toolButtons_[i]) ::InvalidateRect(toolButtons_[i], nullptr, TRUE);
     }
     if (swatch_) ::InvalidateRect(swatch_, nullptr, TRUE);
+
+    // Owner-drawn, and it reads the registry when it paints, so refreshing
+    // it is a repaint rather than a text assignment.
+    if (pinButton_) ::InvalidateRect(pinButton_, nullptr, TRUE);
+    UpdatePinTooltip();
+}
+
+void EditorWindow::UpdatePinTooltip() {
+    if (!tooltips_ || !pinButton_) return;
+
+    // With the words gone from the button face, the tooltip is the only
+    // place the state is spelled out — so it has to be rewritten on every
+    // toggle rather than set once at creation. A tooltip that still says
+    // "Off" after you switched it on is worse than no tooltip: the button
+    // is telling the truth and the label is contradicting it.
+    const bool on = settings::GetBool(settings::key::kPinToScreen, false);
+    const wchar_t* text =
+        on ? L"Pin to Screen: On — a region capture will stick to the screen "
+             L"instead of opening the editor.  Click to turn off."
+           : L"Pin to Screen: Off — a region capture opens the editor.  "
+             L"Click to turn on.";
+
+    TOOLINFOW info{};
+    info.cbSize   = sizeof(info);
+    info.uFlags   = TTF_IDISHWND | TTF_SUBCLASS;
+    info.hwnd     = hwnd_;
+    info.uId      = reinterpret_cast<UINT_PTR>(pinButton_);
+    info.lpszText = const_cast<LPWSTR>(text);
+    ::SendMessageW(tooltips_, TTM_UPDATETIPTEXTW, 0, reinterpret_cast<LPARAM>(&info));
+}
+
+std::vector<EditorWindow*>& EditorWindow::LiveEditors() {
+    // Deliberately never destroyed, and this is not tidiness lost to
+    // laziness — it is a use-after-free avoided.
+    //
+    // App is itself a function-local static, constructed before the first
+    // editor ever exists, so this vector is constructed AFTER it. Statics
+    // are destroyed in reverse order of construction, so at exit this one
+    // would go first — and then ~App destroys editors_, running
+    // ~EditorWindow, which erases from a vector that no longer exists.
+    // Quitting from the tray with an editor still open reaches it.
+    //
+    // One leaked vector of pointers for the life of the process is the
+    // cheapest correct answer; the alternative is teaching two independent
+    // statics about each other's lifetimes.
+    static auto* editors = new std::vector<EditorWindow*>();
+    return *editors;
+}
+
+void EditorWindow::PinSettingChanged() {
+    // Called from here when the editor's own toggle is clicked, and from
+    // App when the tray row is. One setting, two switches, and no editor
+    // left showing the state the other one just changed.
+    for (EditorWindow* editor : LiveEditors()) {
+        if (!editor || !editor->pinButton_) continue;
+        ::InvalidateRect(editor->pinButton_, nullptr, TRUE);
+        editor->UpdatePinTooltip();
+    }
+}
+
+COLORREF EditorWindow::ActiveColour() const {
+    return ToolCoversPixels(currentTool_) ? redactColour_ : currentColour_;
 }
 
 void EditorWindow::ReturnFocusToCanvas() {
@@ -592,7 +1143,7 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
         dragMode_ = DragMode::Drawing;
         draft_ = Annotation{};
         draft_.tool      = currentTool_;
-        draft_.colour    = currentColour_;
+        draft_.colour    = ActiveColour();
         draft_.lineWidth = currentLineWidth_;
         draft_.start     = point;
         draft_.end       = point;
@@ -727,11 +1278,33 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
             }
         }
 
+        const bool isCallout = (shape.tool == Tool::Callout);
+
         Snapshot();
         annotations_.push_back(std::move(shape));
         selectedIndex_ = static_cast<int>(annotations_.size()) - 1;
         RefreshToolbarState();
         ::InvalidateRect(canvas_, nullptr, FALSE);
+
+        if (isCallout) {
+            // The arrow is already committed and already on the undo stack.
+            // Typing now fills in its label; cancelling leaves the arrow,
+            // because you drew that part deliberately and losing it for
+            // changing your mind about the words would be a surprise.
+            //
+            // The field opens where the text will be drawn, so the glyphs do
+            // not jump on commit — the same rule the plain Text tool follows.
+            // Set AFTER the field exists, and only if it does. Set before,
+            // it would be consumed by the CommitTextEntry that BeginTextEntry
+            // opens with, and it would be left pointing at this arrow if
+            // CreateWindowEx failed — so the next ordinary label typed
+            // anywhere on the canvas would be swallowed by this callout.
+            const int arrowIndex = selectedIndex_;
+            Graphics measure(canvas_);
+            const RectD label = annotations_[arrowIndex].CalloutLabelBox(&measure);
+            BeginTextEntry({ label.MinX(), label.MinY() });
+            if (textEntryActive_) calloutIndex_ = arrowIndex;
+        }
         return 0;
     }
 
@@ -770,9 +1343,9 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
     case WM_COMMAND:
         // The inline edit control is a child of the canvas, so its
         // notifications arrive here rather than at the frame.
-        if (LOWORD(wParam) == IDC_TEXTEDIT && HIWORD(wParam) == EN_KILLFOCUS) {
-            CommitTextEntry();
-            return 0;
+        if (LOWORD(wParam) == IDC_TEXTEDIT) {
+            if (HIWORD(wParam) == EN_KILLFOCUS) { CommitTextEntry(); return 0; }
+            if (HIWORD(wParam) == EN_CHANGE)    { RepositionCalloutField(); return 0; }
         }
         break;
 
@@ -955,9 +1528,17 @@ void EditorWindow::PaintCanvas(HDC dc) {
             //
             // Anchoring the two to OPPOSITE edges makes the clearance a
             // property of the layout rather than a coincidence that held at
-            // the window sizes anyone happened to try. At the minimum width
-            // the hint now starts at x 403 against a popup ending at 214 —
-            // 189px of daylight, and widening the window only adds more.
+            // the window sizes anyone happened to try, and widening the
+            // window only ever adds more of it.
+            //
+            // The margin is not generous, and it shrank in 1.8.0: the
+            // minimum window width came down from 700 to 540, so the hint
+            // now starts around x 243 against a popup ending at 214 —
+            // roughly 30px rather than 190. Still clear, and nothing here
+            // scales with DPI (the hint font is UnitPixel, the popup
+            // constants are raw pixels, the minimum is raw pixels), so it
+            // holds. But anyone lowering kMinContentWidth further should
+            // check this first: it is the next thing that breaks.
             //
             // It also puts the hint under the tool buttons, which is where
             // the click that summoned it happened.
@@ -1053,21 +1634,45 @@ void EditorWindow::SetCurrentTool(Tool tool) {
     // compares values, so re-picking the tool you already had must not count
     // as a change.
     if (tool == currentTool_) return;
+    const bool coverChanged = ToolCoversPixels(tool) != ToolCoversPixels(currentTool_);
     currentTool_ = tool;
     editor_settings::SetTool(tool);
+    // Crossing between ink and cover swaps which colour the swatch is
+    // showing, so it has to repaint even though no colour was chosen.
+    if (coverChanged && swatch_) ::InvalidateRect(swatch_, nullptr, TRUE);
 }
 
 void EditorWindow::SetCurrentColour(COLORREF colour) {
-    if (colour == currentColour_) return;
-    currentColour_ = colour;
-    editor_settings::SetColour(colour);
+    // With Redact active the swatch is choosing a cover, not ink. It is NOT
+    // persisted: a redaction colour that came back black next session is
+    // right, and one that came back as whatever background you matched three
+    // weeks ago is a redaction you have to remember to check.
+    if (ToolCoversPixels(currentTool_)) {
+        if (colour != redactColour_) {
+            redactColour_ = colour;
+            if (swatch_) ::InvalidateRect(swatch_, nullptr, TRUE);
+        }
+    } else if (colour != currentColour_) {
+        currentColour_ = colour;
+        editor_settings::SetColour(colour);
+        if (swatch_) ::InvalidateRect(swatch_, nullptr, TRUE);
+    }
 
-    if (selectedIndex_ >= 0 && selectedIndex_ < static_cast<int>(annotations_.size())) {
+    // Restyling the selection is independent of which colour the swatch was
+    // editing: you picked a colour with a mark selected, so the mark takes
+    // it — including recolouring a redaction you had already drawn.
+    // Compared against the MARK's colour, not the swatch's. The old early
+    // return keyed on the swatch, which got both cases wrong once there were
+    // two colours behind it: re-picking the active colour with a
+    // differently-coloured mark selected did nothing, and now that the
+    // function no longer returns early it would instead push an undo entry
+    // for assigning a colour that was already there.
+    if (selectedIndex_ >= 0 && selectedIndex_ < static_cast<int>(annotations_.size()) &&
+        annotations_[selectedIndex_].colour != colour) {
         SnapshotStyleChangeIfNeeded();
         annotations_[selectedIndex_].colour = colour;
         ::InvalidateRect(canvas_, nullptr, FALSE);
     }
-    if (swatch_) ::InvalidateRect(swatch_, nullptr, TRUE);
 }
 
 void EditorWindow::SetCurrentLineWidth(double width) {
@@ -1136,6 +1741,41 @@ void EditorWindow::BeginTextEntry(PointD anchor) {
     ::SetFocus(textEdit_);
 }
 
+void EditorWindow::RepositionCalloutField() {
+    if (!textEntryActive_ || !textEdit_ || calloutIndex_ < 0) return;
+    if (calloutIndex_ >= static_cast<int>(annotations_.size())) return;
+
+    const Annotation& arrow = annotations_[calloutIndex_];
+    if (arrow.tool != Tool::Callout) return;
+    // A right-pointing callout is anchored at the tip and never moves, so
+    // there is nothing to do and no reason to measure.
+    if (arrow.end.x >= arrow.start.x) return;
+
+    const int length = ::GetWindowTextLengthW(textEdit_);
+    std::wstring typed;
+    if (length > 0) {
+        typed.resize(static_cast<size_t>(length) + 1, L'\0');
+        const int copied = ::GetWindowTextW(textEdit_, &typed[0], length + 1);
+        typed.resize(static_cast<size_t>((std::max)(0, copied)));
+    }
+
+    // Measured on a copy. Writing the in-progress text onto the real mark
+    // would draw the label twice — once by the annotation, once by the edit
+    // control sitting on top of it.
+    Annotation probe = arrow;
+    probe.text = std::move(typed);
+
+    Graphics measure(canvas_);
+    const RectD box = probe.CalloutLabelBox(&measure);
+    POINT origin = ToViewPoint({ box.MinX(), box.MinY() });
+    // Clamped, because this one grows leftwards: a long label on a callout
+    // near the left edge would walk the field off the canvas, and the part
+    // that leaves is the part being typed.
+    origin.x = (std::max)(0L, origin.x);
+    ::SetWindowPos(textEdit_, nullptr, origin.x, origin.y, 0, 0,
+                   SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
 void EditorWindow::CommitTextEntry() {
     if (!textEntryActive_ || !textEdit_) return;
 
@@ -1157,11 +1797,38 @@ void EditorWindow::CommitTextEntry() {
     ::SetFocus(canvas_);
     ::DestroyWindow(field);
 
+    // Taken and cleared before either early return below, or a callout whose
+    // label was left empty would keep claiming the next label typed
+    // anywhere else on the canvas.
+    const int callout = calloutIndex_;
+    calloutIndex_ = -1;
+
     // Trim; a label of nothing but spaces is not a label.
     size_t first = value.find_first_not_of(L" \t\r\n");
     size_t last  = value.find_last_not_of(L" \t\r\n");
-    if (first == std::wstring::npos) return;   // no snapshot, no annotation
+    if (first == std::wstring::npos) {
+        // Nothing typed. For a callout the arrow stays — it is already
+        // committed and already on the undo stack — and for a plain label
+        // there was never anything to commit.
+        if (callout >= 0) ::InvalidateRect(canvas_, nullptr, FALSE);
+        return;
+    }
     value = value.substr(first, last - first + 1);
+
+    if (callout >= 0) {
+        // No second Snapshot: the arrow's push already took one, and taking
+        // another here would make Ctrl+Z remove the words and leave the
+        // arrow — two undo steps for what was one action.
+        // Range AND identity. The index alone would happily write the label
+        // onto whatever mark had come to occupy that slot.
+        if (callout < static_cast<int>(annotations_.size()) &&
+            annotations_[callout].tool == Tool::Callout) {
+            annotations_[callout].text = std::move(value);
+        }
+        RefreshToolbarState();
+        ::InvalidateRect(canvas_, nullptr, FALSE);
+        return;
+    }
 
     Snapshot();
     Annotation label;
@@ -1181,8 +1848,14 @@ bool EditorWindow::CancelTextEntry() {
     textEntryActive_ = false;
     HWND field = textEdit_;
     textEdit_ = nullptr;
+    // A cancelled callout keeps its arrow. Esc is being used to say "not
+    // those words", not "not that arrow", and the arrow is a separate,
+    // already-undoable action.
+    const bool wasCallout = calloutIndex_ >= 0;
+    calloutIndex_ = -1;
     ::SetFocus(canvas_);
     ::DestroyWindow(field);
+    if (wasCallout) ::InvalidateRect(canvas_, nullptr, FALSE);
     // No snapshot, no annotation. The boolean is what lets Esc, undo and redo
     // distinguish "cancelled a label" from "do the normal thing".
     return true;
@@ -1269,7 +1942,7 @@ LRESULT EditorWindow::OnSwatchMessage(HWND hwnd, UINT message, WPARAM wParam, LP
             }
 
             const bool selected = index < 9 &&
-                                  editor_settings::kPresetColours[index] == currentColour_;
+                                  editor_settings::kPresetColours[index] == ActiveColour();
             ScopedPen border(::CreatePen(PS_SOLID, selected ? 3 : 1,
                                          selected ? accent : RGB(160, 160, 160)));
             if (border) {
@@ -1351,7 +2024,7 @@ void EditorWindow::OpenSystemColourPicker() {
     CHOOSECOLORW choose{};
     choose.lStructSize  = sizeof(choose);
     choose.hwndOwner    = hwnd_;
-    choose.rgbResult    = currentColour_;
+    choose.rgbResult    = ActiveColour();
     choose.lpCustColors = custom;
     choose.Flags        = CC_FULLOPEN | CC_RGBINIT | CC_ANYCOLOR;
 

@@ -16,7 +16,7 @@ Everything runs locally. OCR is Windows' own `Windows.Media.Ocr`, capture is GDI
 
 One executable, no installer, no third-party dependencies — nothing but the Windows SDK. The binary is statically linked, so there is no runtime to install.
 
-This is version 1.7.7. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
+This is version 1.8.0. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
 
 ### Trying it on sample text
 
@@ -48,7 +48,7 @@ A **tray icon** sits in the notification area whenever the program is running, s
 
 ### Pinning it
 
-1. Build it (below), then run `build\SnipTextProUltra_1.7.7.exe` once.
+1. Build it (below), then run `build\SnipTextProUltra_1.8.0.exe` once.
 2. Right-click its taskbar button → **Pin to taskbar**.
 
 That's it. The pinned icon is now the app.
@@ -68,7 +68,7 @@ That's it. The pinned icon is now the app.
 A `SHA-256` checksum is published beside each release binary. It is not a signature and does not pretend to be one; it only lets you confirm the file you downloaded is the file CI produced:
 
 ```
-Get-FileHash .\SnipTextProUltra_1.7.7.exe -Algorithm SHA256
+Get-FileHash .\SnipTextProUltra_1.8.0.exe -Algorithm SHA256
 ```
 
 ## Requirements
@@ -211,6 +211,7 @@ SnipTextProUltra · v1.5.0 · markpelayo
   Shutter Sound          ✓ ▸
   After a Screenshot     ▸
   Auto-Save Images
+  Pin to Screen (Region)
   Save Locations         ▸
   Screen Recording Settings ▸
   Show Saved Files       ▸
@@ -294,7 +295,45 @@ If the clipboard write fails — another program can hold the clipboard open —
 
 ## The annotation editor
 
-Opened by the Screenshot commands. Tools: **arrow, rectangle, ellipse, line, freehand pen, text, lift**, with a colour swatch and a stroke-width slider (the slider also sets text size).
+Opened by the Screenshot commands. Nine tools: **arrow, rectangle, ellipse, line, freehand pen, text, lift, redact, callout**, with a colour swatch and a stroke-width slider (the slider also sets text size).
+
+Everything on the bar is an icon with a tooltip. Along the top: Undo and Redo on the left, the **Pin to Screen** toggle in the centre, Copy and Save on the right. Along the bottom: the colour swatch, the width slider, and the nine tools. Every glyph is drawn in GDI — there is no image resource anywhere in this program.
+
+![The editor toolbar, drawn to scale](docs/editor-toolbar.png)
+
+### Pin to Screen
+
+Turn it on and **Screen Capture a Region** sticks the capture to the screen in a floating, always-on-top window instead of opening the editor. An error message, a part number, a diagram from a manual — it stays visible while you work in something else, which is the one thing a screenshot on the clipboard cannot do.
+
+Region only. A full-screen capture pinned on top of the screen would cover the thing it is a picture of.
+
+The pin opens exactly over the region it was cut from, so it lifts off the screen in place rather than materialising somewhere else and making you find it.
+
+| Gesture | What it does |
+|---|---|
+| Drag anywhere on it | Move it |
+| Scroll wheel | Zoom, around the pointer |
+| Double-click | Open it in the editor, which gets a copy |
+| Right-click | Open in Editor · Copy · Save… · Actual Size · Close Every Other Pin · Close |
+| Esc | Close the focused pin — the one you last clicked |
+
+Pins are excluded from every capture the program takes, the same way the recording indicator is — otherwise you could not screenshot or record the area one was sitting over, and that area is usually what you pinned it to help you work on.
+
+It replaces the editor, not the rest: Auto-Save still writes to disk, and *Copy to Clipboard and Close* still copies.
+
+The setting has two switches — the menu row and a toggle in the centre of the editor's top bar — and they write the same value, so flipping either updates the other and any other open editor. Switched on, the button takes the same filled face and accent ring a selected tool takes; its tooltip names the state in words.
+
+### Redact
+
+Drag a rectangle; it fills solid and opaque. Black by default — the swatch changes it while Redact is selected, which is useful for matching a background, but that has to be a decision rather than a default.
+
+It is a flat fill and nothing cleverer, on purpose. Pixelation and blur both *look* like protection while leaving the original recoverable: a screenshot has a known font at a known size, so the attack is to render candidate text, pixelate it on the same grid and compare — forwards, not backwards, one glyph at a time. A flat fill is the only version whose output does not depend on the pixels underneath.
+
+> If **Auto-Save Images** is on, the untouched original went to disk the moment the shot was taken, before you redacted anything. Redact, save, send the clean copy, and the readable original is still in your screenshots folder.
+
+### Callout
+
+Drag an arrow, then type a label that sits at its tip. One annotation rather than an arrow plus a separate text mark, so moving it moves both halves and the label cannot be left behind pointing at nothing. The label goes on the far side of the head and flips to the left when the arrow points left, so it never covers what is being pointed at. Esc during typing keeps the arrow and drops the words.
 
 ### Lift
 

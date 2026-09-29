@@ -17,6 +17,7 @@ No Visual Studio project file. `build.bat` compiles `src/*.cpp` with `cl.exe`, l
 | `framework.h` | Windows configuration macros and the RAII wrappers |
 | `Util.cpp` | Strings, code points, paths, time, DPI, geometry |
 | `Hotkeys.cpp` | The six shortcuts: bindings, persistence, and the rebinding window |
+| `PinnedWindow.cpp` | A capture stuck to the screen: topmost, draggable, zoomable |
 | `Settings.cpp` | Registry-backed settings, and Run-at-Startup |
 | `MediaFolder.cpp` | One output folder — three instances |
 | `Bitmap.cpp` | 32-bit BGRA DIB section, PNG encoding, clipboard |
@@ -375,6 +376,70 @@ Two labelling rules carried over:
 
 - A folder row shows no path while it is at its default, because "Default" is the absence of information.
 - The last-OCR preview is capped at 14 characters. It is the one label whose width varies with the user's data, and a generous cap would make the menu change width every time it was used.
+
+---
+
+## Pinned captures
+
+`PinnedWindow` is a borderless `WS_EX_TOPMOST | WS_EX_TOOLWINDOW` popup holding one `Bitmap`. It is deliberately **not** an `EditorWindow` with the chrome hidden: the editor owns an undo stack, an annotation array, a scaled cache and two toolbars, while a pin owns a bitmap and a rectangle. Reusing the editor would have made every pin cost what an open editor costs, and a pin has to be cheap enough that leaving four of them around is not a decision.
+
+Ownership mirrors the editors exactly, because the hazard is the same: the close callback fires from inside the window's own teardown, so `App` pushes the pointer onto `closingPins_` and posts `WM_REAP_PINS` rather than freeing it there.
+
+Three details that are not obvious:
+
+- **It opens over the region it was cut from.** `AcquireImage` now reports the capture's origin in *virtual-desktop* coordinates, not frozen-image ones. The crop wants the latter; on a desk whose secondary monitor sits left of the primary they are not the same numbers.
+- **Zoom is anchored at the pointer**, so the pixel under the cursor stays under it. Without that, zooming walks the picture out from under you.
+- **Pins are excluded from capture** via `util::ExcludeFromCapture`, the same call the recording indicator makes. A topmost window that could not be screenshotted *around* would make the area it covers unreachable, and that area is usually the reason it was pinned.
+
+`Pin to Screen` replaces the editor for region captures and nothing else. Auto-Save has already run by then and the clipboard branch is unaffected, but opening the editor *and* floating a copy of the same picture would be two answers to one question.
+
+---
+
+## Redaction is a flat fill, and that is the whole design
+
+`Tool::Redact` fills its rectangle with one opaque colour. It does not pixelate and it does not blur, and that is a security decision rather than a simplification.
+
+Pixelation and blur leave the original recoverable, not by inverting the averaging — which genuinely destroys information — but by running it forwards. A screenshot has a known font at a known size and known anti-aliasing, so an attacker renders a candidate string, pixelates it on the same grid, and compares. It does not explode combinatorially either: each character is pinned by the few blocks it touches, so it solves left to right, one glyph at a time. Published tooling has been doing this to pixelated text since 2022.
+
+A flat fill is the only version whose output does not depend on the pixels underneath. Worse than useless is the right description of the alternative: pixelation *looks* more professional than a black box, so it produces confidence in a protection that is not there.
+
+The one hole no drawing can close is `Auto-Save Images`, which writes the untouched original to disk before the editor ever opens. That is documented rather than fixed, because fixing it means deleting a file the user asked for.
+
+---
+
+## The editor toolbar
+
+Two bars, and everything on both of them is owner-drawn. The top carries three groups: Undo and Redo anchored left, the Pin toggle centred, Copy and Save anchored right. The bottom carries the swatch, the width slider and the nine tools.
+
+All fourteen icon buttons are 34 × 28 and go through one `DrawIconButtonFace`, so the two bars cannot drift apart the first time one of them is adjusted. (The colour swatch is owner-drawn too but keeps its own branch at 44 × 28: it shows a colour, not a glyph.) Only *switched-on* buttons get the filled face, the doubled ring and accent-coloured ink — the selected tool, and Pin when enabled — because that is the only state which survives letting go of the mouse. Save's permanent ring, inherited from `BS_DEFPUSHBUTTON`, was the last thing making the top row look like a separate toolbar, and it is gone.
+
+Anchoring each group to its own edge is what makes overlap impossible by construction rather than by clamping — widening the window only grows the gaps. The single failure mode left is the window being too narrow, and `WM_GETMINMAXINFO` forbids it: `34 + (82 + 12) × 2 = 222`, where 82 is a flank of two icon buttons plus padding. The centred control must clear the *wider* flank on both sides because centring is symmetrical; here the flanks are equal by construction, both being two icon buttons.
+
+222 is far below the tool row's 540, so the **bottom** row now sets the floor — the first time it has since the editor was written. The minimum went 700 (seven text tools) → 678 (a text command group) → 540, narrower than it has ever been with two more tools than it has ever had.
+
+Pin is a real toggle rather than a label, writing the same registry value the tray row writes. `EditorWindow::PinSettingChanged` repaints it in every live editor and is called from both switches and from Sanitize, so two windows cannot disagree about one setting. `LiveEditors()` is maintained by the constructor and destructor rather than by `WM_CREATE`/`WM_DESTROY`, because the object outlives its window by one message-loop turn — App defers the delete. `WM_DESTROY` nulls `pinButton_` for exactly that gap, so a notification arriving in it has nothing to invalidate. The list itself is deliberately never destroyed: `App` is a function-local static constructed *before* the first editor, so this vector would be torn down first, and `~App` destroying `editors_` would then erase from a dead container.
+
+Pin is icon-only, so its state lives entirely in its appearance plus its tooltip, and `UpdatePinTooltip` rewrites that text on every toggle. Setting it once at creation would leave a tooltip saying "Off" over a button drawn as on — the one place on screen contradicting the control.
+
+![The editor toolbar, drawn to scale](editor-toolbar.png)
+
+Glyphs are drawn from lines, arcs and Béziers into a notional 20 × 20 box that is mapped onto the button, so the same code serves the 34px icon and the 3× version in the documentation. `ExtCreatePen` rather than `CreatePen`, for round caps and joins.
+
+Making the tool buttons owner-drawn removed a duplicate copy of state: `BS_AUTOCHECKBOX | BS_PUSHLIKE` kept "which tool is selected" inside the control as well as in `currentTool_`.
+
+One swatch now edits **two** colours — ink for everything that draws, and a separate cover colour for Redact that defaults to black and is not persisted. Sharing one would mean either redactions defaulting to bright green, or every arrow turning black the first time you redacted something. A redaction colour restored from three weeks ago is a redaction you have to remember to check, which is why it is the one style value that does not survive a restart.
+
+---
+
+## Callouts are one annotation, not two
+
+`Tool::Callout` is an arrow that carries its label, rather than an arrow plus a `Tool::Text` mark. Moving it moves both halves, and the label cannot be orphaned pointing at nothing.
+
+The arrow is committed on mouse-up, *before* the label is typed, and the text entry then attaches to it through `calloutIndex_`. That ordering is what makes Esc mean "not those words" rather than "not that arrow", and it is why committing the label takes no second snapshot — one action, one undo step.
+
+`calloutIndex_` is assigned only after `BeginTextEntry` has actually created the field, and `CommitTextEntry` checks both the range and that the slot still holds a Callout. Set earlier, it would be consumed by the `CommitTextEntry` that `BeginTextEntry` opens with, and left set after a failed `CreateWindowEx` it would swallow the next ordinary label typed anywhere on the canvas.
+
+The label sits beyond the arrow's tip, flipping to the left when the arrow points left. A left-pointing label is positioned by its **right** edge, so its left edge moves with every keystroke — `RepositionCalloutField` follows the field along on `EN_CHANGE`, or the text would jump the full width of the string on commit.
 
 ---
 

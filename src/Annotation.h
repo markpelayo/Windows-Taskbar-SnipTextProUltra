@@ -24,14 +24,31 @@ namespace Gdiplus { class Graphics; class Image; }
 // an Annotation rather than a change to the pixels, which is the whole point —
 // it stays movable, resizable and undoable like any other mark, and the
 // original capture is never modified.
-enum class Tool { Arrow, Rectangle, Ellipse, Line, Pen, Text, Lift };
+//
+// Redact is a solid opaque fill and nothing cleverer, on purpose. Pixelation
+// and blur both LOOK like protection while leaving the original recoverable:
+// a screenshot has a known font at a known size, so an attacker renders
+// candidate text, pixelates it on the same grid and compares — forwards, not
+// backwards, one glyph at a time. A flat fill is the only version whose
+// output does not depend on the pixels underneath.
+//
+// Callout is an Arrow that carries a label at its tip. It is one annotation
+// rather than an arrow plus a separate Text mark so that moving it moves both
+// halves, and so the label cannot be left behind pointing at nothing.
+enum class Tool { Arrow, Rectangle, Ellipse, Line, Pen, Text, Lift, Redact, Callout };
 
 // The toolbar builds its buttons, maps their command IDs back to tools, and
 // sizes its button array from this. It was a literal 6 in four separate
 // places, which is three chances to add a tool and update only some of them —
 // and the failure is quiet: the button simply never appears, or appears and
 // selects the wrong tool.
-inline constexpr int kToolCount = 7;
+inline constexpr int kToolCount = 9;
+
+// Whether the swatch is choosing ink or choosing a cover. The editor keeps a
+// separate colour for each, because a redaction that defaults to the drawing
+// colour is a bright green box, and one that shares the drawing colour makes
+// every arrow turn black the moment you redact something.
+inline constexpr bool ToolCoversPixels(Tool tool) { return tool == Tool::Redact; }
 
 const wchar_t* ToolKeyValue(Tool tool);     // the persisted string
 const wchar_t* ToolTitle(Tool tool);
@@ -74,6 +91,18 @@ struct Annotation {
     double FontSize() const { return (std::max)(14.0, lineWidth * 5.0); }
     static double TextBoxHeight(double fontSize) { return std::ceil(fontSize * 1.6); }
     static constexpr double kTextInset = 2.0;
+
+    // Callout only: where the label sits relative to the arrow's tip. On the
+    // far side of the head, so the text never covers the thing the arrow is
+    // pointing at, and flipped to the left when the arrow points left — a
+    // label always pinned to the right would sit back across the shaft.
+    //
+    // Needs a Graphics to measure the string when the arrow points left,
+    // because the box has to be placed by its right edge. Null is legal and
+    // gives the unflipped position, which is what an unmeasurable caller
+    // wants: somewhere sensible rather than nothing.
+    static constexpr double kCalloutGap = 6.0;
+    RectD CalloutLabelBox(Gdiplus::Graphics* measureWith) const;
 
     RectD NormalizedRect() const;
     RectD BoundingBox(Gdiplus::Graphics* measureWith) const;

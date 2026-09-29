@@ -8,6 +8,105 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.8.0] — 2026-09-30
+
+A minor version rather than a patch: two new tools, a new window, and the
+editor's toolbar rebuilt around them.
+
+### Added
+
+- **Pin to Screen.** A new tray row directly below Auto-Save Images. With it
+  on, **Screen Capture a Region** sticks the capture to the screen in a
+  floating, always-on-top window instead of opening the editor — so an error
+  message, a part number or a diagram stays visible while you work in
+  something else.
+
+  Region only, deliberately: a full-screen capture pinned on top of the
+  screen would cover the thing it is a picture of.
+
+  The pin opens exactly over the region it was cut from, so it appears to
+  lift off the screen in place rather than materialising somewhere else and
+  making you find it. Drag anywhere on it to move it. Scroll to zoom, around
+  the pointer, so the pixel under the cursor stays under the cursor.
+  Double-click to hand it to the editor — the editor gets a copy, so closing
+  the pin afterwards takes nothing away. Right-click for Open in Editor,
+  Copy, Save, Actual Size, Close Every Other Pin and Close. Esc closes the
+  focused pin, which is the one you last clicked.
+
+  It replaces the editor, not the rest of the pipeline: Auto-Save still
+  writes to disk, and Copy to Clipboard and Close still copies. Opening the
+  editor *and* floating a copy of the same picture would be two answers to
+  one question. There is a count in the tray menu and a row to close them
+  all when any are up.
+
+- **Redact.** A new tool: drag a rectangle, and it fills solid and opaque.
+  Black by default — the swatch changes it while Redact is selected, which
+  is useful for matching a background, but that has to be a decision rather
+  than a default.
+
+  It is a flat fill and nothing cleverer, on purpose. Pixelation and blur
+  both *look* like protection while leaving the original recoverable: a
+  screenshot has a known font at a known size, so the attack is to render
+  candidate text, pixelate it on the same grid and compare — forwards, not
+  backwards, one glyph at a time, which is why published tooling has been
+  reading pixelated text since 2022. A flat fill is the only version whose
+  output does not depend on the pixels underneath.
+
+  It is an annotation like any other, so it moves, resizes and undoes, and
+  the capture underneath is never modified until you export.
+
+- **Callout.** A new tool: drag an arrow, then type a label that sits at its
+  tip. One annotation rather than an arrow plus a separate text mark, so
+  moving it moves both halves and the label cannot be left behind pointing
+  at nothing. The label goes on the far side of the head, flipping to the
+  left when the arrow points left, so it never covers the thing being
+  pointed at. Esc during typing keeps the arrow and drops the words.
+
+### Changed
+
+- **The editor toolbar is rebuilt, and everything on it is now an icon.**
+  Nine tools along the bottom; Undo and Redo anchored left, the Pin toggle
+  centred, Copy and Save anchored right along the top. Every one has a
+  tooltip. Reading the top row left to right: what you did, what will
+  happen next, where it goes.
+
+  All fourteen icon buttons are 34 × 28 and drawn by one function, so the
+  two bars cannot drift apart. (The colour swatch is the one exception at
+  44 × 28, because it shows a colour rather than a glyph.) Switched-on buttons — the selected tool, and Pin
+  when enabled — take a filled face, a doubled accent ring and accent-
+  coloured ink; that is the only state which survives letting go of the
+  mouse, so it is the only one worth marking. Save no longer carries a permanent ring of its own, which
+  was the last thing making the top row look like a different toolbar.
+
+  Three groups, three anchors, so they are positioned independently and
+  widening the window only grows the gaps between them. They can only meet
+  by the window getting too narrow, and that is a number rather than a
+  z-order — `34 + (82 + 12) × 2 = 222`, which `WM_GETMINMAXINFO` will not
+  let you cross.
+
+  222 is far below the tool row's 540, so for the first time since the
+  editor was written the **bottom** row sets the floor. The minimum window
+  width goes from 700px, to 678px with a text command group, to **540px**
+  now — narrower than it has ever been, with two more tools than it has
+  ever had.
+
+  Every glyph is drawn in GDI from lines, arcs and Béziers. There is no
+  image resource anywhere in this program and adding one for this would
+  have been the first.
+
+- **Pin to Screen can be switched from the editor.** It was going to be a
+  read-only indicator; it is a real toggle in the centre of the top bar,
+  writing the same registry value the tray row writes. Toggling either one
+  repaints the other, and every other open editor, so two windows can never
+  disagree about one setting.
+
+  Icon-only, like everything else on the bar, so the whole weight of "is
+  this on?" falls on the button's appearance — switched on it takes the
+  same filled face and accent ring a selected tool takes. Its tooltip
+  spells the state out in words and is rewritten on every toggle, because
+  with no label on the face a stale tooltip would be the only thing on
+  screen contradicting the button.
+
 ## [1.7.7] — 2026-09-30
 
 ### Fixed

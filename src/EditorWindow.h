@@ -26,6 +26,11 @@ public:
 
     static EditorWindow* Open(std::unique_ptr<Bitmap> image, CloseCallback onClose);
 
+    // Repaints the Pin toggle in every open editor. Called by the editor's
+    // own toggle and by the tray row, because they write one setting and
+    // two windows must not disagree about what it says.
+    static void PinSettingChanged();
+
     EditorWindow(const EditorWindow&) = delete;
     EditorWindow& operator=(const EditorWindow&) = delete;
     ~EditorWindow();
@@ -46,10 +51,25 @@ private:
     LRESULT OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam);
     LRESULT OnSwatchMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 
+    // Every editor currently open. A file-static would do, except
+    // PinSettingChanged has to reach a private member of each one.
+    static std::vector<EditorWindow*>& LiveEditors();
+
     void LayoutChildren();
     void PaintCanvas(HDC dc);
     void RefreshToolbarState();
+    // The Pin button is icon-only, so its tooltip is the only place the
+    // state appears in words — and therefore has to be rewritten whenever
+    // the setting changes, not set once at creation.
+    void UpdatePinTooltip();
     void ReturnFocusToCanvas();
+
+    // The colour the swatch is currently editing, and the colour a new mark
+    // gets. Two colours behind one control: ink for everything that draws,
+    // and a separate cover colour for Redact. Sharing one would mean either
+    // redactions defaulting to bright green or every arrow turning black the
+    // first time you redacted something.
+    COLORREF ActiveColour() const;
 
     // --- coordinate mapping ---
     // The canvas shows the image scaled to fit; annotations are stored in
@@ -74,6 +94,12 @@ private:
 
     // --- text entry ---
     void BeginTextEntry(PointD anchor);
+    // A left-pointing callout's label is positioned by its RIGHT edge, so
+    // its left edge moves every time a character is typed. Without this the
+    // field grows rightwards while the committed label grows leftwards, and
+    // the text jumps the full width of the string on commit — the exact
+    // thing laying the field out in the final position is meant to prevent.
+    void RepositionCalloutField();
     void CommitTextEntry();
     bool CancelTextEntry();   // true when there was a label, and it was discarded
 
@@ -157,6 +183,11 @@ private:
     HWND redoButton_ = nullptr;
     HWND copyButton_ = nullptr;
     HWND saveButton_ = nullptr;
+    // Toggles whether a region capture pins itself — the same setting as
+    // the tray row. Fourteen icon buttons need the tooltips, or the bar is
+    // a rebus.
+    HWND pinButton_ = nullptr;
+    HWND tooltips_  = nullptr;
 
     std::vector<Annotation>              annotations_;
     std::vector<std::vector<Annotation>> undoStack_;
@@ -165,6 +196,12 @@ private:
     int      selectedIndex_ = -1;
     Tool     currentTool_   = Tool::Arrow;
     COLORREF currentColour_ = RGB(52, 199, 89);
+    // Black by default and deliberately so. A redaction is the one mark
+    // whose job is to be unambiguous about having hidden something, and
+    // black is what people read as "this was removed on purpose". The swatch
+    // still changes it — matching the background is genuinely useful — but
+    // that has to be a decision rather than a default.
+    COLORREF redactColour_  = RGB(0, 0, 0);
     double   currentLineWidth_ = 4.0;
 
     DragMode   dragMode_ = DragMode::None;
@@ -180,6 +217,12 @@ private:
     PointD       textAnchor_{};
     COLORREF     textEntryColour_ = RGB(52, 199, 89);
     bool         textEntryActive_ = false;
+    // While a callout's label is being typed, the index of the arrow it
+    // belongs to. -1 means the entry is a standalone Text mark, which is the
+    // only case there used to be. The arrow is pushed BEFORE the label is
+    // typed, so that cancelling leaves a plain arrow rather than nothing —
+    // you drew it, so it should still be there.
+    int          calloutIndex_    = -1;
     ScopedFont   textFont_;
     WNDPROC      textEditOriginalProc_ = nullptr;
 

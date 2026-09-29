@@ -22,6 +22,7 @@
 
 #include "Capture.h"
 #include "EditorWindow.h"
+#include "PinnedWindow.h"
 #include "framework.h"
 
 class MediaFolder;
@@ -65,7 +66,10 @@ private:
     // Captures according to `mode` and returns the pixels, or nullptr when
     // the user cancelled. Both pipelines share this, so a cancel behaves
     // identically whichever command started it.
-    std::unique_ptr<Bitmap> AcquireImage(capture::Mode mode);
+    // `capturedFrom` reports where on the virtual desktop the pixels came
+    // from, so a pinned capture can open exactly over its own region. Null
+    // when the caller does not care.
+    std::unique_ptr<Bitmap> AcquireImage(capture::Mode mode, RECT* capturedFrom = nullptr);
 
     static DWORD WINAPI OcrThread(void* parameter);
     void OnOcrFinished(OcrOutcome* outcome);
@@ -86,6 +90,12 @@ private:
 
     void OpenEditor(std::unique_ptr<Bitmap> image);
     void ReapClosedEditors();
+
+    // Pins are owned exactly the way editors are, and for the same reason:
+    // the close callback fires from inside the window's own teardown, so the
+    // object cannot be freed there.
+    void OpenPin(std::unique_ptr<Bitmap> image, const RECT& capturedFrom);
+    void ReapClosedPins();
 
     HWND hwnd_ = nullptr;
 
@@ -125,4 +135,6 @@ private:
 
     std::vector<std::unique_ptr<EditorWindow>> editors_;
     std::vector<EditorWindow*>                 closingEditors_;
+    std::vector<std::unique_ptr<PinnedWindow>> pins_;
+    std::vector<PinnedWindow*>                 closingPins_;
 };

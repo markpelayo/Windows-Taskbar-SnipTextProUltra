@@ -83,6 +83,8 @@ const wchar_t* ToolKeyValue(Tool tool) {
     case Tool::Pen:       return L"pen";
     case Tool::Text:      return L"text";
     case Tool::Lift:      return L"lift";
+    case Tool::Redact:    return L"redact";
+    case Tool::Callout:   return L"callout";
     default:              return L"arrow";
     }
 }
@@ -95,6 +97,8 @@ const wchar_t* ToolTitle(Tool tool) {
     case Tool::Pen:       return L"Pen";
     case Tool::Text:      return L"Text";
     case Tool::Lift:      return L"Lift";
+    case Tool::Redact:    return L"Redact";
+    case Tool::Callout:   return L"Callout";
     default:              return L"Arrow";
     }
 }
@@ -106,6 +110,8 @@ Tool ToolFromKeyValue(const std::wstring& value) {
     if (value == L"pen")       return Tool::Pen;
     if (value == L"text")      return Tool::Text;
     if (value == L"lift")      return Tool::Lift;
+    if (value == L"redact")    return Tool::Redact;
+    if (value == L"callout")   return Tool::Callout;
     return Tool::Arrow;
 }
 
@@ -127,12 +133,38 @@ RectD Annotation::NormalizedRect() const {
     return RectBetween(start, end);
 }
 
+RectD Annotation::CalloutLabelBox(Graphics* measureWith) const {
+    const double height = TextBoxHeight(FontSize());
+    const double width  = MeasureText(measureWith, text, FontSize()).Width
+                          + 8.0 + kTextInset;
+
+    // Centred on the tip vertically; horizontally on whichever side the arrow
+    // is travelling towards, so the label continues the gesture rather than
+    // doubling back over the shaft.
+    const double y = end.y - height / 2.0;
+    const double x = (end.x >= start.x) ? end.x + kCalloutGap
+                                        : end.x - kCalloutGap - width;
+    return RectD{ x, y, width, height };
+}
+
 RectD Annotation::BoundingBox(Graphics* measureWith) const {
     if (tool == Tool::Text) {
         const RectF measured = MeasureText(measureWith, text, FontSize());
         return RectD{ start.x, start.y,
                       measured.Width + 8.0 + kTextInset,
                       TextBoxHeight(FontSize()) };
+    }
+    if (tool == Tool::Callout) {
+        // The arrow and its label together, or selection handles and hit
+        // tests would only ever find half of the mark.
+        const RectD arrow = NormalizedRect();
+        if (text.empty()) return arrow;
+        const RectD label = CalloutLabelBox(measureWith);
+        const double minX = (std::min)(arrow.MinX(), label.MinX());
+        const double minY = (std::min)(arrow.MinY(), label.MinY());
+        const double maxX = (std::max)(arrow.MaxX(), label.MaxX());
+        const double maxY = (std::max)(arrow.MaxY(), label.MaxY());
+        return RectD{ minX, minY, maxX - minX, maxY - minY };
     }
     return NormalizedRect();
 }
@@ -213,6 +245,17 @@ void Annotation::Draw(Graphics& graphics, double scale, PointD offset,
         graphics.DrawLine(&pen, Map(start, scale, offset), Map(end, scale, offset));
         break;
     }
+    case Tool::Redact: {
+        // One flat fill. Everything the comment in the header argues for
+        // comes down to this line: the pixels written do not depend on the
+        // pixels underneath, so there is nothing left to work back from.
+        const RectD rect = RectBetween(start, end);
+        const PointF a = Map({ rect.MinX(), rect.MinY() }, scale, offset);
+        const PointF b = Map({ rect.MaxX(), rect.MaxY() }, scale, offset);
+        graphics.FillRectangle(&brush, a.X, a.Y, b.X - a.X, b.Y - a.Y);
+        break;
+    }
+    case Tool::Callout:
     case Tool::Arrow: {
         const PointF from = Map(start, scale, offset);
         const PointF to   = Map(end, scale, offset);
@@ -243,6 +286,34 @@ void Annotation::Draw(Graphics& graphics, double scale, PointD offset,
                    static_cast<REAL>(to.Y - headLength * std::sin(angle + spread)))
         };
         graphics.FillPolygon(&brush, head, 3);
+
+        // A plain arrow is finished here. A callout still owes its label.
+        if (tool != Tool::Callout || text.empty()) break;
+
+        {
+            Font font = MakeFont(FontSize() * scale);
+            StringFormat format(StringFormat::GenericTypographic());
+            format.SetFormatFlags(format.GetFormatFlags() | StringFormatFlagsNoWrap);
+            // Near, not Center, and not because centring looks wrong: the
+            // box's top is already half a line above the tip, so laying the
+            // glyphs from the top edge centres them on the tip anyway. What
+            // it buys is that the label sits exactly where the inline edit
+            // control had it, so the text does not hop on commit — the same
+            // rule Tool::Text follows below, for the same reason.
+            format.SetLineAlignment(StringAlignmentNear);
+            format.SetAlignment(StringAlignmentNear);
+
+            // Measured against THIS Graphics rather than the caller's, so the
+            // box the glyphs are laid into is the box they were measured for.
+            const RectD box = CalloutLabelBox(&graphics);
+            const PointF origin = Map({ box.MinX(), box.MinY() }, scale, offset);
+            RectF target(origin.X + static_cast<REAL>(kTextInset * scale),
+                         origin.Y,
+                         static_cast<REAL>(box.width * scale),
+                         static_cast<REAL>(box.height * scale));
+            graphics.DrawString(text.c_str(), static_cast<INT>(text.size()),
+                                &font, target, &format, &brush);
+        }
         break;
     }
     case Tool::Pen: {
@@ -303,6 +374,16 @@ bool Annotation::HitTest(PointD point, double tolerance, Graphics* measureWith) 
         // The head is not separately tested; grabbing the shaft is enough.
         return util::PointSegmentDistance(point.x, point.y, start.x, start.y, end.x, end.y)
                <= tolerance;
+    case Tool::Callout:
+        // Either half will do. Aiming at the label is the natural way to
+        // grab a callout — it is the big target and the part you read — and
+        // requiring the shaft would make the text look inert.
+        if (util::PointSegmentDistance(point.x, point.y, start.x, start.y, end.x, end.y)
+                <= tolerance) {
+            return true;
+        }
+        if (text.empty()) return false;
+        return Contains(Inset(CalloutLabelBox(measureWith), -tolerance, -tolerance), point);
     case Tool::Pen: {
         if (points.size() <= 1) return false;
         for (size_t i = 0; i + 1 < points.size(); ++i) {
@@ -319,8 +400,11 @@ bool Annotation::HitTest(PointD point, double tolerance, Graphics* measureWith) 
         // has no meaningful outline to aim at.
         return Contains(Inset(BoundingBox(measureWith), -tolerance, -tolerance), point);
     case Tool::Lift:
-        // Same reasoning: a lifted piece is solid, so aiming at its outline
-        // would be aiming at an edge that carries no meaning.
+    case Tool::Redact:
+        // Same reasoning: both are solid, so aiming at the outline would be
+        // aiming at an edge that carries no meaning. A redaction in
+        // particular is a thing you want to be able to grab and reposition
+        // by its middle, because its middle is all there is.
         return Contains(Inset(NormalizedRect(), -tolerance, -tolerance), point);
     }
     return false;
@@ -331,6 +415,11 @@ std::vector<std::pair<Handle, PointD>> Annotation::Handles() const {
     switch (tool) {
     case Tool::Line:
     case Tool::Arrow:
+    // A callout resizes by its two ends like the arrow it is built on. The
+    // label follows the tip, so dragging the End handle swings the arrow and
+    // carries the text round with it — which is the behaviour you want when
+    // the thing you were pointing at has moved.
+    case Tool::Callout:
         // The raw endpoints, deliberately not normalised: an arrow has a
         // direction and its two ends must stay distinguishable.
         out.push_back({ Handle::Start, start });
@@ -338,6 +427,10 @@ std::vector<std::pair<Handle, PointD>> Annotation::Handles() const {
         break;
     case Tool::Rectangle:
     case Tool::Ellipse:
+    // A redaction is a box and resizes like one. Being able to stretch it
+    // after the fact matters more here than for most marks: a redaction that
+    // is a few pixels short is not a cosmetic problem.
+    case Tool::Redact:
     // A lifted piece resizes from its destination rectangle, like any other
     // box. The source rectangle is fixed once the lift is made: changing where
     // the pixels came from after the fact is a different operation, and not

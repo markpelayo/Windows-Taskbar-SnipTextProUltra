@@ -8,6 +8,24 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.7.8] — 2026-09-30
+
+The last of the 1.7 line. One fix, backported from 1.8.2.
+
+### Fixed
+
+- **The colour wheel spilled out of the colour picker.** The tenth cell —
+  the one that opens the full system colour dialog — is drawn as six
+  coloured wedges, and its radius was set to a whole cell rather than half
+  of one. `Pie` takes a bounding box, not a cell, and nothing clipped it,
+  so the wheel was drawn 16px past every edge of its 32px square. That
+  square is the last column of the bottom row, so the overflow left the
+  popup altogether and sat on the toolbar and the canvas underneath.
+
+  It has been wrong since the picker was written. The radius is now half
+  the cell less a two-pixel margin, which is also the conventional way to
+  draw a "custom colour" affordance.
+
 ## [1.7.7] — 2026-09-30
 
 ### Fixed

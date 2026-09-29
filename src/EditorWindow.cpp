@@ -1252,7 +1252,20 @@ LRESULT EditorWindow::OnSwatchMessage(HWND hwnd, UINT message, WPARAM wParam, LP
                 };
                 const int cx = (cell.left + cell.right) / 2;
                 const int cy = (cell.top + cell.bottom) / 2;
-                const int radius = kCellSize;   // overshoot, so wedges reach the corners
+                // Half the cell, less a margin for the border drawn below.
+                //
+                // This was kCellSize — the WHOLE cell — with a comment
+                // claiming it overshot "so wedges reach the corners". It
+                // overshot by a factor of two, and nothing clipped it: Pie
+                // takes a bounding box, not a cell, so the wheel was drawn
+                // 16px past every edge of its square. That square is the
+                // last column of the bottom row, so the overflow left the
+                // popup itself and sat on the toolbar and the canvas.
+                //
+                // A circle inscribed in the cell is also the conventional
+                // way to say "custom colour", so nothing is lost by it
+                // staying inside.
+                const int radius = kCellSize / 2 - 2;
                 for (int w = 0; w < 6; ++w) {
                     ScopedBrush brush(::CreateSolidBrush(wedges[w]));
                     if (!brush) continue;

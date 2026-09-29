@@ -8,6 +8,28 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.7.7] — 2026-09-30
+
+### Fixed
+
+- **The Lift hint collided with the colour picker.** Select Lift, then open
+  the colour swatch, and the picker covered the start of *Drag to copy a
+  piece · Shift-drag to cut it out*.
+
+  Two things anchored to the same corner. The picker is 204 × 90 and opens
+  directly above the swatch — the leftmost control on the bottom bar — so it
+  rises into the bottom-left of the canvas. The hint was centred 12px above
+  the canvas bottom, which is the same band. At the 700px minimum window
+  width the hint spanned x 207–492 against a picker spanning x 10–214: seven
+  pixels of overlap, and the picker is a topmost window, so it won.
+
+  The hint is now right-aligned. Anchoring the two to **opposite** edges
+  makes the clearance a property of the layout rather than a coincidence
+  that happened to hold at the window sizes anyone tried — at the minimum
+  width the hint starts at x 403 against a picker ending at 214, and
+  widening the window only adds more. It also puts the hint under the tool
+  buttons, which is where the click that summoned it happened.
+
 ## [1.7.6] — 2026-09-29
 
 ### Fixed

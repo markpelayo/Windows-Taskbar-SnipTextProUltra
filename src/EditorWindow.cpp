@@ -943,8 +943,27 @@ void EditorWindow::PaintCanvas(HDC dc) {
             const REAL padX = 10.0f, padY = 5.0f;
             const REAL boxWidth  = measured.Width + padX * 2;
             const REAL boxHeight = measured.Height + padY * 2;
-            const REAL boxLeft   = (static_cast<REAL>(width) - boxWidth) / 2.0f;
-            const REAL boxTop    = static_cast<REAL>(height) - boxHeight - 12.0f;
+
+            // RIGHT-aligned, not centred, and the reason is the colour
+            // popup. That popup is 204 x 90 and opens directly above the
+            // swatch — which is the leftmost control on the bottom bar — so
+            // it rises into the bottom-left of the canvas, the same band
+            // this hint sits in. Centred, at the 700px minimum window width
+            // the hint spanned x 207..492 while the popup spanned x 10..214:
+            // seven pixels of overlap, and since the popup is a topmost
+            // window it won, clipping the start of the sentence.
+            //
+            // Anchoring the two to OPPOSITE edges makes the clearance a
+            // property of the layout rather than a coincidence that held at
+            // the window sizes anyone happened to try. At the minimum width
+            // the hint now starts at x 403 against a popup ending at 214 —
+            // 189px of daylight, and widening the window only adds more.
+            //
+            // It also puts the hint under the tool buttons, which is where
+            // the click that summoned it happened.
+            const REAL boxLeft = (std::max)(0.0f,
+                                            static_cast<REAL>(width) - boxWidth - 12.0f);
+            const REAL boxTop  = static_cast<REAL>(height) - boxHeight - 12.0f;
 
             SolidBrush backdrop(Color(170, 0, 0, 0));
             graphics.FillRectangle(&backdrop, boxLeft, boxTop, boxWidth, boxHeight);

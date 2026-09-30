@@ -16,7 +16,7 @@ Everything runs locally. OCR is Windows' own `Windows.Media.Ocr`, capture is GDI
 
 One executable, no installer, no third-party dependencies — nothing but the Windows SDK. The binary is statically linked, so there is no runtime to install.
 
-This is version 1.9.2. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
+This is version 1.9.3. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
 
 ### Trying it on sample text
 
@@ -48,7 +48,7 @@ A **tray icon** sits in the notification area whenever the program is running, s
 
 ### Pinning it
 
-1. Build it (below), then run `build\SnipTextProUltra_1.9.2.exe` once.
+1. Build it (below), then run `build\SnipTextProUltra_1.9.3.exe` once.
 2. Right-click its taskbar button → **Pin to taskbar**.
 
 That's it. The pinned icon is now the app.
@@ -68,7 +68,7 @@ That's it. The pinned icon is now the app.
 A `SHA-256` checksum is published beside each release binary. It is not a signature and does not pretend to be one; it only lets you confirm the file you downloaded is the file CI produced:
 
 ```
-Get-FileHash .\SnipTextProUltra_1.9.2.exe -Algorithm SHA256
+Get-FileHash .\SnipTextProUltra_1.9.3.exe -Algorithm SHA256
 ```
 
 ## Requirements
@@ -344,7 +344,7 @@ Layering is on **Ctrl**+arrows rather than bare arrows because bare arrows nudge
 
 ### Crop
 
-Select **Crop** and drag a rectangle: that region becomes the picture, on screen and in anything you copy or save.
+Select **Crop** and drag a rectangle: that region becomes the picture, on screen and in anything you copy or save. Hold **Shift** while dragging for a perfect square, squared in image pixels rather than screen pixels so it is exactly square at any zoom.
 
 Marks survive it. One straddling the new edge is clipped where the picture is and stays selectable and movable; one that falls entirely outside still exists, invisible, and comes back if you undo. **Ctrl+Z undoes a crop** like any other edit, because nothing is destroyed — the capture is never modified, and the crop is stored as a rectangle over it. You can crop repeatedly; each one narrows the view, and undo is what widens it.
 
@@ -359,7 +359,7 @@ The tool reverts to Arrow once the crop lands, since it is an action rather than
 | **Ctrl**-drag | filled | filled |
 | **Ctrl+Shift**-drag | filled square | filled circle |
 
-Shift always constrains the geometry — 45° on a line or arrow, 1:1 here — which is what it does in every other drawing application. Ctrl always fills. They compose, so there is nothing extra to learn for the fourth row. The canvas shows a hint along the bottom while one of these tools is selected, so none of it is a secret.
+Shift always constrains the geometry — 45° on a line or arrow, 1:1 on a rectangle, ellipse, lift or crop — which is what it does in every other drawing application. Ctrl changes what you get: a fill here, a copy on Lift. They compose, so there is nothing extra to learn for the fourth row. The canvas shows a hint along the bottom while one of these tools is selected, so none of it is a secret.
 
 A filled rectangle is also how you redact something. Worth knowing why it is a flat fill and not a blur: pixelation and blur both *look* like protection while leaving the original recoverable. A screenshot has a known font at a known size, so the attack is not to invert the blur but to run it forwards — render candidate text, pixelate it on the same grid, compare, one glyph at a time. A flat fill's output does not depend on the pixels underneath, so there is nothing to work back from.
 
@@ -373,16 +373,19 @@ It is for the times when pointing at something is weaker than showing it. Instea
 
 | | |
 |---|---|
-| **drag** | Copy. The original stays where it was; pull the piece aside and it is still there. |
-| **Shift**+drag | Cut. The source is blanked with a colour sampled from the pixels just around it, so pulling the piece aside reveals a patch rather than the original. |
+| **drag** | Move. The source is blanked with a colour sampled from the pixels just around it, so pulling the piece aside reveals a patch rather than the original. |
+| **Ctrl**+drag | Copy. The original stays where it was; pull the piece aside and it is still there. |
+| **Shift**+drag | Constrain the selection to a perfect square. Combines with Ctrl. |
 
-Either way the piece lands exactly on top of where it came from, so nothing appears to happen until you drag it — which is the point. What you do next says whether it was a copy or a move.
+Either way the piece lands exactly on top of where it came from, so nothing appears to happen until you drag it aside — which is the point. Whether Ctrl was held at the moment you released decides which of the two it was, and dragging the piece away is what reveals it: the original still sitting there, or a patch where it used to be.
 
-You do not have to remember the Shift part: while Lift is the selected tool, the canvas shows *Drag to copy a piece · Shift-drag to cut it out* along the bottom. It appears only for the tools that have a modifier — Lift, Rectangle, Ellipse, Line and Arrow — and it disappears while you are dragging — by then the choice is already made.
+> **Changed in 1.9.3.** Plain drag used to copy and **Shift**+drag used to cut. Dragging now *moves*, copying is on **Ctrl** — matching File Explorer and every other drag on this operating system — and Shift was freed up to mean what it means on every other tool.
 
-A lifted piece is an ordinary mark: select it, drag it, resize it from its handles, undo it. **The capture underneath is never modified**, so nothing is destroyed and every lift is reversible, including the Shift one — the blanked patch is part of the mark, not a change to the pixels.
+You do not have to remember any of it: while Lift is the selected tool, the canvas shows *Drag to move a piece · Shift for a square · Ctrl to copy* along the bottom. It disappears while you are dragging — by then the choice is already made.
 
-On Shift: the fill is the most common colour in a two-pixel ring around the region, which is exact on a flat background and visibly a patch on a gradient or a photo. That is why plain drag, which never leaves a hole, is the default.
+A lifted piece is an ordinary mark: select it, drag it, resize it from its handles, undo it. **The capture underneath is never modified**, so nothing is destroyed and every lift is reversible — the blanked patch is part of the mark, not a change to the pixels.
+
+On the blanking: the fill is the most common colour in a two-pixel ring around the region, which is exact on a flat background and visibly a patch on a gradient or a photo. If that patch is not what you want, **Ctrl** copies instead and never leaves a hole.
 
 | | |
 |---|---|
@@ -558,7 +561,7 @@ docs/RELEASING.md     how a version is cut
 
 - **[Architecture](docs/ARCHITECTURE.md)** — how it works, the interesting problems, and the bugs worth knowing about
 - **[Changelog](CHANGELOG.md)** — release history
-- **[Release notes](docs/)** — one file per release, `RELEASE-NOTES-v*.md`. Newest: **[v1.9.2](docs/RELEASE-NOTES-v1.9.2.md)**
+- **[Release notes](docs/)** — one file per release, `RELEASE-NOTES-v*.md`. Newest: **[v1.9.3](docs/RELEASE-NOTES-v1.9.3.md)**
 - **[Disclaimer](DISCLAIMER.md)** — no-warranty and liability terms, including what you are responsible for when you record a screen
 
 ## Troubleshooting

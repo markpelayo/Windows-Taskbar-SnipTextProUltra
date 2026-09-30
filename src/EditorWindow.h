@@ -221,12 +221,13 @@ private:
     // this the canvas would keep showing the region it was scaled from.
     RECT scaledFrom_{};
 
-    // The colour to paint over a region that has been lifted away with Shift.
-    // Sampled from the ring of pixels just outside the region, because that is
-    // what the hole should look like if it is to disappear: the background the
-    // region was sitting on. On a flat background it is exact. On a gradient
-    // or a photograph nothing flat can be right, which is why plain drag —
-    // which never leaves a hole — is the default.
+    // The colour to paint over a region that has been lifted away — which as
+    // of 1.9.3 is every plain drag, Ctrl being the one that leaves the source
+    // alone. Sampled from the ring of pixels just outside the region, because
+    // that is what the hole should look like if it is to disappear: the
+    // background the region was sitting on. On a flat background it is exact.
+    // On a gradient or a photograph nothing flat can be right, and Ctrl-drag
+    // — which never leaves a hole — is the way out.
     COLORREF DominantEdgeColour(const RectD& region) const;
 
     // A GDI+ view of image_'s pixels, shared rather than copied, for Lift to
@@ -273,13 +274,28 @@ private:
     int CropWidth()  const { return util::RectWidth(crop_); }
     int CropHeight() const { return util::RectHeight(crop_); }
 
+    // The crop as a RectD, for the two callers that clamp a drag against it.
+    // Both Lift and Crop clamp to the CROP rather than to the capture: the
+    // capture still holds the cropped-away pixels, so clamping to it would
+    // let a drag carry them back into the exported file where no clip hides
+    // them.
+    RectD CropRegion() const {
+        return RectD{ static_cast<double>(crop_.left),
+                      static_cast<double>(crop_.top),
+                      static_cast<double>(CropWidth()),
+                      static_cast<double>(CropHeight()) };
+    }
+
     // Applies a crop and pushes the previous state for undo. `region` is in
     // original image coordinates and is clamped to the current crop: you can
     // only ever narrow the view, never widen it by dragging.
     // Returns false when the region was rejected — too small, or already
     // the crop — so the caller knows the gesture did nothing and can leave
     // the tool armed for another try.
-    bool ApplyCrop(const RectD& region);
+    // keepSquare: the drag was Shift-constrained, so the clamp below must
+    // not quietly hand back a rectangle. Defaulted off — every caller that
+    // is not a Shift-drag wants the plain clamp.
+    bool ApplyCrop(const RectD& region, bool keepSquare = false);
 
     // Is this mark inside the visible picture at all? Used to keep a mark
     // that a crop pushed out of view from being clickable in the grey

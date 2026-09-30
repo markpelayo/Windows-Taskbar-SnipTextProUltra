@@ -45,31 +45,52 @@ enum class Tool { Arrow, Rectangle, Ellipse, Line, Pen, Text, Lift, Crop };
 // selects the wrong tool.
 inline constexpr int kToolCount = 8;
 
-// Which tools do something different when Shift is held.
+// THE MODIFIER CONTRACT. Two keys, and each one means one thing:
 //
-// Shift means CONSTRAIN THE GEOMETRY everywhere it can: 45 degrees on Line
-// and Arrow, 1:1 on Rectangle and Ellipse. That is what it means in every
-// drawing application, and keeping it consistent is worth more than any one
-// gesture — which is why filling moved to Ctrl in 1.9.2, where it had
-// briefly lived on Shift.
+//   Shift   CONSTRAIN THE GEOMETRY. No exceptions as of 1.9.3.
+//   Ctrl    CHANGE WHAT THE DRAG PRODUCES.
 //
-// Lift is the exception: its Shift cuts instead of copying, which is not a
-// constraint. It is a different kind of operation and it has its own hint
-// line, so at least it says so rather than surprising anyone silently.
+// Shift arrived at that in three steps, and the steps are worth recording
+// because each one removed an exception rather than adding a feature.
+// 1.9.1 gave Line and Arrow their 45-degree snap. 1.9.2 gave Rectangle and
+// Ellipse their 1:1, and moved filling off Shift onto Ctrl — fill is not a
+// constraint and had no business there. 1.9.3 finished it: Lift and Crop
+// square off too, and Lift's cut-instead-of-copy, the last thing on Shift
+// that was not a constraint, moved to Ctrl as well.
 //
-// The canvas shows a hint while one of these is selected, and nothing at
-// all while the others are, so the hint always describes the tool in hand.
-inline constexpr bool ToolHasShiftVariant(Tool tool) {
-    return tool == Tool::Lift || tool == Tool::Rectangle || tool == Tool::Ellipse
-        || tool == Tool::Line || tool == Tool::Arrow;
+// There is nothing left to remember. Shift squares or snaps, whichever the
+// shape in hand can do, and does nothing at all on the two tools with no
+// geometry to constrain.
+//
+// The two constraints, split because they are genuinely different and the
+// hint line has to name the right one:
+inline constexpr bool ToolSnapsToAxis(Tool tool) {
+    return tool == Tool::Line || tool == Tool::Arrow;
+}
+inline constexpr bool ToolConstrainsToSquare(Tool tool) {
+    return tool == Tool::Rectangle || tool == Tool::Ellipse
+        || tool == Tool::Lift || tool == Tool::Crop;
+}
+
+// Ctrl's side of the contract. It is one meaning stated loosely — "change
+// what you get" — and two implementations, so unlike Shift these stay two
+// predicates rather than one.
+//
+// Pen is freehand and Text is a click, so neither appears in any of these
+// four: a drag has to have geometry before a modifier can do anything to it.
+inline constexpr bool ToolCanFill(Tool tool) {
+    return tool == Tool::Rectangle || tool == Tool::Ellipse;
+}
+inline constexpr bool ToolCopiesWithCtrl(Tool tool) {
+    return tool == Tool::Lift;
 }
 
 // Which tools want a line of explanation on the canvas while they are
-// selected. The Shift variants above, plus Crop — which has no modifier but
-// does something no other tool does, and says so rather than letting you
-// find out by losing the rest of the picture.
+// selected — every tool a modifier can reach, which is now every tool with
+// a geometric drag. Pen and Text get no hint, so the hint bar's presence is
+// itself the signal that a modifier is worth trying.
 inline constexpr bool ToolHasCanvasHint(Tool tool) {
-    return ToolHasShiftVariant(tool) || tool == Tool::Crop;
+    return ToolSnapsToAxis(tool) || ToolConstrainsToSquare(tool);
 }
 
 const wchar_t* ToolKeyValue(Tool tool);     // the persisted string

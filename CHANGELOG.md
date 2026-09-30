@@ -8,6 +8,62 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.9.3] — 2026-09-30
+
+Shift now constrains the geometry on **every** tool that has geometry, with no
+exceptions left, and Lift's modifiers were rearranged to match the operating
+system. See [the release notes](docs/RELEASE-NOTES-v1.9.3.md).
+
+### Changed
+
+- **Lift: plain drag now MOVES instead of copying.** This is a deliberate
+  inversion of shipped behaviour. Dragging blanks the source and leaves a
+  patch; **Ctrl**+drag copies and leaves the original in place. Previously
+  plain drag copied and **Shift**+drag cut.
+
+  Three reasons, in order of weight. Shift had to come free so it could mean
+  "constrain" on Lift as it does everywhere else. `Ctrl`-drag-to-copy is what
+  File Explorer and every other drag on Windows already does, so this borrows
+  existing muscle memory instead of competing with it. And plain dragging
+  *moves* things — leaving a duplicate behind was the surprising default, even
+  though it was the safer one. The lost safety is answered by `Ctrl+Z`, which
+  already undid a lift in one step; the capture underneath is still never
+  modified, so nothing is destroyed either way.
+- Shift's meaning is now stated as two predicates in `Annotation.h`,
+  `ToolSnapsToAxis` and `ToolConstrainsToSquare`, whose union is exactly the
+  set of tools that get a canvas hint. Ctrl's is `ToolCanFill` and
+  `ToolCopiesWithCtrl`. `ToolIsClosedShape` was doing double duty for
+  squaring and filling; those two sets have genuinely diverged, so it is gone.
+- Canvas hints for Lift and Crop rewritten. Every hint line now names Shift
+  first and in the same position, because it means the same thing on all six
+  tools that show one — a hint bar that reads the same way every time teaches
+  the rule rather than the line.
+
+### Added
+
+- **Shift constrains Lift's selection to a perfect square.**
+- **Shift constrains Crop's selection to a perfect square**, squared in image
+  pixels after rounding rather than in screen pixels, so it is exactly square
+  at any zoom and stays square if you measure it.
+
+### Fixed
+
+- A Shift-squared Lift or Crop selection that ran into the grey letterbox
+  could come back as a rectangle. Both tools clamp their region — Lift to the
+  current crop, Crop to itself — and the clamp knew nothing about squareness,
+  so the marquee showed a square and the result was not one. Found while
+  adding the feature rather than by hitting it: the clamp is invisible unless
+  the drag leaves the picture, which would have made this rare, intermittent
+  and very hard to attribute. `ClampRegion` now takes a `keepSquare` flag and
+  **shrinks to the shorter side** — growing to the longer one would push the
+  region back outside the bounds the clamp exists to enforce — and it takes
+  the **drag anchor**, so it trims the edges away from the corner being held
+  still. Shrinking toward the top-left regardless, as the first version did,
+  is correct only for a drag that went down and to the right; the other three
+  quadrants got a correctly-square selection in the wrong place. Both
+  Shift-drag callers clamp before `ApplyCrop`, whose own integer squaring is
+  then only a sub-pixel rounding tidy-up.
+
 ## [1.9.2] — 2026-09-30
 
 ### Added
@@ -1494,7 +1550,8 @@ The short version: the app model, the confirmation surface, the recording
 indicator, the hotkeys, the container format, the OCR engine and the editor's
 Y axis all changed because the platform is different. Nothing else did.
 
-[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.9.2...HEAD
+[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.9.3...HEAD
+[1.9.3]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.3
 [1.9.2]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.2
 [1.9.1]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.1
 [1.9.0]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.0

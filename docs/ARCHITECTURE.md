@@ -394,19 +394,35 @@ The registry key is still `pinRegionToScreen`, a leftover from the first design.
 
 ## Two modifiers, and each means one thing everywhere
 
-**Shift constrains the geometry.** 45 degrees on Line and Arrow, 1:1 on Rectangle and Ellipse. That is what Shift means in every drawing application, and consistency there is worth more than any individual gesture — which is why filling, which briefly lived on Shift, moved to **Ctrl** in 1.9.2. Filling is not a constraint.
+**Shift constrains the geometry. Ctrl changes what the drag produces.** As of 1.9.3 there are no exceptions to either, and that took three releases of *removing* things rather than adding them:
 
-The two compose, so `Ctrl+Shift` needs no separate explanation: it is a filled square. Two independent switches rather than four behaviours to memorise.
+| | |
+|---|---|
+| 1.9.1 | Shift snaps Line and Arrow to 45°. |
+| 1.9.2 | Shift squares Rectangle and Ellipse to 1:1 — and filling, which had briefly lived on Shift, moved to **Ctrl**. Filling is not a constraint. |
+| 1.9.3 | Shift squares **Lift** and **Crop** too. Lift's cut-instead-of-copy, the last thing on Shift that was not a constraint, moved to **Ctrl** as well — where it now reads as Explorer's Ctrl-drag-to-copy, so plain drag *moves*, as dragging does everywhere else on Windows. |
 
-Lift is the one exception — its Shift cuts instead of copying, which is not a constraint. Different kind of operation, and it carries its own hint line.
+The two compose, so `Ctrl+Shift` needs no separate explanation: a filled square, or a square piece copied rather than moved. Two independent switches rather than eight behaviours to memorise.
 
-Both modifiers are read **live** during the drag for the preview, and again at mouse-**up** for the committed mark, by the same two predicates, so what you see while dragging is what you get when you release.
+Shift's meaning is one predicate pair in `Annotation.h` — `ToolSnapsToAxis` and `ToolConstrainsToSquare`, whose union is exactly the set of tools that get a canvas hint. Ctrl's is two, `ToolCanFill` and `ToolCopiesWithCtrl`, because unlike Shift it really is two operations under one slogan. Pen and Text appear in none of the four: a drag needs geometry before a modifier can do anything to it, which is also why those two are the only tools with no hint line.
 
-`ToolHasCanvasHint()` is what the canvas hint keys off — the five Shift variants plus Crop, six in all — so the hint always describes the tool in hand and disappears for the two with nothing to explain, Pen and Text.
+Squaring interacts with clamping, and that is the non-obvious part. Both Lift and Crop clamp their region — Lift to the current crop, Crop to itself — so both could take a Shift-squared selection and hand back a rectangle, a bug that only appears when the drag runs into the grey letterbox and is therefore rare, intermittent and baffling. `ClampRegion` takes a `keepSquare` flag and **shrinks to the shorter side**; growing to the longer one would push the region back outside the bounds the clamp exists to enforce.
 
-One wrinkle worth knowing: that gate is a *Shift* predicate guarding hints which also describe **Ctrl**. It is correct only because the two fillable tools happen to be Shift tools as well. If filling ever lands on a tool with no Shift behaviour, its hint will silently not appear.
+It also takes the **drag anchor**, and that is the part worth remembering, because the first version of this got it wrong. Shrinking without the anchor means shrinking away from the top-left, which is right only when the drag went down and to the right — drag up-and-left into the letterbox and the trim eats the corner the user is holding still, sliding the square somewhere they never pointed at. Same class of bug as the one the flag was added to fix (a square marquee committing as something else), reappearing as a position error instead of an aspect-ratio one. The anchor is one of the two corners of the un-normalised drag, so comparing it to the region's own midpoint identifies the fixed edges without knowing anything else about the gesture.
 
-`ResolveDragEnd` and `FillFromModifiers` are the single source of both answers, and they are called from three places: the mouse-move that is drawing, Shift or Ctrl changing state, and mouse-up. That third caller is why the committed mark matches the last frame previewed; the second is why it matches when the pointer never moved. Handling only mouse-move left a real hole — press Shift, release the button without moving, and you committed a rectangle while looking at a square. A modifier nobody knows about is a feature that does not exist.
+Both Shift-drag callers therefore clamp *before* `ApplyCrop`, not inside it. `ApplyCrop`'s own `keepSquare` re-squares in image pixels after rounding — because two independently-rounded edges can leave a square a pixel off square, and a crop is the one region a user might actually measure — and it anchors at top-left, which is safe only because its caller has already clamped so there is nothing left to trim.
+
+The **geometry** both modifiers produce is read **live** during the drag for the preview, and again at mouse-**up** for the committed mark, through the same `ResolveDragEnd`, so the shape you see while dragging is the shape you get when you release.
+
+Two things are deliberately *not* previewed, and it is worth being precise rather than claiming more than the code does. Lift's Ctrl is read only at mouse-up (`LiftKeepsSource`) and nothing in the marquee distinguishes a move from a copy — there is nothing to draw, since the piece lands on top of its own source either way and the difference only becomes visible once it is dragged off. And the commit can be *smaller* than the last previewed frame when the clamp trims a Shift-squared selection, which is the trade made above: a correct square inside the picture beats a previewed one that is partly outside it.
+
+`ToolHasCanvasHint()` is what the canvas hint keys off — the union of `ToolSnapsToAxis` and `ToolConstrainsToSquare`, six tools in all, since 1.9.3 made Crop a Shift tool in its own right rather than the one hint with no modifier behind it. So the hint always describes the tool in hand and disappears for the two with nothing to explain, Pen and Text.
+
+One wrinkle worth knowing: that gate is a *Shift* predicate guarding hints which also describe **Ctrl**. It is correct only because every Ctrl tool happens to be a Shift tool too — the two fillable ones, Rectangle and Ellipse, and Lift, the only member of `ToolCopiesWithCtrl`. If a Ctrl behaviour ever lands on a tool with no Shift behaviour, its hint will silently not appear.
+
+`ResolveDragEnd` and `FillFromModifiers` are the single source of the two *previewed* answers, and they are called from three places: the mouse-move that is drawing, Shift or Ctrl changing state, and mouse-up. That third caller is why the committed mark matches the last frame previewed; the second is why it matches when the pointer never moved. Handling only mouse-move left a real hole — press Shift, release the button without moving, and you committed a rectangle while looking at a square. A modifier nobody knows about is a feature that does not exist.
+
+The two mouse-up-only readers, `SquaringNow` and `LiftKeepsSource`, are outside that guarantee by nature: the first exists to tell the clamp what `ResolveDragEnd` just did in the same message, and the second decides something the preview cannot show.
 
 Filling used to be a separate `Tool::Redact`. Its only difference from Rectangle was the brush, and it forced a second hidden colour behind the swatch — black, so that redactions did not default to bright green — which meant the one control on the bar that should always mean one thing meant two. Folding it into a modifier removed the tool, the second colour and the `ToolCoversPixels` branch.
 

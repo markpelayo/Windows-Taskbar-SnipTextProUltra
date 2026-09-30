@@ -371,18 +371,47 @@ PointD SquareOff(PointD from, PointD to) {
                    from.y + (dy < 0.0 ? -side : side) };
 }
 
-// The two closed shapes. They are the tools that can be squared off AND the
-// tools that can be filled — one predicate rather than two identical ones,
-// because if that ever stops being true it should be a deliberate edit.
-bool ToolIsClosedShape(Tool tool) {
-    return tool == Tool::Rectangle || tool == Tool::Ellipse;
-}
+// Clamps a region to bounds, keeping it square if it arrived square.
+//
+// Both places that clamp a region — the Lift branch below and ApplyCrop —
+// can now be handed a Shift-squared selection, and both could therefore
+// hand back a rectangle: the user holds Shift, sees a square marquee, lets
+// go, and gets something that is not a square. Clamping is invisible in the
+// common case and only bites when the drag runs into the grey letterbox, so
+// the bug would have been rare, intermittent and baffling.
+//
+// Squareness is kept by SHRINKING to the shorter side, never growing to the
+// longer one. Growing would push the region back outside the bounds we were
+// just asked to stay inside, which is the entire point of clamping.
+//
+// `anchor` is where the drag STARTED — the one corner the user is holding
+// still, and therefore the one corner that must not move. Shrinking has to
+// know it. The first version of this function always shrank the far edges
+// away from the top-left, which is right only when the drag went down and to
+// the right; drag up-and-left into the letterbox and it would trim the corner
+// the user was holding and slide the square somewhere they never pointed at.
+// That is the same class of bug this function exists to fix — a square
+// marquee that commits as something else — just expressed as a position error
+// instead of an aspect-ratio one.
+//
+// The anchor is one of the two corners of the un-normalised drag, so
+// comparing it to the region's own midpoint says which edges are fixed
+// without needing to know anything else about the gesture.
+RectD ClampRegion(const RectD& region, const RectD& bounds, bool keepSquare,
+                  PointD anchor) {
+    double x0 = (std::max)(bounds.MinX(), (std::min)(region.MinX(), bounds.MaxX()));
+    double y0 = (std::max)(bounds.MinY(), (std::min)(region.MinY(), bounds.MaxY()));
+    double x1 = (std::max)(bounds.MinX(), (std::min)(region.MaxX(), bounds.MaxX()));
+    double y1 = (std::max)(bounds.MinY(), (std::min)(region.MaxY(), bounds.MaxY()));
 
-// Which tools snap to 45 degrees. Pen is freehand by definition, and the
-// closed shapes constrain to 1:1 instead — a different constraint for a
-// different kind of shape, both on Shift.
-bool ToolSnapsToAxis(Tool tool) {
-    return tool == Tool::Line || tool == Tool::Arrow;
+    if (keepSquare) {
+        const double side = (std::min)(x1 - x0, y1 - y0);
+        // side <= the clamped extent on both axes, so moving an edge inward
+        // by (extent - side) can never leave the bounds we just clamped to.
+        if (anchor.x > region.MidX()) x0 = x1 - side; else x1 = x0 + side;
+        if (anchor.y > region.MidY()) y0 = y1 - side; else y1 = y0 + side;
+    }
+    return RectD{ x0, y0, x1 - x0, y1 - y0 };
 }
 
 // Where a drag's end point lands, given the tool and the modifier keys as
@@ -394,13 +423,42 @@ bool ToolSnapsToAxis(Tool tool) {
 // They agreed by inspection before; now they agree by construction.
 PointD ResolveDragEnd(Tool tool, PointD start, PointD raw) {
     if ((::GetKeyState(VK_SHIFT) & 0x8000) == 0) return raw;
-    if (ToolSnapsToAxis(tool))   return SnapToAxis(start, raw);
-    if (ToolIsClosedShape(tool)) return SquareOff(start, raw);
+    if (ToolSnapsToAxis(tool))        return SnapToAxis(start, raw);
+    if (ToolConstrainsToSquare(tool)) return SquareOff(start, raw);
     return raw;
 }
 
+// Whether the drag in hand is being squared off right now. The clamps need
+// to know, and asking them to re-derive it from the key state would be a
+// second reading that can disagree with the first.
+bool SquaringNow(Tool tool) {
+    return ToolConstrainsToSquare(tool) && (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
+}
+
 bool FillFromModifiers(Tool tool) {
-    return ToolIsClosedShape(tool) && (::GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    return ToolCanFill(tool) && (::GetKeyState(VK_CONTROL) & 0x8000) != 0;
+}
+
+// Whether a Lift should leave the source where it was.
+//
+// Ctrl-drag copies, plain drag moves — and that is the inversion in 1.9.3.
+// It cost an established behaviour, so it is worth saying why:
+//
+//   1. Shift had to come free. Shift now squares off on every tool that has
+//      a shape, and Lift cannot be the one tool where it means "cut".
+//   2. Ctrl-drag-to-copy is what File Explorer does, and what every list,
+//      canvas and file manager on this operating system does. Muscle memory
+//      already exists; this borrows it rather than competing with it.
+//   3. Plain drag MOVES things. That is what dragging is. Lifting a piece
+//      out and leaving a duplicate behind was the surprising default, even
+//      though it was the safer one.
+//
+// The lost safety is real and is answered by Ctrl+Z, which was already
+// undoing the lift as one step — blanking the source adds nothing new to
+// undo, because the source is blanked non-destructively and the capture
+// underneath is never written to.
+bool LiftKeepsSource(Tool tool) {
+    return ToolCopiesWithCtrl(tool) && (::GetKeyState(VK_CONTROL) & 0x8000) != 0;
 }
 
 
@@ -1915,7 +1973,7 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
             return 0;
         }
 
-        if (ToolIsClosedShape(shape.tool)) {
+        if (ToolCanFill(shape.tool)) {
             // CTRL, not Shift. Shift was moved to squaring the shape off,
             // which is what it means in every drawing application — and
             // fill is not a constraint, so it had no business there.
@@ -1928,41 +1986,35 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
             // so the picture looks unchanged until it is dragged away — which
             // is what makes both variants read correctly:
             //
-            //   plain drag   the original stays put, and pulling the piece
+            //   plain drag   the source is blanked underneath at the moment
+            //                of the lift, hidden by the piece sitting on top
+            //                of it, and pulling the piece aside reveals the
+            //                hole. A move.
+            //   Ctrl-drag    the original stays put, and pulling the piece
             //                aside reveals it still there. A copy.
-            //   Shift-drag   the source is blanked underneath at the moment
-            //                of the lift, hidden by the piece on top of it,
-            //                and pulling the piece aside reveals the hole.
-            //                A cut.
             //
-            // Clamped to the picture: a selection dragged past the edge would
-            // otherwise ask GDI+ to read pixels that are not there.
-            RectD region = shape.NormalizedRect();
             // Clamped to the CROP, not the whole capture. A drag that
             // starts in the grey letterbox maps to coordinates outside the
             // crop, and the capture still holds those pixels — so clamping
             // to the capture would let a lift carry cropped-away content
             // back into the exported file, where there is no clip to hide
             // it.
-            const double cropLeft   = static_cast<double>(crop_.left);
-            const double cropTop    = static_cast<double>(crop_.top);
-            const double cropRight  = static_cast<double>(crop_.right);
-            const double cropBottom = static_cast<double>(crop_.bottom);
-            const double x0 = (std::max)(cropLeft, (std::min)(region.MinX(), cropRight));
-            const double y0 = (std::max)(cropTop,  (std::min)(region.MinY(), cropBottom));
-            const double x1 = (std::max)(cropLeft, (std::min)(region.MaxX(), cropRight));
-            const double y1 = (std::max)(cropTop,  (std::min)(region.MaxY(), cropBottom));
-            if (x1 - x0 < 1.0 || y1 - y0 < 1.0) {
+            // shape.start is still the drag's origin here — it is overwritten
+            // from the clamped region a few lines below, so the anchor has to
+            // be read before that.
+            const RectD region = ClampRegion(shape.NormalizedRect(), CropRegion(),
+                                             SquaringNow(shape.tool), shape.start);
+            if (region.width < 1.0 || region.height < 1.0) {
                 ::InvalidateRect(canvas_, nullptr, FALSE);
                 return 0;
             }
-            region = RectD{ x0, y0, x1 - x0, y1 - y0 };
 
             shape.source = region;
             shape.start  = { region.MinX(), region.MinY() };
             shape.end    = { region.MaxX(), region.MaxY() };
 
-            if ((::GetKeyState(VK_SHIFT) & 0x8000) != 0) {
+            // Blank unless Ctrl says to leave it. See LiftKeepsSource.
+            if (!LiftKeepsSource(shape.tool)) {
                 shape.blankSource = true;
                 shape.blankColour = DominantEdgeColour(region);
             }
@@ -1975,7 +2027,16 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
             // Only disarm if it actually did something. A drag too small
             // to be a crop is a mis-drag, and switching to Arrow behind
             // the user's back means their second attempt draws an arrow.
-            if (ApplyCrop(shape.NormalizedRect())) {
+            // Clamped and squared HERE, with the drag anchor, rather than
+            // left to ApplyCrop. ApplyCrop's own clamp knows nothing about
+            // which corner the user was holding, so a Shift-drag that ran
+            // into the letterbox would come back square but displaced. Doing
+            // it here leaves ApplyCrop nothing to trim, which is what makes
+            // its integer squaring a harmless sub-pixel tidy-up.
+            const bool squared = SquaringNow(shape.tool);
+            const RectD region = ClampRegion(shape.NormalizedRect(), CropRegion(),
+                                             squared, shape.start);
+            if (ApplyCrop(region, squared)) {
                 // Back to Arrow. Crop is an action, not a mode — leaving
                 // it armed means the next drag silently crops again,
                 // which is the sort of thing you only discover after
@@ -2266,16 +2327,21 @@ void EditorWindow::PaintCanvas(HDC dc) {
         // discoverable and costs five more buttons. This says the same
         // thing for no width at all.
         if (ToolHasCanvasHint(currentTool_) && !hasDraft_) {
-            // One line per tool with something to explain: Lift's cut,
-            // Crop's whole behaviour, the 45-degree snap on Line and
-            // Arrow, and square-or-fill on the two closed shapes. Chosen
-            // by tool rather than hardcoded to the one that used to be
-            // the only one.
+            // One line per tool with something to explain. Every line names
+            // Shift first and in the same position, because after 1.9.3 it
+            // means the same thing on all six of them — and a hint bar that
+            // reads the same way every time teaches the rule, not the line.
             const wchar_t* hint =
                 (currentTool_ == Tool::Lift)
-                    ? L"Drag to copy a piece  ·  Shift-drag to cut it out"
+                    ? L"Drag to move a piece  ·  Shift for a square  ·  Ctrl to copy"
                 : (currentTool_ == Tool::Crop)
-                    ? L"Drag to keep that area  ·  Marks are kept, and Ctrl+Z undoes it"
+                    // NOT "Ctrl+Z undoes it". Every other line puts a Ctrl
+                    // DRAG MODIFIER in the third slot, so naming Ctrl here —
+                    // on the one tool where Ctrl-drag does nothing — would
+                    // invite the reader to try a gesture that has no effect.
+                    // The reassurance is what matters and it is still true:
+                    // the capture is never modified.
+                    ? L"Drag to keep that area  ·  Shift for a square  ·  Nothing is lost"
                 : ToolSnapsToAxis(currentTool_)
                     ? L"Drag to draw  ·  Shift-drag to snap to 45°"
                 : (currentTool_ == Tool::Ellipse)
@@ -2335,7 +2401,7 @@ void EditorWindow::PaintCanvas(HDC dc) {
 
 // --- editing ---------------------------------------------------------------
 
-bool EditorWindow::ApplyCrop(const RectD& region) {
+bool EditorWindow::ApplyCrop(const RectD& region, bool keepSquare) {
     if (!image_) return false;
 
     // Clamped to the CURRENT crop, so a drag can only ever narrow the view.
@@ -2345,10 +2411,25 @@ bool EditorWindow::ApplyCrop(const RectD& region) {
         static_cast<double>(crop_.left), region.MinX())));
     const long top    = static_cast<long>(std::lround((std::max)(
         static_cast<double>(crop_.top), region.MinY())));
-    const long right  = static_cast<long>(std::lround((std::min)(
+    long right  = static_cast<long>(std::lround((std::min)(
         static_cast<double>(crop_.right), region.MaxX())));
-    const long bottom = static_cast<long>(std::lround((std::min)(
+    long bottom = static_cast<long>(std::lround((std::min)(
         static_cast<double>(crop_.bottom), region.MaxY())));
+
+    // A rounding tidy-up, nothing more. Two independently-rounded edges can
+    // leave a square one pixel off square, and a crop is the one region a
+    // user might actually measure.
+    //
+    // It anchors at top-left, which is only safe because the Shift-drag
+    // caller has already clamped and squared the region against this same
+    // crop using the drag anchor — so the clamps above trim nothing and the
+    // shrink here is at most one pixel. Any future caller passing
+    // keepSquare with an unclamped region wants ClampRegion first.
+    if (keepSquare) {
+        const long side = (std::min)(right - left, bottom - top);
+        right  = left + side;
+        bottom = top  + side;
+    }
 
     // A floor in IMAGE pixels, not view pixels. Cropping a 4K capture to
     // eight pixels is a mis-drag every time, and the result is a window

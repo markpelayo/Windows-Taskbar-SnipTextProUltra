@@ -45,7 +45,7 @@ constexpr int IDC_SLIDER     = 106;
 constexpr int IDC_PINTOGGLE  = 107;
 constexpr int IDC_TOOL_FIRST = 110;
 // 200, not 120. The tool buttons run from IDC_TOOL_FIRST upwards, one per
-// tool, and at nine tools they reach 118 — two short of where this used to
+// tool, and at eight tools they reach 117 — three short of where this used to
 // sit. A tenth tool would have collided with it, and the failure would have
 // been quiet: a tool button whose click is read as an edit-control
 // notification.
@@ -62,8 +62,8 @@ constexpr UINT WM_OPEN_COLOUR_PICKER = WM_APP + 1;
 constexpr int kBarHeight     = 44;
 constexpr int kBarPadding    = 10;
 constexpr int kButtonHeight  = 28;
-// Tools are square icons now, not words. Nine text labels would have needed
-// a minimum window far wider than the old seven did; nine icons need markedly
+// Tools are square icons now, not words. Eight text labels would have needed
+// a minimum window wider than the old seven did; eight icons need markedly
 // less room than the seven words they replaced. Every glyph is drawn in GDI
 // from lines and curves — there is no image resource anywhere in the program
 // and adding one for this would have been the first.
@@ -575,18 +575,6 @@ void DrawToolGlyph(HDC dc, Tool tool, const RECT& box, COLORREF ink) {
         break;
     }
 
-    case Tool::Callout:
-        // Reversed from the first draft, to say what the tool now does: the
-        // LETTER comes first and the arrow leaves it, pointing away at
-        // something off the edge of the icon. Arrow-then-letter read as
-        // "the text is the destination", which is exactly the placement
-        // this release moved away from.
-        g.Line(2.0, 17.5, 6.2, 6.5);
-        g.Line(6.2, 6.5, 10.4, 17.5);
-        g.Line(3.8, 13.5, 8.6, 13.5);
-        g.Line(12.2, 14.0, 17.4, 8.2);
-        g.Triangle(18.6, 6.8, 13.9, 7.6, 17.8, 11.5, fill.get());
-        break;
     }
 
     ::SetBkMode(dc, previousBk);
@@ -647,7 +635,8 @@ bool EditorWindow::Create() {
 
         WNDCLASSEXW canvas{};
         canvas.cbSize        = sizeof(canvas);
-        canvas.style         = CS_HREDRAW | CS_VREDRAW;
+        // DBLCLKS so a double-click on a mark can open its label.
+        canvas.style         = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
         canvas.lpfnWndProc   = &EditorWindow::CanvasProc;
         canvas.hInstance     = ::GetModuleHandleW(nullptr);
         // Null, deliberately. A class cursor is applied by DefWindowProc
@@ -1532,6 +1521,8 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
         const double tolerance = kHitTolerance / scale;
 
         dragLastPoint_ = point;
+        dragAnchor_    = point;
+        dragPassedThreshold_ = false;
         needsSnapshotBeforeDrag_ = true;
 
         // 1. Handles of the current selection. They sit on the outline and
@@ -1548,7 +1539,34 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
             }
         }
 
-        // 2. The topmost annotation under the point, searched from the end.
+        // 2. The selected mark's LABEL. Before the general hit-test, so
+        //    dragging the text swings it around its mark instead of
+        //    dragging the whole object — the label is the only part with
+        //    two possible meanings, and the specific one wins.
+        if (selectedIndex_ >= 0 && selectedIndex_ < static_cast<int>(annotations_.size())) {
+            const Annotation& selected = annotations_[selectedIndex_];
+            Graphics measure(canvas_);
+            // IsWithinCrop as well, or a mark cropped out of view keeps a
+            // grabbable label out in the grey letterbox — the exact thing
+            // that guard exists to prevent.
+            if (selected.HasLabel() && IsWithinCrop(selected, &measure)) {
+                const RectD labelBox = selected.LabelBox(&measure);
+                if (util::PointInRectD(labelBox.MinX(), labelBox.MinY(),
+                                       labelBox.MaxX(), labelBox.MaxY(),
+                                       point.x, point.y)) {
+                    // Where in the label it was grabbed. AimLabelAt centres
+                    // the box on the point it is given, so without this the
+                    // label teleports its middle under the pointer the
+                    // instant you touch it anywhere off-centre.
+                    labelGrabOffset_ = PointD{ point.x - labelBox.MidX(),
+                                               point.y - labelBox.MidY() };
+                    dragMode_ = DragMode::MovingLabel;
+                    return 0;
+                }
+            }
+        }
+
+        // 3. The topmost annotation under the point, searched from the end.
         {
             Graphics measure(canvas_);
             for (int i = static_cast<int>(annotations_.size()) - 1; i >= 0; --i) {
@@ -1602,6 +1620,32 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
         break;
     }
 
+    case WM_LBUTTONDBLCLK: {
+        // The discoverable half of F2. A double-click on a mark opens its
+        // label; on empty canvas it does nothing, rather than guessing.
+        //
+        // No CommitTextEntry up front. With the Text tool selected, the
+        // first click of a double-click OPENS a field on empty canvas, and
+        // committing here would close it blank before a character could be
+        // typed. Committed inside the loop instead, once a mark is
+        // actually hit.
+        POINT view{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        const PointD point = ToImagePoint(view);
+        const double tolerance = kHitTolerance / ImageScale();
+        Graphics measure(canvas_);
+        for (int i = static_cast<int>(annotations_.size()) - 1; i >= 0; --i) {
+            if (!IsWithinCrop(annotations_[i], &measure)) continue;
+            if (annotations_[i].HitTest(point, tolerance, &measure)) {
+                CommitTextEntry();
+                selectedIndex_ = i;
+                ::InvalidateRect(canvas_, nullptr, FALSE);
+                BeginLabelEntry(i);
+                return 0;
+            }
+        }
+        return 0;
+    }
+
     case WM_SETCURSOR: {
         // Only for the canvas itself. DefWindowProc sends WM_SETCURSOR to
         // the PARENT first and stops if the parent returns TRUE — so
@@ -1632,6 +1676,20 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
         const PointD point = ToImagePoint(view);
         const double scale = ImageScale();
 
+        // A move, a resize or a label swing has to travel before it takes
+        // effect. Two reasons, and the second is the one that bit: the
+        // stray mouse-move between the two clicks of a DOUBLE-click would
+        // otherwise nudge the mark a pixel and bank an undo step for it,
+        // and every click-to-select risked the same. Drawing is exempt —
+        // it has its own too-small test at mouse-up.
+        if (dragMode_ != DragMode::Drawing && !dragPassedThreshold_) {
+            if (std::hypot(point.x - dragAnchor_.x, point.y - dragAnchor_.y)
+                    < kMinimumDrag / scale) {
+                return 0;
+            }
+            dragPassedThreshold_ = true;
+        }
+
         switch (dragMode_) {
         case DragMode::Drawing:
             // Read live, so the line straightens the moment Shift goes down
@@ -1657,6 +1715,18 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
                                                     point.y - dragLastPoint_.y);
             }
             break;
+        case DragMode::MovingLabel:
+            TakeDragSnapshotIfNeeded();
+            if (selectedIndex_ >= 0 && selectedIndex_ < static_cast<int>(annotations_.size())) {
+                Graphics measure(canvas_);
+                // Always snapped to one of the eight — there is no modifier
+                // to hold, which is what the angle being an INDEX buys.
+                annotations_[selectedIndex_].AimLabelAt(
+                    PointD{ point.x - labelGrabOffset_.x,
+                            point.y - labelGrabOffset_.y }, &measure);
+            }
+            break;
+
         case DragMode::Resizing:
             TakeDragSnapshotIfNeeded();
             if (selectedIndex_ >= 0 && selectedIndex_ < static_cast<int>(annotations_.size())) {
@@ -1682,6 +1752,15 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
         return 0;
     }
 
+    case WM_CAPTURECHANGED:
+        // Capture can be taken away — Alt-Tab, a lock screen, a UAC prompt.
+        // Without this the mark, handle or label keeps following the pointer
+        // on every later hover, long after the button came up.
+        dragMode_ = DragMode::None;
+        needsSnapshotBeforeDrag_ = false;
+        dragPassedThreshold_ = false;
+        return 0;
+
     case WM_LBUTTONUP: {
         ::ReleaseCapture();
         POINT view{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
@@ -1689,8 +1768,9 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
         const double scale = ImageScale();
 
         if (dragMode_ != DragMode::Drawing) {
-            // A move or resize just ended; its snapshot was taken on the
-            // first drag event.
+            // Covers Moving, Resizing and MovingLabel alike: the snapshot
+            // was taken on the first drag event past the threshold, and
+            // there is nothing to commit.
             dragMode_ = DragMode::None;
             needsSnapshotBeforeDrag_ = false;
             RefreshToolbarState();
@@ -1808,33 +1888,12 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
             return 0;
         }
 
-        const bool isCallout = (shape.tool == Tool::Callout);
-
         Snapshot();
         annotations_.push_back(std::move(shape));
         selectedIndex_ = static_cast<int>(annotations_.size()) - 1;
         RefreshToolbarState();
         ::InvalidateRect(canvas_, nullptr, FALSE);
 
-        if (isCallout) {
-            // The arrow is already committed and already on the undo stack.
-            // Typing now fills in its label; cancelling leaves the arrow,
-            // because you drew that part deliberately and losing it for
-            // changing your mind about the words would be a surprise.
-            //
-            // The field opens where the text will be drawn, so the glyphs do
-            // not jump on commit — the same rule the plain Text tool follows.
-            // Set AFTER the field exists, and only if it does. Set before,
-            // it would be consumed by the CommitTextEntry that BeginTextEntry
-            // opens with, and it would be left pointing at this arrow if
-            // CreateWindowEx failed — so the next ordinary label typed
-            // anywhere on the canvas would be swallowed by this callout.
-            const int arrowIndex = selectedIndex_;
-            Graphics measure(canvas_);
-            const RectD label = annotations_[arrowIndex].CalloutLabelBox(&measure);
-            BeginTextEntry({ label.MinX(), label.MinY() });
-            if (textEntryActive_) calloutIndex_ = arrowIndex;
-        }
         return 0;
     }
 
@@ -1874,6 +1933,13 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
             DeleteSelection();
             return 0;
 
+        // F2 labels the selection — the Windows rename convention, and the
+        // same key whether the mark is a rectangle getting a label or a
+        // piece of text getting edited. Both are "the string you typed".
+        case VK_F2:
+            if (selectedIndex_ >= 0) BeginLabelEntry(selectedIndex_);
+            return 0;
+
         // A pixel at a time, ten with Shift. In IMAGE pixels, not view
         // pixels: a nudge on a capture shown at half size should move the
         // mark one pixel in the file, not two.
@@ -1893,7 +1959,7 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
         // notifications arrive here rather than at the frame.
         if (LOWORD(wParam) == IDC_TEXTEDIT) {
             if (HIWORD(wParam) == EN_KILLFOCUS) { CommitTextEntry(); return 0; }
-            if (HIWORD(wParam) == EN_CHANGE)    { RepositionCalloutField(); return 0; }
+            if (HIWORD(wParam) == EN_CHANGE)    { RepositionLabelField(); return 0; }
         }
         break;
 
@@ -2403,10 +2469,9 @@ void EditorWindow::BeginTextEntry(PointD anchor) {
     // three changes, all three must, or the text jumps on commit.
     const int height = static_cast<int>(Annotation::TextBoxHeight(fontSize) * scale);
 
-    // Clamped for the same reason RepositionCalloutField clamps: a callout
-    // whose label sits back from its tail can start at a negative x when
-    // the arrow was drawn near the left edge, and the part that falls off
-    // is the part being typed.
+    // Clamped for the same reason RepositionLabelField clamps: a label
+    // centred on a ray can start at a negative x when its mark is near the
+    // left edge, and the part that falls off is the part being typed.
     const int fieldX = (std::max)(0L, origin.x);
 
     textEdit_ = ::CreateWindowExW(0, L"EDIT", L"",
@@ -2453,7 +2518,8 @@ HCURSOR EditorWindow::CursorForPoint(POINT view) const {
 
     // Mid-gesture the answer is fixed: a drag does not change its mind
     // because the pointer wandered over something else on the way.
-    if (dragMode_ == DragMode::Moving)   return load(IDC_SIZEALL);
+    if (dragMode_ == DragMode::Moving ||
+        dragMode_ == DragMode::MovingLabel) return load(IDC_SIZEALL);
     if (dragMode_ == DragMode::Resizing) return CursorForHandle(activeHandle_);
     if (dragMode_ == DragMode::Drawing)  return load(IDC_CROSS);
 
@@ -2467,7 +2533,29 @@ HCURSOR EditorWindow::CursorForPoint(POINT view) const {
         }
     }
 
-    // 2. Any mark under the pointer — this one would be picked up and
+    // 2. The selected mark's label, which swings rather than moves — but
+    //    the four-way cursor is still the honest answer, because what it
+    //    does is reposition a thing by dragging it.
+    if (selectedIndex_ >= 0 && selectedIndex_ < static_cast<int>(annotations_.size())) {
+        const Annotation& selected = annotations_[selectedIndex_];
+        if (selected.HasLabel() && canvas_ && image_) {
+            Graphics measure(canvas_);
+            // Falls THROUGH to the next step when the selected mark is
+            // cropped out of view, rather than returning — there may still
+            // be another mark under the pointer that should answer.
+            if (IsWithinCrop(selected, &measure)) {
+                const RectD labelBox = selected.LabelBox(&measure);
+                const PointD labelPoint = ToImagePoint(view);
+                if (util::PointInRectD(labelBox.MinX(), labelBox.MinY(),
+                                       labelBox.MaxX(), labelBox.MaxY(),
+                                       labelPoint.x, labelPoint.y)) {
+                    return load(IDC_SIZEALL);
+                }
+            }
+        }
+    }
+
+    // 3. Any mark under the pointer — this one would be picked up and
     //    moved, so say so before the button goes down rather than after.
     if (canvas_ && image_) {
         const PointD point = ToImagePoint(view);
@@ -2510,19 +2598,15 @@ HCURSOR EditorWindow::CursorForHandle(Handle handle) {
     }
 }
 
-void EditorWindow::RepositionCalloutField() {
-    if (!textEntryActive_ || !textEdit_ || calloutIndex_ < 0) return;
-    if (calloutIndex_ >= static_cast<int>(annotations_.size())) return;
+void EditorWindow::RepositionLabelField() {
+    if (!textEntryActive_ || !textEdit_ || labelIndex_ < 0) return;
+    if (labelIndex_ >= static_cast<int>(annotations_.size())) return;
 
-    const Annotation& arrow = annotations_[calloutIndex_];
-    if (arrow.tool != Tool::Callout) return;
-    // Which side moves flipped when the label moved to the tail. The label
-    // now sits BEHIND the start point, so an arrow travelling RIGHT puts
-    // its label to the left of the tail — positioned by its right edge,
-    // which means its left edge walks with every character typed. An arrow
-    // travelling left puts the label to the right of the tail, anchored by
-    // its left edge, and that never moves.
-    if (arrow.end.x < arrow.start.x) return;
+    const Annotation& mark = annotations_[labelIndex_];
+    // A Text mark grows rightwards from a fixed origin, so its field never
+    // needs to move. A LABEL is centred on its ray, so its left edge walks
+    // with every character typed in every direction except due east.
+    if (mark.tool == Tool::Text) return;
 
     const int length = ::GetWindowTextLengthW(textEdit_);
     std::wstring typed;
@@ -2532,21 +2616,67 @@ void EditorWindow::RepositionCalloutField() {
         typed.resize(static_cast<size_t>((std::max)(0, copied)));
     }
 
-    // Measured on a copy. Writing the in-progress text onto the real mark
+    // Measured on a COPY. Writing the in-progress text onto the real mark
     // would draw the label twice — once by the annotation, once by the edit
-    // control sitting on top of it.
-    Annotation probe = arrow;
+    // control sitting on top of it — and would also mean an abandoned entry
+    // had already changed the picture.
+    Annotation probe = mark;
     probe.text = std::move(typed);
 
     Graphics measure(canvas_);
-    const RectD box = probe.CalloutLabelBox(&measure);
+    const RectD box = probe.LabelBox(&measure);
     POINT origin = ToViewPoint({ box.MinX(), box.MinY() });
-    // Clamped, because this one grows leftwards: a long label on a callout
-    // near the left edge would walk the field off the canvas, and the part
-    // that leaves is the part being typed.
+    // Clamped: a long label on a mark near the left edge would otherwise
+    // walk the field off the canvas, and the part that leaves is the part
+    // being typed.
     origin.x = (std::max)(0L, origin.x);
+    origin.y = (std::max)(0L, origin.y);
     ::SetWindowPos(textEdit_, nullptr, origin.x, origin.y, 0, 0,
                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+void EditorWindow::BeginLabelEntry(int index) {
+    if (index < 0 || index >= static_cast<int>(annotations_.size())) return;
+
+    // Everything read from the mark is COPIED out first, inside its own
+    // scope. BeginTextEntry below opens with CommitTextEntry, which can
+    // push a new annotation and reallocate the vector — a reference taken
+    // before that call would dangle.
+    std::wstring existing;
+    PointD       anchor{};
+    {
+        Graphics measure(canvas_);
+        const Annotation& mark = annotations_[index];
+        existing = mark.text;
+        // A Text mark is edited where it already is. Anything else opens
+        // the field where its label will be drawn, so the glyphs do not
+        // jump on commit — the rule the Text tool has always followed.
+        const RectD box = mark.LabelBox(&measure);
+        anchor = (mark.tool == Tool::Text) ? mark.start
+                                           : PointD{ box.MinX(), box.MinY() };
+    }
+
+    BeginTextEntry(anchor);
+    // Snapshot AFTER the field exists, not before. Snapshotting first meant
+    // a failed CreateWindowEx — or an Esc — left a spent undo step that
+    // visibly did nothing, and Snapshot had already cleared the redo stack.
+    // Popping it back off was the previous attempt at this and is not safe:
+    // if the push hit kUndoCap it erased the oldest entry, which a pop
+    // cannot restore.
+    if (!textEntryActive_) return;
+
+    Snapshot();
+    labelIndex_ = index;
+
+    // Taken OFF the mark for the duration. Otherwise the committed label is
+    // drawn on the canvas underneath a field showing the same words, and as
+    // characters come and go the longer one shows through behind.
+    labelBeingEdited_ = std::move(existing);
+    annotations_[index].text.clear();
+
+    ::SetWindowTextW(textEdit_, labelBeingEdited_.c_str());
+    ::SendMessageW(textEdit_, EM_SETSEL, 0, -1);
+    ::InvalidateRect(canvas_, nullptr, FALSE);
 }
 
 void EditorWindow::CommitTextEntry() {
@@ -2570,38 +2700,53 @@ void EditorWindow::CommitTextEntry() {
     ::SetFocus(canvas_);
     ::DestroyWindow(field);
 
-    // Taken and cleared before either early return below, or a callout whose
+    // Taken and cleared before either early return below, or a mark whose
     // label was left empty would keep claiming the next label typed
     // anywhere else on the canvas.
-    const int callout = calloutIndex_;
-    calloutIndex_ = -1;
+    const int labelTarget = labelIndex_;
+    labelIndex_ = -1;
+    labelBeingEdited_.clear();   // committed, so the stashed copy is spent
 
     // Trim; a label of nothing but spaces is not a label.
     size_t first = value.find_first_not_of(L" \t\r\n");
     size_t last  = value.find_last_not_of(L" \t\r\n");
-    if (first == std::wstring::npos) {
-        // Nothing typed. For a callout the arrow stays — it is already
-        // committed and already on the undo stack — and for a plain label
-        // there was never anything to commit.
-        if (callout >= 0) ::InvalidateRect(canvas_, nullptr, FALSE);
-        return;
-    }
-    value = value.substr(first, last - first + 1);
+    // Empty is a legitimate value for a LABEL — it means "take the label
+    // off again" — but for a standalone Text mark it means there was never
+    // anything to commit.
+    const bool blank = (first == std::wstring::npos);
+    if (!blank) value = value.substr(first, last - first + 1);
 
-    if (callout >= 0) {
-        // No second Snapshot: the arrow's push already took one, and taking
-        // another here would make Ctrl+Z remove the words and leave the
-        // arrow — two undo steps for what was one action.
-        // Range AND identity. The index alone would happily write the label
-        // onto whatever mark had come to occupy that slot.
-        if (callout < static_cast<int>(annotations_.size()) &&
-            annotations_[callout].tool == Tool::Callout) {
-            annotations_[callout].text = std::move(value);
+    if (labelTarget >= 0) {
+        // No second Snapshot: BeginLabelEntry already took one, and taking
+        // another here would make Ctrl+Z remove the words and leave an
+        // otherwise-untouched mark behind — two undo steps for one action.
+        //
+        // Range checked only. The tool is deliberately NOT checked — any
+        // mark can carry a label now, which is the point — so there is no
+        // identity test left to make. The window in which the array could
+        // be reordered under an open field is narrow (the shortcut hook and
+        // the accelerators both stand down while it has focus, and a
+        // toolbar click commits through EN_KILLFOCUS first), but it is a
+        // window, and this is a bounds check rather than a guarantee.
+        if (labelTarget < static_cast<int>(annotations_.size())) {
+            Annotation& mark = annotations_[labelTarget];
+            if (blank && mark.tool == Tool::Text) {
+                // A Text mark with no text is a ghost: it draws nothing but
+                // still has a bounding box, so it stays selectable and
+                // movable and rides along in every snapshot. Emptying one
+                // means deleting it.
+                annotations_.erase(annotations_.begin() + labelTarget);
+                selectedIndex_ = -1;
+            } else {
+                mark.text = blank ? std::wstring() : std::move(value);
+            }
         }
         RefreshToolbarState();
         ::InvalidateRect(canvas_, nullptr, FALSE);
         return;
     }
+
+    if (blank) return;   // no snapshot, no annotation
 
     Snapshot();
     Annotation label;
@@ -2621,14 +2766,20 @@ bool EditorWindow::CancelTextEntry() {
     textEntryActive_ = false;
     HWND field = textEdit_;
     textEdit_ = nullptr;
-    // A cancelled callout keeps its arrow. Esc is being used to say "not
-    // those words", not "not that arrow", and the arrow is a separate,
-    // already-undoable action.
-    const bool wasCallout = calloutIndex_ >= 0;
-    calloutIndex_ = -1;
+    // A cancelled label leaves its mark alone. Esc says "not those
+    // words", not "not that rectangle".
+    const bool wasLabel = labelIndex_ >= 0;
+    const int  labelTarget = labelIndex_;
+    labelIndex_ = -1;
+    // The words go back on the mark. Esc means "not those words", not
+    // "delete the label I already had".
+    if (wasLabel && labelTarget < static_cast<int>(annotations_.size())) {
+        annotations_[labelTarget].text = std::move(labelBeingEdited_);
+    }
+    labelBeingEdited_.clear();
     ::SetFocus(canvas_);
     ::DestroyWindow(field);
-    if (wasCallout) ::InvalidateRect(canvas_, nullptr, FALSE);
+    if (wasLabel) ::InvalidateRect(canvas_, nullptr, FALSE);
     // No snapshot, no annotation. The boolean is what lets Esc, undo and redo
     // distinguish "cancelled a label" from "do the normal thing".
     return true;

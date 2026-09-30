@@ -85,13 +85,23 @@ RECT InflateRect(const RECT& r, int dx, int dy);
 RECT UnionRect(const RECT& a, const RECT& b);
 bool RectContains(const RECT& r, POINT p);
 inline int RectWidth(const RECT& r)  { return r.right - r.left; }
+inline int RectHeight(const RECT& r) { return r.bottom - r.top; }
+
 // Plain member-wise equality. ::EqualRect exists but treats every empty
 // rectangle as equal to every other, which is wrong for a cache key.
 inline bool RectsEqual(const RECT& a, const RECT& b) {
     return a.left == b.left && a.top == b.top &&
            a.right == b.right && a.bottom == b.bottom;
 }
-inline int RectHeight(const RECT& r) { return r.bottom - r.top; }
+
+// Point-in-rectangle for the editor's own double-precision rectangles.
+// ::PtInRect takes a RECT of LONGs and would round the annotation
+// coordinates away, which at a scaled-down canvas is a visible error.
+inline bool PointInRectD(double left, double top, double right, double bottom,
+                         double x, double y) {
+    return x >= left && x <= right && y >= top && y <= bottom;
+}
+
 
 double PointSegmentDistance(double px, double py,
                             double ax, double ay,

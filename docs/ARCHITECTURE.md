@@ -211,7 +211,7 @@ Unlike the macOS original this uses a **top-left origin** throughout, matching G
 
 ### Selection and editing
 
-Shapes are hit on their **outline**, not their interior. Clicking inside an empty rectangle starts a new drawing rather than selecting the rectangle, which is nearly always what you meant. Text is the one exception: a label has no meaningful outline to aim at, so its whole box counts.
+Shapes are hit on their **outline**, not their interior. Clicking inside an empty rectangle starts a new drawing rather than selecting the rectangle, which is nearly always what you meant. Text is one exception — it has no meaningful outline to aim at, so its whole box counts — and a LABEL is the other: `HitTest` tests the label box of every labelled mark before the mark's own geometry.
 
 Hit-test order matters: handles of the current selection first (they are small and sit on the outline), then the topmost annotation searched from the end, then empty space.
 
@@ -414,7 +414,7 @@ All thirteen icon buttons are 34 × 28 and go through one `DrawIconButtonFace`, 
 
 Anchoring each group to its own edge is what makes overlap impossible by construction rather than by clamping — widening the window only grows the gaps. The single failure mode left is the window being too narrow, and `WM_GETMINMAXINFO` forbids it: `34 + (82 + 12) × 2 = 222`, where 82 is a flank of two icon buttons plus padding. The centred control must clear the *wider* flank on both sides because centring is symmetrical; here the flanks are equal by construction, both being two icon buttons.
 
-222 is far below the tool row's 540, so the **bottom** row now sets the floor — the first time it has since the editor was written. The minimum went 700 (seven text tools) → 678 (a text command group) → 502 (eight icon tools) → 540 with Crop as a ninth: still well under the 700 that seven text-labelled tools needed.
+222 is far below the tool row's 502, so the **bottom** row now sets the floor — the first time it has since the editor was written. The minimum went 700 (seven text tools) → 678 (a text command group) → 540 (nine icon tools, Crop added) → 502 with Callout removed: well under the 700 that seven text-labelled tools needed.
 
 Pin is a real toggle rather than a label, writing the same registry value the tray row writes. `EditorWindow::PinSettingChanged` repaints it in every live editor and is called from both switches and from Sanitize, so two windows cannot disagree about one setting. `LiveEditors()` is maintained by the constructor and destructor rather than by `WM_CREATE`/`WM_DESTROY`, because the object outlives its window by one message-loop turn — App defers the delete. `WM_DESTROY` nulls `pinButton_` for exactly that gap, so a notification arriving in it has nothing to invalidate. The list itself is deliberately never destroyed: `App` is a function-local static constructed *before* the first editor, so this vector would be torn down first, and `~App` destroying `editors_` would then erase from a dead container.
 
@@ -432,17 +432,23 @@ The swatch edits one colour again: the second, Redact-only cover colour went wit
 
 ---
 
-## Callouts are one annotation, not two
+## A label is a property, not a kind of mark
 
-`Tool::Callout` is an arrow that carries its label, rather than an arrow plus a `Tool::Text` mark. Moving it moves both halves, and the label cannot be orphaned pointing at nothing.
+`Tool::Callout` is gone. It was an arrow that carried a label, and a label turned out not to be a *kind* of mark — it is something any mark can have. `Annotation` already had a `text` field used only by Text and Callout; letting every mark use it gave labelled rectangles, ellipses, lines, pen strokes and lifted pieces in one move, and removed a tool.
 
-The arrow is committed on mouse-up, *before* the label is typed, and the text entry then attaches to it through `calloutIndex_`. That ordering is what makes Esc mean "not those words" rather than "not that arrow", and it is why committing the label takes no second snapshot — one action, one undo step.
+The position is stored as `labelAngle` — an **index** into eight rays — plus `labelGap`. That choice is doing three jobs:
 
-`calloutIndex_` is assigned only after `BeginTextEntry` has actually created the field, and `CommitTextEntry` checks both the range and that the slot still holds a Callout. Set earlier, it would be consumed by the `CommitTextEntry` that `BeginTextEntry` opens with, and left set after a failed `CreateWindowEx` it would swallow the next ordinary label typed anywhere on the canvas.
+- **No modifier.** The label is always snapped, so there is nothing to hold and nothing to explain. Rectangle keeps Shift for filling; Ctrl keeps meaning layering.
+- **It cannot go stale.** `LabelBox` re-derives the position from the mark's current bounds on every draw, so resizing a rectangle carries its label along and the leader can never point at nothing. A stored point would have needed updating on every move, resize, undo and crop.
+- **Empty means absent.** `HasLabel()` is `!text.empty() && tool != Tool::Text`, so clearing the text removes the label with no separate command.
 
-The label sits behind the arrow's **tail**, not past its head. The head is on the thing you are pointing at, so a label there covers the very pixels the arrow was drawn to single out — which is what 1.8.0 shipped and 1.8.1 corrected.
+`EdgePoint` finds where the ray leaves the mark's box; the label is pushed out by `labelGap` plus the *support function* of its own box — half its extent along the ray — so the visible gap is the same in all eight directions rather than diagonals crowding the mark. It is named `EdgePoint` with a local called `edge` because `<cstdlib>` declares a global `::exit` and hiding it is C4459, which `/WX` makes fatal.
 
-An arrow travelling rightwards puts its label to the left of the tail, positioned by its **right** edge, so its left edge moves with every keystroke — `RepositionCalloutField` follows the field along on `EN_CHANGE`, or the text would jump the full width of the string on commit. An arrow travelling left anchors by its left edge and never moves.
+`BeginLabelEntry` (F2, or a double-click) **takes the text off the mark** for the duration of the edit and puts it back if cancelled. Otherwise the committed label is drawn on the canvas underneath a field showing the same words. It also snapshots *after* the field exists, not before: snapshotting first left a spent undo step whenever the entry was cancelled, and popping it back off is not safe because a push that hit `kUndoCap` erased the oldest entry, which a pop cannot restore.
+
+`HitTest` tests the label box before the mark's own geometry, for every labelled mark. Aiming at the text is the natural way to grab a labelled object, and the label is the big target.
+
+Dragging a label records where inside it the grab happened. `AimLabelAt` centres the box on the point it is given, so without that offset the label teleports its middle under the pointer the moment you touch it off-centre.
 
 ---
 

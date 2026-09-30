@@ -25,23 +25,25 @@ namespace Gdiplus { class Graphics; class Image; }
 // it stays movable, resizable and undoable like any other mark, and the
 // original capture is never modified.
 //
-// Callout is an Arrow that carries a label at its TAIL. It is one annotation
-// rather than an arrow plus a separate Text mark so that moving it moves both
-// halves, and so the label cannot be left behind pointing at nothing.
+// Callout is gone, and its absence is the point. It was an Arrow that
+// carried a label — but a label turned out not to be a KIND of mark. It is a
+// property any mark can have, which is what `text` and `labelAngle` below
+// are for. An arrow with a label is exactly what Callout was, so nothing is
+// lost and there is one fewer tool to explain.
 //
 // Crop is the odd one out twice over: it is not a mark at all. Selecting it
 // and dragging changes what part of the capture the editor is looking at,
 // and no Annotation is ever committed — the only thing it draws is the
 // marquee while the drag is happening. It lives in this enum because the
 // toolbar is built from it, which is cheaper than a second kind of button.
-enum class Tool { Arrow, Rectangle, Ellipse, Line, Pen, Text, Lift, Callout, Crop };
+enum class Tool { Arrow, Rectangle, Ellipse, Line, Pen, Text, Lift, Crop };
 
 // The toolbar builds its buttons, maps their command IDs back to tools, and
 // sizes its button array from this. It was a literal 6 in four separate
 // places, which is three chances to add a tool and update only some of them —
 // and the failure is quiet: the button simply never appears, or appears and
 // selects the wrong tool.
-inline constexpr int kToolCount = 9;
+inline constexpr int kToolCount = 8;
 
 // Which tools do something different when Shift is held. Lift cuts instead
 // of copying; Rectangle and Ellipse fill instead of outlining. The canvas
@@ -118,19 +120,40 @@ struct Annotation {
     // pixels underneath, so there is nothing to work back from.
     bool filled = false;
 
-    // Callout only: where the label sits relative to the arrow.
+    // Where a label sits: one of eight directions out from the mark, and how
+    // far past its edge.
     //
-    // At the TAIL, not the head. The head is on the thing you are pointing
-    // at, so a label there covers the very pixels the arrow was drawn to
-    // single out. At the tail the text sits in whatever empty space you
-    // dragged out of, which is where you would have written it by hand.
+    // An INDEX rather than a free position, and that is the whole design.
+    // Eight rays is what was asked for, and it removes a modifier — the
+    // label is ALWAYS snapped, so there is no Shift to hold. It also means
+    // the position is re-derived from the mark's current bounds every time
+    // it is drawn, so resizing a rectangle carries its label along and the
+    // leader can never end up pointing at nothing.
     //
-    // Needs a Graphics to measure the string when the arrow travels
-    // rightwards, because the box then has to be placed by its right edge.
-    // Null is legal and gives the unmeasured position: somewhere sensible
-    // rather than nothing.
-    static constexpr double kCalloutGap = 6.0;
-    RectD CalloutLabelBox(Gdiplus::Graphics* measureWith) const;
+    // 0 = east, then clockwise on screen in 45-degree steps: SE, S, SW, W,
+    // NW, N, NE.
+    int    labelAngle = 0;
+    double labelGap   = 24.0;   // image pixels from the mark's edge
+
+    static constexpr int    kLabelDirections = 8;
+    static constexpr double kMinLabelGap     = 6.0;
+
+    // Whether this mark draws a label: a non-empty string on anything that
+    // is not itself a piece of text. For Tool::Text the string IS the mark.
+    bool HasLabel() const { return !text.empty() && tool != Tool::Text; }
+
+    // The unit direction of `labelAngle`, in screen sense: x right, y down.
+    PointD LabelDirection() const;
+
+    // Where the label sits, and the leader joining it to the mark. Derived
+    // from the mark's own bounds, so neither is stored — and neither can
+    // therefore disagree with the mark.
+    RectD LabelBox(Gdiplus::Graphics* measureWith) const;
+    void  LabelLeader(Gdiplus::Graphics* measureWith, PointD* from, PointD* to) const;
+
+    // Turns a dragged point into an angle index and a gap, snapping the
+    // angle to the nearest of the eight.
+    void  AimLabelAt(PointD target, Gdiplus::Graphics* measureWith);
 
     RectD NormalizedRect() const;
     RectD BoundingBox(Gdiplus::Graphics* measureWith) const;

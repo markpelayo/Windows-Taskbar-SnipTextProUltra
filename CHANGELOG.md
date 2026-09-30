@@ -8,6 +8,50 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.9.0] — 2026-09-30
+
+A minor version, because a label stopped being a kind of mark and became a
+property of every mark — and the Callout tool went with it.
+
+### Added
+
+- **Any mark can carry a label.** A rectangle, an ellipse, a line, an arrow,
+  a pen stroke, a lifted piece of the picture. The label is drawn beside the
+  mark with a short leader line pointing back at it, and the three together
+  are **one object**: select it, move it, restyle it, delete it, undo it as a
+  unit.
+
+  **Double-click a mark to label it**, or press **F2** with it selected.
+  Double-click is the discoverable one, F2 is the Windows rename convention.
+  On a Text mark the same key edits the text itself, because that is the same
+  operation — both are the string you typed.
+
+  **Drag the label to swing it** around its mark. It snaps to one of eight
+  directions — the four sides and the four diagonals — and the leader follows.
+  Always snapped, so there is **no modifier to hold**: the position is stored
+  as an angle *index* plus a gap rather than as a free point.
+
+  That choice pays for itself twice. The label re-derives its position from
+  the mark's current bounds every time it is drawn, so resizing a rectangle
+  carries its label along and the leader can never end up pointing at
+  nothing. And an empty label is how you take one off again.
+
+### Removed
+
+- **The Callout tool.** It was an arrow that carried a label, and a label
+  turned out not to be a *kind* of mark. An arrow with a label is exactly
+  what Callout was, so nothing is lost — there is one fewer tool to explain,
+  eight instead of nine, and the minimum window width goes back to 502px.
+
+  A saved tool of `callout` falls back to Arrow, which is what it now is.
+
+### Changed
+
+- The modifier budget is untouched. Shift still means fill on the closed
+  shapes, cut on Lift, and snap-to-45° on Line and Arrow. Labels needed no
+  modifier at all, which is why they are not on Ctrl-drag — and why Ctrl
+  keeps meaning layering.
+
 ## [1.8.6] — 2026-09-30
 
 ### Fixed

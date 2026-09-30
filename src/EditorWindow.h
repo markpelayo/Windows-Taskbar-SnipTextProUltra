@@ -52,7 +52,11 @@ public:
     ~EditorWindow();
 
 private:
-    enum class DragMode { None, Drawing, Moving, Resizing };
+    enum class DragMode { None, Drawing, Moving, Resizing,
+                          // Swinging a label around its mark. A mode of its
+                          // own because the thing being moved is not the
+                          // mark and not a handle.
+                          MovingLabel };
 
     EditorWindow(std::unique_ptr<Bitmap> image, CloseCallback onClose);
 
@@ -140,12 +144,14 @@ private:
 
     // --- text entry ---
     void BeginTextEntry(PointD anchor);
-    // A left-pointing callout's label is positioned by its RIGHT edge, so
-    // its left edge moves every time a character is typed. Without this the
-    // field grows rightwards while the committed label grows leftwards, and
-    // the text jumps the full width of the string on commit — the exact
-    // thing laying the field out in the final position is meant to prevent.
-    void RepositionCalloutField();
+    // Opens the inline field on an existing mark's label — F2, or a
+    // double-click. On a Tool::Text mark it edits the text itself, which is
+    // the same operation: both are "the string the user typed".
+    void BeginLabelEntry(int index);
+    // A label is centred on its ray, so its left edge walks with every
+    // character typed in every direction except due east. The field has to
+    // follow, or the text jumps the width of the string on commit.
+    void RepositionLabelField();
     void CommitTextEntry();
     bool CancelTextEntry();   // true when there was a label, and it was discarded
 
@@ -296,6 +302,15 @@ private:
     Handle     activeHandle_ = Handle::None;
     RectD      resizeOriginalRect_{};
     PointD     dragLastPoint_{};
+    // Where the drag began, and whether it has travelled far enough to
+    // count. Without a threshold, the stray mouse-move between the two
+    // clicks of a double-click moves the mark a pixel and banks an undo
+    // step for it — and every click-to-select risks the same.
+    PointD     dragAnchor_{};
+    bool       dragPassedThreshold_ = false;
+    // Where in the label the user grabbed it, so it swings from that point
+    // instead of teleporting its centre under the pointer.
+    PointD     labelGrabOffset_{};
     bool       needsSnapshotBeforeDrag_ = false;
     bool       hasDraft_ = false;
     Annotation draft_;
@@ -314,12 +329,14 @@ private:
     PointD       textAnchor_{};
     COLORREF     textEntryColour_ = RGB(52, 199, 89);
     bool         textEntryActive_ = false;
-    // While a callout's label is being typed, the index of the arrow it
-    // belongs to. -1 means the entry is a standalone Text mark, which is the
-    // only case there used to be. The arrow is pushed BEFORE the label is
-    // typed, so that cancelling leaves a plain arrow rather than nothing —
-    // you drew it, so it should still be there.
-    int          calloutIndex_    = -1;
+    // While a label is being typed, the index of the mark it belongs to.
+    // -1 means the entry is a standalone Text mark, which was the only case
+    // before labels existed.
+    int          labelIndex_      = -1;
+    // The label's own text, taken off the mark for the duration of the edit
+    // so the committed label is not drawn underneath the field showing the
+    // same words. Put back if the edit is cancelled.
+    std::wstring labelBeingEdited_;
     ScopedFont   textFont_;
     WNDPROC      textEditOriginalProc_ = nullptr;
 

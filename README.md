@@ -16,7 +16,7 @@ Everything runs locally. OCR is Windows' own `Windows.Media.Ocr`, capture is GDI
 
 One executable, no installer, no third-party dependencies — nothing but the Windows SDK. The binary is statically linked, so there is no runtime to install.
 
-This is version 1.8.6. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
+This is version 1.9.0. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
 
 ### Trying it on sample text
 
@@ -48,7 +48,7 @@ A **tray icon** sits in the notification area whenever the program is running, s
 
 ### Pinning it
 
-1. Build it (below), then run `build\SnipTextProUltra_1.8.6.exe` once.
+1. Build it (below), then run `build\SnipTextProUltra_1.9.0.exe` once.
 2. Right-click its taskbar button → **Pin to taskbar**.
 
 That's it. The pinned icon is now the app.
@@ -68,7 +68,7 @@ That's it. The pinned icon is now the app.
 A `SHA-256` checksum is published beside each release binary. It is not a signature and does not pretend to be one; it only lets you confirm the file you downloaded is the file CI produced:
 
 ```
-Get-FileHash .\SnipTextProUltra_1.8.6.exe -Algorithm SHA256
+Get-FileHash .\SnipTextProUltra_1.9.0.exe -Algorithm SHA256
 ```
 
 ## Requirements
@@ -301,9 +301,9 @@ If the clipboard write fails — another program can hold the clipboard open —
 
 ## The annotation editor
 
-Opened by the Screenshot commands. Nine tools: **arrow, rectangle, ellipse, line, freehand pen, text, lift, callout, crop**, with a colour swatch and a stroke-width slider (the slider also sets text size).
+Opened by the Screenshot commands. Eight tools: **arrow, rectangle, ellipse, line, freehand pen, text, lift, crop**, with a colour swatch and a stroke-width slider (the slider also sets text size).
 
-Everything on the bar is an icon with a tooltip. Along the top: Undo and Redo on the left, the **Keep the Editor on Top** toggle in the centre, Copy and Save on the right. Along the bottom: the colour swatch, the width slider, and the nine tools. Every glyph is drawn in GDI — there is no image resource anywhere in this program.
+Everything on the bar is an icon with a tooltip. Along the top: Undo and Redo on the left, the **Keep the Editor on Top** toggle in the centre, Copy and Save on the right. Along the bottom: the colour swatch, the width slider, and the eight tools. Every glyph is drawn in GDI — there is no image resource anywhere in this program.
 
 ![The editor toolbar, drawn to scale](docs/editor-toolbar.png)
 
@@ -314,6 +314,16 @@ Turn it on and every annotation editor stays above other windows, so you can wor
 While it is on, the editor is left out of every capture the program takes — a window kept deliberately in front of everything else would otherwise land in every screenshot you took next, and moving it aside is the one thing you have ruled out. Switch it off and the editor appears in captures again.
 
 The setting has two switches, the menu row and the pin button in the centre of the editor's top bar, and they write the same value. Toggling either raises or lowers every open editor immediately. Switched on, the button takes the same filled face and accent ring a selected tool takes; its tooltip names the state in words.
+
+### Labelling a mark
+
+**Double-click** any mark, or select it and press **F2**, and you can type a label for it. The label appears beside the mark with a short leader line pointing back at it, and the mark, the leader and the text are **one object** — move it, restyle it, delete it or undo it as a unit.
+
+**Drag the label to swing it** around the mark. It snaps to one of eight directions, the four sides and the four diagonals, and the leader follows. There is no key to hold: it is always snapped.
+
+Because the position is stored as a direction rather than a point, the label re-derives where it sits from the mark's current size every time it is drawn — so resizing a rectangle carries its label along, and the leader can never end up pointing at nothing. Clearing the text removes the label again.
+
+On a text mark, the same key edits the text itself.
 
 ### Straight lines
 
@@ -347,12 +357,6 @@ The tool reverts to Arrow once the crop lands, since it is an action rather than
 A filled rectangle is also how you redact something. Worth knowing why it is a flat fill and not a blur: pixelation and blur both *look* like protection while leaving the original recoverable. A screenshot has a known font at a known size, so the attack is not to invert the blur but to run it forwards — render candidate text, pixelate it on the same grid, compare, one glyph at a time. A flat fill's output does not depend on the pixels underneath, so there is nothing to work back from.
 
 > If **Auto-Save Images** is on, the untouched original went to disk the moment the shot was taken, before you covered anything. Redact, save, send the clean copy, and the readable original is still in your screenshots folder.
-
-### Callout
-
-Drag an arrow, then type a label that sits at its **tail** — the end you dragged from. The arrow leaves the text and travels to whatever you are pointing at, so the label never covers the subject. Drag from where there is room, towards the thing you mean.
-
-It is one annotation rather than an arrow plus a separate text mark, so moving it moves both halves and the label cannot be left behind pointing at nothing. Esc during typing keeps the arrow and drops the words.
 
 ### Lift
 
@@ -398,6 +402,9 @@ Nothing is baked in until you copy or save.
 | Drag a handle | Resize — 8 on rectangles and ellipses, 2 endpoints on lines and arrows |
 | `Delete` | Remove the selected mark |
 | `Esc` | Deselect |
+| Double-click a mark | Type a label for it |
+| F2 | Label the selection |
+| Drag a label | Swing it to one of eight positions around its mark |
 
 Shapes are hit on their **outline**, not their interior, so clicking inside an empty rectangle starts a new drawing rather than grabbing the rectangle.
 

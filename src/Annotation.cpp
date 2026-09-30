@@ -5,6 +5,7 @@
 // See the note in Bitmap.cpp: gdiplustypes.h needs min/max, and this project
 // builds with NOMINMAX.
 #include <algorithm>
+#include <cmath>
 namespace Gdiplus { using std::min; using std::max; }
 #include <objidl.h>
 #include <gdiplus.h>
@@ -83,7 +84,6 @@ const wchar_t* ToolKeyValue(Tool tool) {
     case Tool::Pen:       return L"pen";
     case Tool::Text:      return L"text";
     case Tool::Lift:      return L"lift";
-    case Tool::Callout:   return L"callout";
     case Tool::Crop:      return L"crop";
     default:              return L"arrow";
     }
@@ -97,7 +97,6 @@ const wchar_t* ToolTitle(Tool tool) {
     case Tool::Pen:       return L"Pen";
     case Tool::Text:      return L"Text";
     case Tool::Lift:      return L"Lift";
-    case Tool::Callout:   return L"Callout";
     case Tool::Crop:      return L"Crop";
     default:              return L"Arrow";
     }
@@ -110,7 +109,6 @@ Tool ToolFromKeyValue(const std::wstring& value) {
     if (value == L"pen")       return Tool::Pen;
     if (value == L"text")      return Tool::Text;
     if (value == L"lift")      return Tool::Lift;
-    if (value == L"callout")   return Tool::Callout;
     // Deliberately absent: "crop" never round-trips. It is an action, not a
     // mode, so the editor reverts to Arrow after one and there is nothing
     // sensible to restore a session into.
@@ -135,19 +133,89 @@ RectD Annotation::NormalizedRect() const {
     return RectBetween(start, end);
 }
 
-RectD Annotation::CalloutLabelBox(Graphics* measureWith) const {
+PointD Annotation::LabelDirection() const {
+    // Wrapped rather than clamped: the index is modular by nature, and a
+    // clamp would make dragging past west stick instead of coming round.
+    const int index = ((labelAngle % kLabelDirections) + kLabelDirections)
+                      % kLabelDirections;
+    const double radians = index * (2.0 * kPi / kLabelDirections);
+    return PointD{ std::cos(radians), std::sin(radians) };
+}
+
+namespace {
+// Half the extent of a w x h box along `dir` — its support function. Used to
+// push the label out far enough that `gap` is the visible space between the
+// mark and the label's NEAR edge, whichever direction it sits in. Without
+// it a diagonal label would crowd the mark while a horizontal one would not.
+double HalfExtentAlong(PointD dir, double w, double h) {
+    return (std::fabs(dir.x) * w + std::fabs(dir.y) * h) / 2.0;
+}
+
+// Where a ray leaves an axis-aligned box from its centre.
+// Named EdgePoint, not ExitPoint, and the local is `edge` not `exit`:
+// <cstdlib> declares a global ::exit, and hiding it is C4459 — which
+// /WX turns into a build failure.
+PointD EdgePoint(const RectD& box, PointD dir) {
+    const double halfW = (std::max)(box.width, 0.0) / 2.0;
+    const double halfH = (std::max)(box.height, 0.0) / 2.0;
+    const double big   = 1.0e9;
+    const double tx = (std::fabs(dir.x) < 1.0e-9) ? big : halfW / std::fabs(dir.x);
+    const double ty = (std::fabs(dir.y) < 1.0e-9) ? big : halfH / std::fabs(dir.y);
+    const double t  = (std::min)(tx, ty);
+    return PointD{ box.MidX() + dir.x * t, box.MidY() + dir.y * t };
+}
+} // namespace
+
+RectD Annotation::LabelBox(Graphics* measureWith) const {
     const double height = TextBoxHeight(FontSize());
     const double width  = MeasureText(measureWith, text, FontSize()).Width
                           + 8.0 + kTextInset;
 
-    // Anchored to `start` — the tail, where the drag began — and set BACK
-    // from it, away from the direction of travel. So the arrow leaves the
-    // text and runs to whatever it is pointing at, and the label occupies
-    // the empty space the gesture started in rather than the subject.
-    const double y = start.y - height / 2.0;
-    const double x = (end.x >= start.x) ? start.x - kCalloutGap - width
-                                        : start.x + kCalloutGap;
-    return RectD{ x, y, width, height };
+    const PointD dir  = LabelDirection();
+    const RectD  bounds = NormalizedRect();
+    const PointD edge = EdgePoint(bounds, dir);
+    const double push = (std::max)(kMinLabelGap, labelGap)
+                        + HalfExtentAlong(dir, width, height);
+
+    const double cx = edge.x + dir.x * push;
+    const double cy = edge.y + dir.y * push;
+    return RectD{ cx - width / 2.0, cy - height / 2.0, width, height };
+}
+
+void Annotation::LabelLeader(Graphics* measureWith, PointD* from, PointD* to) const {
+    const PointD dir  = LabelDirection();
+    const RectD  box  = LabelBox(measureWith);
+    const PointD edge = EdgePoint(NormalizedRect(), dir);
+
+    // From the mark's edge to the label's near edge, so the leader is
+    // exactly the gap and never disappears under either end.
+    const double half = HalfExtentAlong(dir, box.width, box.height);
+    if (from) *from = edge;
+    if (to)   *to   = PointD{ box.MidX() - dir.x * half, box.MidY() - dir.y * half };
+}
+
+void Annotation::AimLabelAt(PointD target, Graphics* measureWith) {
+    const RectD bounds = NormalizedRect();
+    const double dx = target.x - bounds.MidX();
+    const double dy = target.y - bounds.MidY();
+    if (std::hypot(dx, dy) < 1.0) return;   // no direction to read
+
+    const double step = 2.0 * kPi / kLabelDirections;
+    int index = static_cast<int>(std::lround(std::atan2(dy, dx) / step));
+    index = ((index % kLabelDirections) + kLabelDirections) % kLabelDirections;
+    labelAngle = index;
+
+    // The gap is measured along the SNAPPED ray, not to the cursor, so the
+    // label does not lurch outwards as the angle clicks over to the next
+    // one. Measured to the label's near edge, which is what the user sees.
+    const PointD dir  = LabelDirection();
+    const PointD edge = EdgePoint(bounds, dir);
+    const double along = (target.x - edge.x) * dir.x + (target.y - edge.y) * dir.y;
+
+    const double height = TextBoxHeight(FontSize());
+    const double width  = MeasureText(measureWith, text, FontSize()).Width
+                          + 8.0 + kTextInset;
+    labelGap = (std::max)(kMinLabelGap, along - HalfExtentAlong(dir, width, height));
 }
 
 RectD Annotation::BoundingBox(Graphics* measureWith) const {
@@ -157,19 +225,18 @@ RectD Annotation::BoundingBox(Graphics* measureWith) const {
                       measured.Width + 8.0 + kTextInset,
                       TextBoxHeight(FontSize()) };
     }
-    if (tool == Tool::Callout) {
-        // The arrow and its label together, or selection handles and hit
-        // tests would only ever find half of the mark.
-        const RectD arrow = NormalizedRect();
-        if (text.empty()) return arrow;
-        const RectD label = CalloutLabelBox(measureWith);
-        const double minX = (std::min)(arrow.MinX(), label.MinX());
-        const double minY = (std::min)(arrow.MinY(), label.MinY());
-        const double maxX = (std::max)(arrow.MaxX(), label.MaxX());
-        const double maxY = (std::max)(arrow.MaxY(), label.MaxY());
-        return RectD{ minX, minY, maxX - minX, maxY - minY };
-    }
-    return NormalizedRect();
+    const RectD shape = NormalizedRect();
+    if (!HasLabel()) return shape;
+
+    // The mark AND its label, for every tool that can carry one. Selection
+    // chrome and hit-testing both key off this, so leaving the label out
+    // would mean only half the object could be found or drawn around.
+    const RectD label = LabelBox(measureWith);
+    const double minX = (std::min)(shape.MinX(), label.MinX());
+    const double minY = (std::min)(shape.MinY(), label.MinY());
+    const double maxX = (std::max)(shape.MaxX(), label.MaxX());
+    const double maxY = (std::max)(shape.MaxY(), label.MaxY());
+    return RectD{ minX, minY, maxX - minX, maxY - minY };
 }
 
 // --- drawing ---------------------------------------------------------------
@@ -270,7 +337,6 @@ void Annotation::Draw(Graphics& graphics, double scale, PointD offset,
         graphics.DrawRectangle(&marquee, p0.X, p0.Y, p1.X - p0.X, p1.Y - p0.Y);
         break;
     }
-    case Tool::Callout:
     case Tool::Arrow: {
         const PointF from = Map(start, scale, offset);
         const PointF to   = Map(end, scale, offset);
@@ -301,34 +367,6 @@ void Annotation::Draw(Graphics& graphics, double scale, PointD offset,
                    static_cast<REAL>(to.Y - headLength * std::sin(angle + spread)))
         };
         graphics.FillPolygon(&brush, head, 3);
-
-        // A plain arrow is finished here. A callout still owes its label.
-        if (tool != Tool::Callout || text.empty()) break;
-
-        {
-            Font font = MakeFont(FontSize() * scale);
-            StringFormat format(StringFormat::GenericTypographic());
-            format.SetFormatFlags(format.GetFormatFlags() | StringFormatFlagsNoWrap);
-            // Near, not Center, and not because centring looks wrong: the
-            // box's top is already half a line above the tail, so laying the
-            // glyphs from the top edge centres them on the tip anyway. What
-            // it buys is that the label sits exactly where the inline edit
-            // control had it, so the text does not hop on commit — the same
-            // rule Tool::Text follows below, for the same reason.
-            format.SetLineAlignment(StringAlignmentNear);
-            format.SetAlignment(StringAlignmentNear);
-
-            // Measured against THIS Graphics rather than the caller's, so the
-            // box the glyphs are laid into is the box they were measured for.
-            const RectD box = CalloutLabelBox(&graphics);
-            const PointF origin = Map({ box.MinX(), box.MinY() }, scale, offset);
-            RectF target(origin.X + static_cast<REAL>(kTextInset * scale),
-                         origin.Y,
-                         static_cast<REAL>(box.width * scale),
-                         static_cast<REAL>(box.height * scale));
-            graphics.DrawString(text.c_str(), static_cast<INT>(text.size()),
-                                &font, target, &format, &brush);
-        }
         break;
     }
     case Tool::Pen: {
@@ -361,11 +399,56 @@ void Annotation::Draw(Graphics& graphics, double scale, PointD offset,
         break;
     }
     }
+
+    // --- the label, for any mark that has one -------------------------------
+    //
+    // AFTER the switch, deliberately: this is one pass shared by every tool
+    // rather than a clause bolted onto each of them, which is what makes a
+    // labelled ellipse and a labelled arrow behave identically without
+    // either of them knowing about labels.
+    if (!HasLabel()) return;
+
+    PointD leaderFrom{}, leaderTo{};
+    // Measured against THIS Graphics, not the caller's, so the box the
+    // glyphs are laid into is the box they were measured for.
+    LabelLeader(&graphics, &leaderFrom, &leaderTo);
+
+    // The leader is drawn at a thinner weight than the mark. A leader as
+    // heavy as the rectangle it points at competes with it, and the label
+    // is supposed to be an aside.
+    Pen leader(colourValue, (std::max)(1.0f, width * 0.6f));
+    leader.SetStartCap(LineCapRound);
+    leader.SetEndCap(LineCapRound);
+    graphics.DrawLine(&leader, Map(leaderFrom, scale, offset), Map(leaderTo, scale, offset));
+
+    const RectD box = LabelBox(&graphics);
+    Font labelFont = MakeFont(FontSize() * scale);
+    StringFormat labelFormat(StringFormat::GenericTypographic());
+    labelFormat.SetFormatFlags(labelFormat.GetFormatFlags() | StringFormatFlagsNoWrap);
+    labelFormat.SetLineAlignment(StringAlignmentNear);
+    labelFormat.SetAlignment(StringAlignmentNear);
+
+    const PointF labelOrigin = Map({ box.MinX(), box.MinY() }, scale, offset);
+    RectF labelTarget(labelOrigin.X + static_cast<REAL>(kTextInset * scale),
+                      labelOrigin.Y,
+                      static_cast<REAL>(box.width * scale),
+                      static_cast<REAL>(box.height * scale));
+    graphics.DrawString(text.c_str(), static_cast<INT>(text.size()),
+                        &labelFont, labelTarget, &labelFormat, &brush);
 }
 
 // --- hit-testing -----------------------------------------------------------
 
 bool Annotation::HitTest(PointD point, double tolerance, Graphics* measureWith) const {
+    // The label first, and for every tool. Aiming at the text is the
+    // natural way to grab a labelled mark — it is the big target and the
+    // part you read — and requiring the shape itself would make the label
+    // look inert.
+    if (HasLabel() &&
+        Contains(Inset(LabelBox(measureWith), -tolerance, -tolerance), point)) {
+        return true;
+    }
+
     switch (tool) {
     case Tool::Rectangle: {
         // An OUTLINE is hit on its outline, never its interior: clicking
@@ -397,16 +480,6 @@ bool Annotation::HitTest(PointD point, double tolerance, Graphics* measureWith) 
         // The head is not separately tested; grabbing the shaft is enough.
         return util::PointSegmentDistance(point.x, point.y, start.x, start.y, end.x, end.y)
                <= tolerance;
-    case Tool::Callout:
-        // Either half will do. Aiming at the label is the natural way to
-        // grab a callout — it is the big target and the part you read — and
-        // requiring the shaft would make the text look inert.
-        if (util::PointSegmentDistance(point.x, point.y, start.x, start.y, end.x, end.y)
-                <= tolerance) {
-            return true;
-        }
-        if (text.empty()) return false;
-        return Contains(Inset(CalloutLabelBox(measureWith), -tolerance, -tolerance), point);
     case Tool::Pen: {
         if (points.size() <= 1) return false;
         for (size_t i = 0; i + 1 < points.size(); ++i) {
@@ -419,8 +492,13 @@ bool Annotation::HitTest(PointD point, double tolerance, Graphics* measureWith) 
         return false;
     }
     case Tool::Text:
-        // Text is the one exception: its whole box counts, because a label
-        // has no meaningful outline to aim at.
+        // An empty one is unhittable, belt to the editor's braces: the
+        // editor deletes a Text mark whose text is cleared, and this makes
+        // sure that even if one survived it could not be grabbed out of
+        // thin air by its 10px empty box.
+        if (text.empty()) return false;
+        // Otherwise its whole box counts, because text has no meaningful
+        // outline to aim at.
         return Contains(Inset(BoundingBox(measureWith), -tolerance, -tolerance), point);
     case Tool::Crop:
         // Unreachable: a Crop annotation is never committed, so there is
@@ -441,11 +519,6 @@ std::vector<std::pair<Handle, PointD>> Annotation::Handles() const {
     switch (tool) {
     case Tool::Line:
     case Tool::Arrow:
-    // A callout resizes by its two ends like the arrow it is built on. The
-    // label follows the TAIL, so dragging Start carries the text with it,
-    // while dragging End only re-aims the arrow — and can flip which side
-    // of the tail the label sits on, if the arrow crosses back over itself.
-    case Tool::Callout:
         // The raw endpoints, deliberately not normalised: an arrow has a
         // direction and its two ends must stay distinguishable.
         out.push_back({ Handle::Start, start });

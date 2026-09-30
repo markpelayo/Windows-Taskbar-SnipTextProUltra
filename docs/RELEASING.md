@@ -78,24 +78,32 @@ people verbose is the default.
    gh run watch
    ```
 
-   Then download the `SnipTextProUltra` artifact and **check the exe is
-   about 10 MB, not about 500 KB.**
+   The run summary now states the binary's **kind** and **size** on the run's
+   front page, and the build FAILS if a Tesseract build comes out under 5 MB
+   — so there is nothing to eyeball. The artifact is named
+   `SnipTextProUltra-full` or `SnipTextProUltra-fast` accordingly.
 
-   This is not belt-and-braces. Ordinary pushes build with
+   > Both builds produce the same file name, the artifact used to be called
+   > the same thing either way, and a full run also uploads a `build-log`
+   > artifact that is itself a few hundred KB. So "I downloaded the artifact
+   > and it was 500 KB" had three possible explanations and no way to tell
+   > them apart. Hence the kind in the name and the size in the summary.
+
+   This matters because it is not belt-and-braces. Ordinary pushes build with
    `SNIPTEXT_WITH_TESSERACT` **off**, so a green CI run proves nothing about
    the half of the tag build that resolves vcpkg dependencies, downloads the
    OCR model and embeds it. `workflow_dispatch` runs that entire expensive
    path with `SNIPTEXT_RELEASE=OFF` and the release step gated on tags, so it
    validates everything and publishes nothing.
 
-   The size check is the one assertion the workflow never makes itself. The
-   `.rc` embeds the model behind `#ifdef SNIPTEXT_WITH_TESSERACT`, which
-   reaches the *resource* compiler only because CMake forwards the target's
-   compile definitions onto the RC command line. If that ever stopped
-   working, the C++ side would still compile the Tesseract path,
-   `FindResource` would return null, and OCR would silently fall back to
-   `Windows.Media.Ocr` — nobody would notice until someone captured a serial
-   number. A ~500 KB exe is the tell.
+   The size check is now enforced in the workflow, and it is the only cheap
+   tell for a specific silent failure. The `.rc` embeds the model behind
+   `#ifdef SNIPTEXT_WITH_TESSERACT`, which reaches the *resource* compiler
+   only because CMake forwards the target's compile definitions onto the RC
+   command line. If that ever stopped working, everything would still build
+   and pass: the C++ side compiles the Tesseract path, `FindResource` returns
+   null at runtime, and OCR silently falls back to `Windows.Media.Ocr`. Nobody
+   would notice until a capture of a serial number came back wrong.
 
    Second payoff: `vcpkg.json` pins no baseline and the vcpkg cache is
    scoped per ref, so a tag build normally gets a cold cache and spends

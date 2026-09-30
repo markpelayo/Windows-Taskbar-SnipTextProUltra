@@ -149,8 +149,43 @@ jobs:
           } else {
             $exe = $fast
           }
+          # Which build this is, and how big it came out. Both were guesswork
+          # before, and that cost a release candidate an afternoon: the two
+          # builds produce the SAME file name in different directories, the
+          # artifact was called the same thing either way, and a dispatch run
+          # also uploads a build-log artifact — so "I downloaded the artifact
+          # and it was 500 KB" had three possible explanations and no way to
+          # tell them apart without reading the raw log.
+          $kind = if ($exe -eq $full) { "full" } else { "fast" }
+          $mb = [math]::Round((Get-Item $exe).Length / 1MB, 2)
           Write-Host "Shipping $exe"
+          Write-Host "Kind: $kind"
+          Write-Host "Size: $mb MB"
+
+          # The assertion the workflow never made. The .rc embeds the 4 MB
+          # trained model behind #ifdef SNIPTEXT_WITH_TESSERACT, which reaches
+          # the RESOURCE compiler only because CMake forwards the target's
+          # compile definitions onto the RC command line. If that ever stops
+          # working, everything still builds and passes: the C++ side compiles
+          # the Tesseract path, FindResource returns null at runtime, and OCR
+          # silently falls back to Windows.Media.Ocr. Nobody notices until a
+          # capture of a serial number comes back wrong.
+          #
+          # Size is the only cheap tell. The full build is ~10 MB and the
+          # dependency-free one ~0.5 MB, so the threshold does not need to be
+          # precise to be decisive.
+          if ($kind -eq "full" -and $mb -lt 5) {
+            Write-Error "The Tesseract build is only $mb MB. Expected ~10 MB - the trained model or the static libraries are missing."
+            exit 1
+          }
+
+          # Straight into the run summary, so it is on the run's front page
+          # rather than four steps deep in a collapsed log.
+          "### Binary`n`n- kind: **$kind**`n- size: **$mb MB**`n- path: ``$exe``" |
+            Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
           "path=$exe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "kind=$kind" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       # An unsigned binary cannot prove where it came from, so a checksum is
       # published beside it. It is not a signature and does not pretend to be
@@ -163,10 +198,14 @@ jobs:
           "$hash  $(Split-Path $exe -Leaf)" | Out-File -Encoding ascii "$exe.sha256"
           Write-Host "SHA256: $hash"
 
+      # Named for WHICH build it is, so the download is self-describing.
+      # It was "SnipTextProUltra" for both, next to a "build-log" artifact
+      # that is itself a few hundred KB on a Tesseract run — three ways to
+      # pick up the wrong file and no way to tell from the name.
       - name: Upload the build
         uses: actions/upload-artifact@v4
         with:
-          name: SnipTextProUltra
+          name: SnipTextProUltra-${{ steps.exe.outputs.kind }}
           path: |
             ${{ steps.exe.outputs.path }}
             ${{ steps.exe.outputs.path }}.sha256

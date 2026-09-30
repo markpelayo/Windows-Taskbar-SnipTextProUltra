@@ -16,7 +16,7 @@ No Visual Studio project file. `build.bat` compiles `src/*.cpp` with `cl.exe`, l
 | `App.cpp` | The flyout menu, hotkeys, both capture pipelines, recording state |
 | `framework.h` | Windows configuration macros and the RAII wrappers |
 | `Util.cpp` | Strings, code points, paths, time, DPI, geometry |
-| `Hotkeys.cpp` | The seven shortcuts: bindings, persistence, and the rebinding window |
+| `Hotkeys.cpp` | The sixteen shortcuts: bindings, persistence, and the rebinding window |
 | `Settings.cpp` | Registry-backed settings, and Run-at-Startup |
 | `MediaFolder.cpp` | One output folder — three instances |
 | `Bitmap.cpp` | 32-bit BGRA DIB section, PNG encoding, clipboard |
@@ -392,6 +392,22 @@ The registry key is still `pinRegionToScreen`, a leftover from the first design.
 
 ---
 
+## The number keys, and why the toolbar's order is load-bearing
+
+`1` through `8` select the eight tools; `9` toggles Keep the Editor on Top. The digit is the button's position on the bar, which is only true without a lookup table because **the `Tool` enum's order *is* the toolbar's order *is* the digit order** — one list doing three jobs.
+
+The alternative was a separate display-order array, letting the enum keep a stable numbering. It was rejected because all four casts that convert between a tool and a button index are round trips through this order, and two orders would mean every one of them has to declare which it means.
+
+Reordering the enum is therefore safe, but only because nothing stores a tool as a **number**: the remembered tool is persisted through `ToolKeyValue`/`ToolFromKeyValue` as a string, the button ids are `IDC_TOOL_FIRST + index` and are rebuilt every launch, and every `switch` over the enum is by name. If a numeric form of a tool ever reaches the registry or a file, that stops being true — which is why it is written down next to the enum.
+
+`hotkeys::kToolActionCount == kToolCount` is a `static_assert` in `EditorWindow.cpp`, the only translation unit that sees both headers. Without it a ninth tool would fail silently in the worst way: no shortcut, no dispatch, and `SelectTool1 + 8` — which is `TogglePin` — putting Pin's key in the ninth tool's tooltip.
+
+Both the tool keys and `9` dispatch by **sending the `WM_COMMAND` the button click sends** rather than repeating its work. Selecting a tool has to commit an open label and return focus; Pin has to write the setting the way the tray row writes it and notify every other open editor. Two copies of either would drift. The send is safe because `HandleEditorKey` runs from the message loop, not from inside another handler — and `PreTranslateMessage` returns the result directly from inside its `LiveEditors()` loop, so the iteration cannot outlive the send.
+
+The number keys deliberately do **not** flash their button the way `Ctrl+Z` does. Both commands change a latched, visible state — the selected tool lights up, Pin's indicator changes — so there is already an answer on screen; a flash would compete with it.
+
+---
+
 ## Two modifiers, and each means one thing everywhere
 
 **Shift constrains the geometry. Ctrl changes what the drag produces.** As of 1.9.3 there are no exceptions to either, and that took three releases of *removing* things rather than adding them:
@@ -434,7 +450,7 @@ The one hole no drawing can close is `Auto-Save Images`, which writes the untouc
 
 ## The editor toolbar
 
-Two bars, and everything on both of them is owner-drawn. The top carries three groups: Undo and Redo anchored left, the Pin toggle centred, Copy and Save anchored right. The bottom carries the swatch, the width slider and the nine tools.
+Two bars, and everything on both of them is owner-drawn. The top carries three groups: Undo and Redo anchored left, the Pin toggle centred, Copy and Save anchored right. The bottom carries the swatch, the width slider and the eight tools.
 
 All thirteen icon buttons are 34 × 28 and go through one `DrawIconButtonFace`, which draws an antialiased rounded rectangle with GDI+ — GDI does not antialias, so a GDI rounded corner is a staircase, worse than the square corner it replaces, so the two bars cannot drift apart the first time one of them is adjusted. (The colour swatch is owner-drawn too but keeps its own branch at 44 × 28: it shows a colour, not a glyph.) Only *switched-on* buttons get the filled face, a heavier accent outline and accent-coloured ink — the selected tool, and Pin when enabled — because that is the only state which survives letting go of the mouse. Save's permanent ring, inherited from `BS_DEFPUSHBUTTON`, was the last thing making the top row look like a separate toolbar, and it is gone.
 
@@ -449,6 +465,8 @@ The colour picker opens **upwards**, above the swatch. 1.8.1 moved it downwards 
 Pin is icon-only, so its state lives entirely in its appearance plus its tooltip, and `UpdatePinTooltip` rewrites that text on every toggle. Setting it once at creation would leave a tooltip saying "Off" over a button drawn as on — the one place on screen contradicting the control.
 
 ![The editor toolbar, drawn to scale](editor-toolbar.png)
+
+> The picture is from 1.8.2 and shows the **old** tool order (arrow first). The order in 1.9.5 is rectangle, ellipse, arrow, then line onwards as shown. Everything else about it is current.
 
 Glyphs are drawn from lines, arcs and Béziers into a notional 20 × 20 box that is mapped onto the button, so the same code serves the 34px icon and the 3× version in the documentation. `ExtCreatePen` rather than `CreatePen`, for round caps and joins.
 
@@ -514,19 +532,29 @@ The Lift clamp is against the crop rather than the capture, or a lift starting i
 
 ---
 
-## One shortcut that is not global
+## Ten shortcuts that are not global
 
-`hotkeys::` registers six actions with `RegisterHotKey`, which claims a combination from the entire system. `Action::CloseEditor` is the first that must not be: its default is a bare Esc, and a system-wide Esc would take the key from every program on the machine.
+`hotkeys::` registers six actions with `RegisterHotKey`, which claims a combination from the entire system. The other ten must not be. `Action::CloseEditor` defaults to a bare Esc, and the nine added in 1.9.5 default to the bare digits 1 through 9 — registering any of them globally would take that key from every program on the machine.
 
-`IsGlobal()` is what separates them. `Register`/`Unregister` skip the local ones; the editor calls `hotkeys::Matches()` from its own `WM_KEYDOWN`; the menu groups them under a heading; and `App`'s de-confliction only reassigns a binding away from another action **in the same scope**, since a global and a local action sharing a combination are not in competition.
+`IsGlobal()` is what separates them, and in 1.9.5 it changed from a list of exceptions (`action != CloseEditor`) to a **threshold**: everything from `CloseEditor` onwards is local. That is not a tidy-up. The list version would have quietly registered nine bare digits system-wide the moment they were appended, because a list of exceptions has to be remembered and a threshold does not.
 
-Two traps worth recording. The capture window uses Esc to cancel, which would have made Esc permanently unbindable for the one action whose default it is — so Esc is capturable there for local actions, and the footer says *click away to cancel* instead, which the window already supports through `WM_ACTIVATE`. And `Matches()` returns false for an unbound action, or every unmodified keystroke would match a binding whose key is 0.
+`Register`/`Unregister` skip the local ones; the editor calls `hotkeys::Matches()` from `PreTranslateMessage` (see below); the menu groups them under a heading; and `App`'s de-confliction only reassigns a binding away from another action **in the same scope**, since a global and a local action sharing a combination are not in competition.
+
+Three traps worth recording, and the third is the one that nearly shipped.
+
+**Esc in the capture window.** It cancels — except for `CloseEditor`, where Esc has to be capturable or unbinding it once would make its own default unreachable forever. There the footer says *click away to cancel* instead, which the window supports through `WM_ACTIVATE`.
+
+That test is against **`CloseEditor` specifically, not against `IsGlobal`**, and the difference is not cosmetic. It *was* `IsGlobal(state->action)`, which was correct while CloseEditor was the only local action and became a trap the instant there were ten. Pressing Esc to back out of the Rectangle row would not merely have failed to cancel: Esc would have been recorded as the candidate binding, Enter would have committed it, and the de-confliction pass would then have found `CloseEditor` holding Esc *in the same scope* and unbound it. Esc-to-close, destroyed permanently and silently, by someone trying to cancel.
+
+**Unbound actions.** `Matches()` returns false for one, or every unmodified keystroke would match a binding whose key is 0.
+
+**The bare-key rule.** "Unmodified keys must be F1-F24" is gated on `IsGlobal`, which is what allows a bare Esc and bare digits for the local ten while still refusing them for the six globals.
 
 Esc in the editor is a cascade — label, then selection, then the window — so the rebindable action is only consulted when there is nothing smaller left to cancel.
 
 The check runs from `EditorWindow::PreTranslateMessage`, called by `App`'s message loop before `TranslateMessage`, not from a window procedure. A keyboard message only reaches the control that has focus, and an editor is a frame full of controls: handled in the canvas proc, Esc worked on the canvas and stopped working as soon as you clicked a tool button. It is also what makes Ctrl- and Alt-based bindings reachable, since the canvas proc's Ctrl block returns unconditionally and Alt arrives as `WM_SYSKEYDOWN`, which it never handled.
 
-Matching `message.hwnd` against the editor's window tree is the whole "is this editor active?" test. Keyboard messages go only to the focused window, and focus lives only in the active window's tree, so there is nothing further to ask. The hook stands aside for **every** key while a label is being typed, not just Esc. `CloseEditor` is the one action for which a bare letter is a legal binding — it is never registered globally, so the "unmodified keys must be function keys" rule does not apply — and a guard that only covered Esc would let a binding of `T` destroy the editor in the middle of a word. The canvas handler could not do this, because the canvas never saw keys while the field had focus; hoisting the shortcut into the message loop is what created the possibility.
+Matching `message.hwnd` against the editor's window tree is the whole "is this editor active?" test. Keyboard messages go only to the focused window, and focus lives only in the active window's tree, so there is nothing further to ask. The hook stands aside for **every** key while a label is being typed, not just Esc — and that guard is what carries the whole weight of the number keys being bare digits. Typing "3 items" into a label must not switch tools. A guard that only covered Esc would let a binding of `T` destroy the editor in the middle of a word, and `3` change tools in the middle of a number. The canvas handler could not do this, because the canvas never saw keys while the field had focus; hoisting the shortcut into the message loop is what created the possibility.
 
 The colour picker is the one window inside the editor the hook does not reach: it is `WS_POPUP` with the frame as its *owner*, not its parent, so `IsChild` is false for it. It handles Esc itself, dismissing the picker rather than the editor — which is the correct rung of the cascade, and the reason the hook does not simply walk the owner chain.
 

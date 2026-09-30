@@ -60,6 +60,12 @@ inline constexpr const wchar_t* kVideoAudioDevice = L"videoAudioDeviceId";
 inline constexpr const wchar_t* kEditorLineWidth  = L"editorLineWidth";
 inline constexpr const wchar_t* kEditorColor      = L"editorColorRGBA";
 inline constexpr const wchar_t* kEditorTool       = L"editorTool";
+
+// Whether the editor shows the one-line modifier hint along the bottom of
+// the canvas. Defaults to ON, which is the opposite of every other boolean
+// here — so "switched off" is the value that gets STORED, and switching it
+// back on removes it. See the menu handler, which has to invert to match.
+inline constexpr const wchar_t* kShowToolHints    = L"showToolHints";
 } // namespace key
 
 // --- typed access ----------------------------------------------------------

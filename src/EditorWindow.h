@@ -46,6 +46,13 @@ public:
     // own toggle and by the tray row, because they write one setting and
     // two windows must not disagree about what it says.
     static void PinSettingChanged();
+    // Same pattern, for the canvas hint line. Called from App when the tray
+    // row is toggled, so an open editor does not keep showing a hint the
+    // user has just switched off.
+    static void HintSettingChanged();
+    // Called after a rebind or a reset, so the tool and pin tooltips stop
+    // naming a shortcut that is no longer bound to them.
+    static void ShortcutsChanged();
 
     EditorWindow(const EditorWindow&) = delete;
     EditorWindow& operator=(const EditorWindow&) = delete;
@@ -303,6 +310,7 @@ private:
     bool IsWithinCrop(const Annotation& annotation, Gdiplus::Graphics* measureWith) const;
     // The title carries the size, and a crop changes it.
     void UpdateTitleForCrop();
+    void RefreshToolTooltips();
 
     // Makes a toolbar button look clicked for a moment, so a keyboard
     // shortcut has a visible answer and says WHICH command it ran. Ctrl+Z
@@ -346,7 +354,24 @@ private:
 
     int      selectedIndex_ = -1;
     Tool     currentTool_   = Tool::Arrow;
-    COLORREF currentColour_ = RGB(52, 199, 89);
+    COLORREF currentColour_ = kDefaultAnnotationColour;
+
+    // Cached, not read from the registry when the canvas paints.
+    //
+    // The pin BUTTON does read the registry on every paint, and that is
+    // defensible — it is one small control repainted when something asks it
+    // to. The canvas is repainted on every mouse move that changes anything,
+    // which would make this a registry hit on the drawing hot path for a
+    // value that changes about once in the program's lifetime.
+    bool showHints_ = true;
+
+    // Tooltip text that is BUILT rather than written, because it names the
+    // current key binding. TTM_ADDTOOLW and TTM_UPDATETIPTEXTW keep the
+    // pointer they are given rather than copying the string, which is why
+    // every other tooltip here is a literal — these need somewhere to live
+    // that outlives the call.
+    std::wstring toolTips_[kToolCount];
+    std::wstring pinTooltip_;
     double   currentLineWidth_ = 4.0;
 
     DragMode   dragMode_ = DragMode::None;
@@ -378,7 +403,7 @@ private:
     bool      draggingSlider_ = false;
 
     PointD       textAnchor_{};
-    COLORREF     textEntryColour_ = RGB(52, 199, 89);
+    COLORREF     textEntryColour_ = kDefaultAnnotationColour;
     bool         textEntryActive_ = false;
     // While a label is being typed, the index of the mark it belongs to.
     // -1 means the entry is a standalone Text mark, which was the only case

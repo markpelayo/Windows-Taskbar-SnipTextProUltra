@@ -1,14 +1,24 @@
 #include "Hotkeys.h"
 
+// For ToolTitle: the eight tool shortcuts take their menu names from the
+// tool model rather than repeating them here. See ActionTitle.
+#include "Annotation.h"
 #include "Settings.h"
 #include "Util.h"
 
 namespace hotkeys {
+// Menu order, and the menu splits itself on IsGlobal — so the six globals
+// must stay first and the editor-only ones after them, with CloseEditor
+// leading that group because Esc is the one everybody already knows.
 const Action kAllActions[kActionCount] = {
     Action::ScreenshotRegion, Action::ScreenshotFullScreen,
     Action::TextRegion,       Action::TextFullScreen,
     Action::RecordRegion,     Action::RecordFullScreen,
     Action::CloseEditor,
+    Action::SelectTool1, Action::SelectTool2, Action::SelectTool3,
+    Action::SelectTool4, Action::SelectTool5, Action::SelectTool6,
+    Action::SelectTool7, Action::SelectTool8,
+    Action::TogglePin,
 };
 
 namespace {
@@ -140,8 +150,11 @@ LRESULT CALLBACK CaptureProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
             // The footer has to tell the truth about Esc, which means one
             // of two sentences depending on whether Esc is a legal binding
             // for the action being changed.
+            // Same condition as the Esc handler below, for the same
+            // reason — and they have to stay the same condition, because
+            // this line is the only warning a user gets.
             const wchar_t* footerText =
-                IsGlobal(state->action)
+                state->action != Action::CloseEditor
                     ? L"Enter to save  ·  Delete to unbind  ·  Esc to cancel"
                     : L"Enter to save  ·  Delete to unbind  ·  click away to cancel";
             ::DrawTextW(dc, footerText,
@@ -164,13 +177,24 @@ LRESULT CALLBACK CaptureProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
     case WM_SYSKEYDOWN: {
         const UINT key = static_cast<UINT>(wParam);
 
-        // Esc backs out — except for an action whose whole point is that
-        // Esc can be bound to it. There the key has to be capturable, or
-        // unbinding Close the Screenshot Editor once would make its own
-        // default unreachable forever without resetting every other
-        // shortcut too. Deactivating the window still cancels, so there is
-        // always a way out.
-        if (key == VK_ESCAPE && IsGlobal(state->action)) {
+        // Esc backs out — except for CloseEditor, the one action whose
+        // whole point is that Esc can be bound to it. There the key has to
+        // be capturable, or unbinding Close the Screenshot Editor once
+        // would make its own default unreachable forever without resetting
+        // every other shortcut too. Deactivating the window still cancels,
+        // so there is always a way out.
+        //
+        // Tested against THAT ACTION, not against IsGlobal. This was
+        // `IsGlobal(state->action)` and it was correct only while
+        // CloseEditor was the sole non-global action. When 1.9.5 added nine
+        // more, the exception silently widened to all ten — and the
+        // consequence was not merely "Esc does not cancel here": Esc would
+        // be recorded as the candidate binding, Enter would commit it, and
+        // the de-confliction pass in App would then find CloseEditor
+        // holding Esc IN THE SAME SCOPE and quietly unbind it. Pressing Esc
+        // to back out of the Rectangle row would have destroyed
+        // Esc-to-close, permanently and without a word.
+        if (key == VK_ESCAPE && state->action != Action::CloseEditor) {
             Finish(hwnd, state, false);
             return 0;
         }
@@ -242,7 +266,7 @@ LRESULT CALLBACK CaptureProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
 const wchar_t* ActionTitle(Action action) {
     switch (action) {
     // These have to read the same as the commands they bind, or the Change
-    // Keyboard Shortcut submenu becomes a second set of names for the same six
+    // Keyboard Shortcut submenu becomes a second set of names for the same
     // things.
     case Action::ScreenshotRegion:     return L"Screenshot a Region";
     case Action::ScreenshotFullScreen: return L"Screenshot Full Screen";
@@ -251,12 +275,43 @@ const wchar_t* ActionTitle(Action action) {
     case Action::RecordRegion:         return L"Screen Record a Region";
     case Action::RecordFullScreen:     return L"Screen Record Full Screen";
     case Action::CloseEditor:          return L"Close the Screenshot Editor";
+
+    // Not literals. The eight tool rows take their names from ToolTitle,
+    // the same function the tooltips use, so the menu cannot end up calling
+    // a tool something the tooltip does not — and reordering the toolbar
+    // reorders these rows with it, automatically and correctly.
+    case Action::SelectTool1: case Action::SelectTool2:
+    case Action::SelectTool3: case Action::SelectTool4:
+    case Action::SelectTool5: case Action::SelectTool6:
+    case Action::SelectTool7: case Action::SelectTool8:
+        return ToolTitle(static_cast<Tool>(ToolActionIndex(action)));
+
+    // Word for word the tray row it mirrors. Two names for one switch is
+    // how the user ends up believing there are two switches.
+    case Action::TogglePin:            return L"Keep the Editor on Top";
     }
     return L"";
 }
 
+bool IsToolAction(Action action) {
+    return action >= Action::SelectTool1 && action <= Action::SelectTool8;
+}
+
+int ToolActionIndex(Action action) {
+    if (!IsToolAction(action)) return -1;
+    return static_cast<int>(action) - static_cast<int>(Action::SelectTool1);
+}
+
 bool IsGlobal(Action action) {
-    return action != Action::CloseEditor;
+    // Everything from CloseEditor onwards is matched by the editor itself.
+    //
+    // Stated as a threshold rather than as a list of exceptions on purpose.
+    // The list version was `action != CloseEditor`, which would have
+    // silently registered nine bare number keys as SYSTEM-WIDE hotkeys the
+    // moment they were added — taking 1 through 9 away from every other
+    // program on the machine. A threshold cannot be forgotten when the next
+    // editor-only action is appended.
+    return static_cast<int>(action) < static_cast<int>(Action::CloseEditor);
 }
 
 UINT CurrentModifiers() {
@@ -286,15 +341,33 @@ bool Matches(Action action, UINT key, UINT modifiers) {
 
 Binding Default(Action action) {
     // Esc, alone. The editor is a window you dismiss rather than a command
-    // you invoke, and this is the only binding in the set that is not
-    // global — so a bare key is safe here and nowhere else.
+    // you invoke, and a bare key is safe here precisely because this
+    // binding is not global — a system-wide Esc would be a catastrophe.
     if (action == Action::CloseEditor) {
         Binding binding;
         binding.key = VK_ESCAPE;
         return binding;
     }
 
-    // Ctrl+Shift+1 through 6, in menu order.
+    // Bare 1 through 8 for the tools, 9 for Pin, matching the buttons left
+    // to right. Bare digits are only defensible because these are editor-
+    // local: the editor's own key handler stands down entirely while a text
+    // label is being typed, so typing "3 items" into a label does not
+    // switch tools.
+    if (IsToolAction(action)) {
+        Binding binding;
+        binding.key = static_cast<UINT>('1' + ToolActionIndex(action));
+        return binding;
+    }
+    if (action == Action::TogglePin) {
+        Binding binding;
+        binding.key = '9';
+        return binding;
+    }
+
+    // Ctrl+Shift+1 through 6 for the six globals, in menu order. Only
+    // reached now that every non-global action has returned above, and the
+    // derivation from the enum value is why those had to be APPENDED.
     Binding binding;
     binding.modifiers = MOD_CONTROL | MOD_SHIFT;
     binding.key       = static_cast<UINT>('0' + static_cast<int>(action));
@@ -396,7 +469,8 @@ void Register(HWND owner) {
     for (Action action : kAllActions) {
         // Editor-only actions are never handed to RegisterHotKey. Doing so
         // would take the key away from every other program on the machine,
-        // and the default for the only one of these is a bare Esc.
+        // and these default to a bare Esc and the bare digits 1 through 9 —
+        // which system-wide would make the computer close to unusable.
         if (!IsGlobal(action)) continue;
         const Binding binding = Current(action);
         if (!binding.IsBound()) continue;

@@ -16,7 +16,7 @@ Everything runs locally. OCR is Windows' own `Windows.Media.Ocr`, capture is GDI
 
 One executable, no installer, no third-party dependencies — nothing but the Windows SDK. The binary is statically linked, so there is no runtime to install.
 
-This is version 1.9.4. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
+This is version 1.9.5. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
 
 ### Trying it on sample text
 
@@ -48,7 +48,7 @@ A **tray icon** sits in the notification area whenever the program is running, s
 
 ### Pinning it
 
-1. Build it (below), then run `build\SnipTextProUltra_1.9.4.exe` once.
+1. Build it (below), then run `build\SnipTextProUltra_1.9.5.exe` once.
 2. Right-click its taskbar button → **Pin to taskbar**.
 
 That's it. The pinned icon is now the app.
@@ -68,7 +68,7 @@ That's it. The pinned icon is now the app.
 A `SHA-256` checksum is published beside each release binary. It is not a signature and does not pretend to be one; it only lets you confirm the file you downloaded is the file CI produced:
 
 ```
-Get-FileHash .\SnipTextProUltra_1.9.4.exe -Algorithm SHA256
+Get-FileHash .\SnipTextProUltra_1.9.5.exe -Algorithm SHA256
 ```
 
 ## Requirements
@@ -183,13 +183,13 @@ In any region capture: drag to select, **Space** switches to click-a-whole-windo
 
 **Esc** closes the annotation editor whenever it is the active window — it does not matter whether the canvas, a tool button or the slider has focus, or whether the window is pinned. It does not ask whether you want to save — nothing there has been written to disk, and Copy and Save are one keystroke each. It is a cascade: Esc cancels an in-progress label first, then clears the selection, and only closes the window when there is neither.
 
-It is rebindable in *Change Keyboard Shortcut*, under its own heading, because it is the one shortcut in the program that is **not** global. The capture shortcuts are claimed from the whole system; this one is matched inside the editor, which is what makes a bare Esc a safe default rather than a catastrophe.
+It is rebindable in *Change Keyboard Shortcut*, under the **Only inside the editor** heading, along with the nine number keys. Those ten are the shortcuts that are **not** global: the six capture shortcuts are claimed from the whole system, while these are matched inside the editor — which is what makes a bare Esc, and bare digits, safe defaults rather than a catastrophe.
 
 ### Changing them
 
-**Settings → Change Keyboard Shortcut** lists all seven with their current bindings. Pick one and a small window appears; press the combination you want and Enter to save.
+**Settings → Change Keyboard Shortcut** lists all sixteen with their current bindings — six global ones, then the ten that work only inside the editor. Pick one and a small window appears; press the combination you want and Enter to save.
 
-Anything the keyboard can produce works, including a bare function key — press `F9` and that is the binding, no modifier required. **Delete** unbinds a shortcut entirely, leaving the action reachable only from the menu. **Esc** cancels without changing anything — except when the shortcut being changed is the editor-only one, where Esc is a legal binding and you cancel by clicking away instead, and **Reset to Defaults** puts all seven back.
+Anything the keyboard can produce works, including a bare function key — press `F9` and that is the binding, no modifier required. A bare *letter or digit* is refused for the six global shortcuts, since registering one would take that key from every program on the machine, but allowed for the editor-only ten, which register nothing. **Delete** unbinds a shortcut entirely, leaving the action reachable only from the menu. **Esc** cancels without changing anything — except when the shortcut being changed is Close the Screenshot Editor itself, where Esc is a legal binding and you cancel by clicking away instead, and **Reset to Defaults** puts all sixteen back.
 
 While that window is open the app's own shortcuts stand down. They have to: a global hotkey fires before the foreground window sees the key, so otherwise pressing the shortcut you were trying to change would trigger its action instead of being captured.
 
@@ -301,11 +301,17 @@ If the clipboard write fails — another program can hold the clipboard open —
 
 ## The annotation editor
 
-Opened by the Screenshot commands. Eight tools: **arrow, rectangle, ellipse, line, freehand pen, text, lift, crop**, with a colour swatch and a stroke-width slider (the slider also sets text size).
+Opened by the Screenshot commands. Eight tools, left to right: **rectangle, ellipse, arrow, line, freehand pen, text, lift, crop**, with a colour swatch and a stroke-width slider before them (the slider also sets text size).
+
+Press **1** to **8** to pick a tool — the digit is its position on the bar, so rectangle is 1 — and **9** to toggle Keep the Editor on Top. All nine are rebindable under *Change Keyboard Shortcut → Only inside the editor*, and hovering a button names its current key. Bare digits are safe here because these shortcuts are editor-local: they are never registered system-wide, and the editor ignores them entirely while you are typing a text label.
+
+Marks are drawn in **blue (#007AFF)** until you pick something else from the swatch.
 
 Everything on the bar is an icon with a tooltip. Along the top: Undo and Redo on the left, the **Keep the Editor on Top** toggle in the centre, Copy and Save on the right. Along the bottom: the colour swatch, the width slider, and the eight tools. Every glyph is drawn in GDI — there is no image resource anywhere in this program.
 
 ![The editor toolbar, drawn to scale](docs/editor-toolbar.png)
+
+> The picture is from 1.8.2 and shows the **old** tool order (arrow first). The order in 1.9.5 is rectangle, ellipse, arrow, then line onwards as shown. Everything else about it is current.
 
 ### Keep the Editor on Top
 
@@ -360,6 +366,8 @@ The tool reverts to Arrow once the crop lands, since it is an action rather than
 | **Ctrl+Shift**-drag | filled square | filled circle |
 
 Shift always constrains the geometry — 45° on a line or arrow, 1:1 on a rectangle, ellipse, lift or crop — which is what it does in every other drawing application. Ctrl changes what you get: a fill here, a copy on Lift. They compose, so there is nothing extra to learn for the fourth row. The canvas shows a hint along the bottom while one of these tools is selected, so none of it is a secret.
+
+Once you know them, **Show Tool Hints in the Editor** in the tray menu turns that line off. Switching it off hides a reminder rather than the only copy: the modifiers are documented here, every binding is listed under *Change Keyboard Shortcut*, and the tooltips name each tool's key.
 
 A filled rectangle is also how you redact something. Worth knowing why it is a flat fill and not a blur: pixelation and blur both *look* like protection while leaving the original recoverable. A screenshot has a known font at a known size, so the attack is not to invert the blur but to run it forwards — render candidate text, pixelate it on the same grid, compare, one glyph at a time. A flat fill's output does not depend on the pixels underneath, so there is nothing to work back from.
 
@@ -565,7 +573,7 @@ docs/RELEASING.md     how a version is cut
 
 - **[Architecture](docs/ARCHITECTURE.md)** — how it works, the interesting problems, and the bugs worth knowing about
 - **[Changelog](CHANGELOG.md)** — release history
-- **[Release notes](docs/)** — one file per release, `RELEASE-NOTES-v*.md`. Newest: **[v1.9.4](docs/RELEASE-NOTES-v1.9.4.md)**
+- **[Release notes](docs/)** — one file per release, `RELEASE-NOTES-v*.md`. Newest: **[v1.9.5](docs/RELEASE-NOTES-v1.9.5.md)**
 - **[Disclaimer](DISCLAIMER.md)** — no-warranty and liability terms, including what you are responsible for when you record a screen
 
 ## Troubleshooting

@@ -8,6 +8,99 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.9.5] — 2026-09-30
+
+Number keys for the tools, a reordered toolbar, a blue default, and the hint
+line is now switchable. See [the release notes](docs/RELEASE-NOTES-v1.9.5.md).
+
+### Added
+
+- **Number-key shortcuts inside the editor.** `1`–`8` select the eight tools
+  left to right, `9` toggles Keep the Editor on Top. All nine are rebindable
+  under *Change Keyboard Shortcut → Only inside the editor*, below Esc.
+
+  Bare digits are only defensible because these are **editor-local**: they
+  are never handed to `RegisterHotKey`, so they take nothing away from any
+  other program, and the editor's key handler stands down entirely while a
+  text label is being typed — so typing "3 items" into a label does not
+  switch tools.
+
+  Both the tool and pin shortcuts dispatch by **sending the same `WM_COMMAND`
+  the button click sends** rather than repeating what it does. Selecting a
+  tool has to commit an open label and return focus; Pin has to write the
+  setting the way the tray row writes it and tell every other open editor.
+- **Tool button tooltips now name their key**, read from the live binding
+  rather than written as a literal digit, and rebuilt when a binding changes.
+  A tooltip naming last week's shortcut is worse than one naming none.
+- **Show Tool Hints in the Editor**, a new tray menu row, on by default.
+  Switches off the one-line modifier hint along the bottom of the canvas.
+
+  A menu row rather than a toolbar button: the bar is eight tools and five
+  commands, all of them things you *do*, and a preference that changes what
+  the window says is a different kind of thing. It also costs no width on a
+  bar whose minimum already sets the editor's minimum window size. Chosen
+  over a wiki page because a page does not reduce clutter and nobody reads
+  documentation mid-capture — though the information is now written down in
+  three places regardless: the menu, the tooltips, and the README.
+
+### Changed
+
+- **The default annotation colour is blue (#007AFF), was green (#34C759).**
+  Already one of the nine swatch presets, so the grid shows the default as
+  selected rather than as a tenth colour nobody picked. Deliberately *not*
+  the system accent the selection chrome uses: they look alike, which is the
+  point, but a mark drawn in exactly the selection colour would be hard to
+  tell from its own dashed rectangle and handles.
+- **Toolbar order is now Rectangle, Ellipse, Arrow, Line, Pen, Text, Lift,
+  Crop.** The two shapes people reach for most are now first, next to the
+  slider that sizes them.
+
+  Done by reordering the `Tool` enum rather than adding a display-order
+  array, which makes enum order, toolbar order and digit order one list
+  instead of three. Safe because nothing stores a tool as a number — the
+  persisted setting is a string, button ids are rebuilt every launch, and
+  every switch is by name.
+- Four copies of the default colour across three headers collapsed into one
+  definition, in `Annotation.h`, where the default colour of an Annotation
+  belongs.
+
+### Fixed
+
+- **A menu command id collision that would have shipped.**
+  `ID_SHORTCUT_BASE` was 1080 with room for the seven actions of the day.
+  Going to sixteen ran it to 1095 — straight through
+  `ID_ENGINE_AUTO`/`WINDOWS`/`TESSERACT` at 1090–1092. Three of the new
+  shortcut rows would have silently changed the OCR engine, and picking an
+  OCR engine would have opened a rebind dialog. Nothing would have warned:
+  menu command ids are plain `int`s and a collision is just two names for
+  one number. Moved to 1300, clear of every other block, with a
+  `static_assert` so the next one fails at compile time instead.
+- `IsGlobal` was `action != CloseEditor` — a list of exceptions. Adding nine
+  editor-only actions to that would have registered **bare 1–9 as
+  system-wide hotkeys**, taking those keys from every program on the
+  machine. Restated as a threshold, which cannot be forgotten when the next
+  editor-only action is appended.
+- **Pressing Esc to cancel a tool rebind would have bound Esc to that tool
+  and silently destroyed Esc-to-close.** The rebind window's Esc-cancels
+  gate was `IsGlobal(action)`, correct only while `CloseEditor` was the sole
+  local action; the `IsGlobal` rewrite above widened that exception to all
+  ten. Esc would have been recorded as the candidate binding, Enter would
+  have committed it, and the de-confliction pass would then have found
+  `CloseEditor` holding Esc *in the same scope* and unbound it — so trying
+  to back out of a rebind would have permanently removed Esc-to-close,
+  without a word. Now tested against `CloseEditor` by name, which is the
+  only action the exception was ever for. The footer text uses the same
+  condition, because it is the only warning the window gives.
+- `hotkeys::kToolActionCount == kToolCount` is now a `static_assert`. It was
+  declared and documented as the invariant holding the two enums together,
+  and enforced nowhere: a ninth tool would have got no shortcut, no
+  dispatch, and `SelectTool1 + 8` — which is `TogglePin` — printing Pin's
+  key in its tooltip. A wrong but plausible string is worse than a crash.
+- `docs/ARCHITECTURE.md`'s section on non-global shortcuts described one
+  action, `WM_KEYDOWN` instead of `PreTranslateMessage`, and contradicted
+  itself two paragraphs later. Rewritten, and the number keys, the toolbar
+  order invariant and the hint setting are now documented there.
+
 ## [1.9.4] — 2026-09-30
 
 Feedback for the keyboard shortcuts. See
@@ -1604,7 +1697,8 @@ The short version: the app model, the confirmation surface, the recording
 indicator, the hotkeys, the container format, the OCR engine and the editor's
 Y axis all changed because the platform is different. Nothing else did.
 
-[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.9.4...HEAD
+[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.9.5...HEAD
+[1.9.5]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.5
 [1.9.4]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.4
 [1.9.3]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.3
 [1.9.2]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.2

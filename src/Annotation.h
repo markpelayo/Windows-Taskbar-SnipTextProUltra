@@ -36,7 +36,23 @@ namespace Gdiplus { class Graphics; class Image; }
 // and no Annotation is ever committed — the only thing it draws is the
 // marquee while the drag is happening. It lives in this enum because the
 // toolbar is built from it, which is cheaper than a second kind of button.
-enum class Tool { Arrow, Rectangle, Ellipse, Line, Pen, Text, Lift, Crop };
+// THE ORDER OF THIS ENUM IS THE ORDER OF THE TOOLBAR, AND THE ORDER OF THE
+// NUMBER KEYS. Three things, one list. Tool N is the Nth button from the left
+// and is selected by pressing N+1 — so Rectangle is first, and is 1.
+//
+// That is a real constraint, and it is deliberate. The alternative was a
+// separate display-order array, which would have let the enum keep a stable
+// numbering; it was rejected because every one of the four casts that convert
+// between a tool and a button index is a round trip through this order, and
+// two orders would mean every one of them needs to say which it means.
+//
+// It is safe to reorder because nothing stores a tool as a NUMBER. The
+// persisted setting goes through ToolKeyValue/ToolFromKeyValue as a string,
+// the button IDs are IDC_TOOL_FIRST + index and are rebuilt every time, and
+// every switch over this enum is by name. Reordering it moved the buttons in
+// 1.9.5 and changed nothing else — but if a numeric form of a tool is ever
+// written to the registry or a file, that stops being true.
+enum class Tool { Rectangle, Ellipse, Arrow, Line, Pen, Text, Lift, Crop };
 
 // The toolbar builds its buttons, maps their command IDs back to tools, and
 // sizes its button array from this. It was a literal 6 in four separate
@@ -93,6 +109,22 @@ inline constexpr bool ToolHasCanvasHint(Tool tool) {
     return ToolSnapsToAxis(tool) || ToolConstrainsToSquare(tool);
 }
 
+// The colour a mark is drawn in until told otherwise.
+//
+// #007AFF, the palette's blue, changed from #34C759 green in 1.9.5. It is
+// already one of the nine swatch presets, so the grid shows the default as
+// selected rather than as a tenth colour nobody picked.
+//
+// Deliberately NOT the system accent that the selection chrome uses. They
+// look alike, which is the point — but a mark drawn in exactly the selection
+// colour would be hard to tell apart from its own dashed selection rectangle
+// and handles the moment you clicked it.
+//
+// One definition, here. Four copies of this fact were spread over three
+// headers, and the whole reason this is the model's header is that
+// EditorSettings.h includes this one, not the other way round.
+inline constexpr COLORREF kDefaultAnnotationColour = RGB(0, 122, 255);  // #007AFF
+
 const wchar_t* ToolKeyValue(Tool tool);     // the persisted string
 const wchar_t* ToolTitle(Tool tool);
 Tool           ToolFromKeyValue(const std::wstring& value);
@@ -114,7 +146,7 @@ enum class Handle {
 
 struct Annotation {
     Tool                tool      = Tool::Arrow;
-    COLORREF            colour    = RGB(52, 199, 89);
+    COLORREF            colour    = kDefaultAnnotationColour;
     double              lineWidth = 4.0;      // image pixels, not points
     PointD              start;
     PointD              end;

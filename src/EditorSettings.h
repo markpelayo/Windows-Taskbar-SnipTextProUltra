@@ -13,7 +13,12 @@ namespace editor_settings {
 
 // The nine preset colours offered by the swatch grid, in grid order.
 extern const COLORREF kPresetColours[9];
-constexpr COLORREF kDefaultColour = RGB(52, 199, 89);   // #34C759
+// Defined in Annotation.h, where the default belongs: it is the colour an
+// Annotation is born with. Aliased here so existing callers read naturally.
+// Named differently from the global on purpose: an unqualified name that
+// matches one at global scope is how this project has broken its own build
+// twice (C4459).
+constexpr COLORREF kDefaultColour = kDefaultAnnotationColour;
 
 // Stroke width is in image pixels, so the default has to scale with the
 // display: a 4-pixel stroke on a 200% monitor is a hairline.

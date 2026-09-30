@@ -716,6 +716,7 @@ EditorWindow::EditorWindow(std::unique_ptr<Bitmap> image, CloseCallback onClose)
     currentColour_    = editor_settings::Colour();
     currentLineWidth_ = editor_settings::LineWidth();
     textEntryColour_  = currentColour_;
+    showHints_        = settings::GetBool(settings::key::kShowToolHints, true);
     // The whole capture, until the crop tool says otherwise.
     if (image_) crop_ = util::MakeRect(0, 0, image_->Width(), image_->Height());
     LiveEditors().push_back(this);
@@ -978,6 +979,11 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
                 ::SendMessageW(tooltips_, TTM_ADDTOOLW, 0,
                                reinterpret_cast<LPARAM>(&info));
             };
+            // Placeholders. RefreshToolTooltips below replaces each one
+            // with the same name plus its current key, the way the pin
+            // button is handled — because both have to be rewritten when
+            // the binding changes, and a tooltip that names last week's
+            // shortcut is worse than one that names none.
             for (int i = 0; i < kToolCount; ++i) {
                 addTip(toolButtons_[i], ToolTitle(static_cast<Tool>(i)));
             }
@@ -996,6 +1002,7 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
                                     ::GetModuleHandleW(nullptr), this);
 
         LayoutChildren();
+        RefreshToolTooltips();
         RefreshToolbarState();
         return 0;
     }
@@ -1306,11 +1313,18 @@ void EditorWindow::UpdatePinTooltip() {
     // "Off" after you switched it on is worse than no tooltip: the button
     // is telling the truth and the label is contradicting it.
     const bool on = settings::GetBool(settings::key::kPinToScreen, false);
-    const wchar_t* text =
+    pinTooltip_ =
         on ? L"Keep the Editor on Top: On — this window stays above other "
-             L"windows.  Click to turn off."
+             L"windows.  Click to turn off"
            : L"Keep the Editor on Top: Off — this window behaves normally.  "
-             L"Click to turn on.";
+             L"Click to turn on";
+
+    // The key too, read from the binding rather than written as "9", so a
+    // rebind is reflected and an unbind says nothing instead of lying.
+    const hotkeys::Binding binding = hotkeys::Current(hotkeys::Action::TogglePin);
+    if (binding.IsBound()) pinTooltip_ += L", or press " + hotkeys::Describe(binding);
+    pinTooltip_ += L".";
+    const wchar_t* text = pinTooltip_.c_str();
 
     TOOLINFOW info{};
     info.cbSize   = sizeof(info);
@@ -1406,6 +1420,37 @@ bool EditorWindow::HandleEditorKey(UINT key, UINT modifiers) {
         ::PostMessageW(hwnd_, WM_CLOSE, 0, 0);
         return true;
     }
+
+    // The number keys: 1-8 pick a tool, 9 toggles Keep the Editor on Top.
+    //
+    // Deliberately LAST. Everything above is an escape hatch — a label
+    // being typed, or a selection to drop — and those have to win, because
+    // the textEntryActive_ guard at the top of this function is the only
+    // thing standing between a bare "3" and a label that says "3 items"
+    // turning into a tool change.
+    //
+    // Both branches SEND the same WM_COMMAND the button click sends rather
+    // than repeating what it does. Tool selection has to commit an open
+    // label and hand focus back; Pin has to write the setting the way the
+    // tray row writes it and tell every other open editor. Two copies of
+    // either would drift, and a send is safe here because this runs from
+    // the message loop rather than from inside another handler.
+    for (int i = 0; i < hotkeys::kActionCount; ++i) {
+        const hotkeys::Action action = hotkeys::kAllActions[i];
+        if (!hotkeys::IsToolAction(action)) continue;
+        if (!hotkeys::Matches(action, key, modifiers)) continue;
+        const int index = hotkeys::ToolActionIndex(action);
+        if (index < 0 || index >= kToolCount) continue;
+        ::SendMessageW(hwnd_, WM_COMMAND,
+                       static_cast<WPARAM>(IDC_TOOL_FIRST + index), 0);
+        return true;
+    }
+
+    if (hotkeys::Matches(hotkeys::Action::TogglePin, key, modifiers)) {
+        ::SendMessageW(hwnd_, WM_COMMAND, static_cast<WPARAM>(IDC_PINTOGGLE), 0);
+        return true;
+    }
+
     return false;
 }
 
@@ -1420,6 +1465,73 @@ void EditorWindow::PinSettingChanged() {
         // Live, not on next open. The point of a switch in the window is
         // seeing the window obey it.
         editor->ApplyAlwaysOnTop();
+    }
+}
+
+// The seam between the two enums, enforced rather than described.
+//
+// This translation unit is the only one that sees both headers, which is why
+// the check lives here rather than in either of them. Without it, adding a
+// ninth tool fails in the quietest possible way: the ninth button gets no
+// shortcut, the dispatch loop below silently never matches it, and
+// RefreshToolTooltips computes SelectTool1 + 8 — which is TogglePin — and
+// prints Pin's key in the ninth tool's tooltip. A wrong but entirely
+// plausible string is worse than a crash.
+static_assert(hotkeys::kToolActionCount == kToolCount,
+              "Every tool needs a SelectToolN action, and vice versa.");
+
+void EditorWindow::RefreshToolTooltips() {
+    if (!tooltips_) return;
+
+    // The name plus the key, and the key comes from the BINDING rather than
+    // being written as a literal digit — so a rebound tool is described
+    // correctly and an unbound one says nothing rather than lying.
+    //
+    // This is the other half of what makes the hint bar safe to switch off:
+    // hovering a button still tells you its shortcut, so turning hints off
+    // hides a convenience, not the only copy of the information.
+    for (int i = 0; i < kToolCount; ++i) {
+        if (!toolButtons_[i]) continue;
+
+        toolTips_[i] = ToolTitle(static_cast<Tool>(i));
+        const hotkeys::Action action = static_cast<hotkeys::Action>(
+            static_cast<int>(hotkeys::Action::SelectTool1) + i);
+        const hotkeys::Binding binding = hotkeys::Current(action);
+        if (binding.IsBound()) {
+            toolTips_[i] += L"  (" + hotkeys::Describe(binding) + L")";
+        }
+
+        TOOLINFOW info{};
+        info.cbSize   = sizeof(info);
+        info.uFlags   = TTF_IDISHWND | TTF_SUBCLASS;
+        info.hwnd     = hwnd_;
+        info.uId      = reinterpret_cast<UINT_PTR>(toolButtons_[i]);
+        info.lpszText = const_cast<LPWSTR>(toolTips_[i].c_str());
+        ::SendMessageW(tooltips_, TTM_UPDATETIPTEXTW, 0,
+                       reinterpret_cast<LPARAM>(&info));
+    }
+}
+
+void EditorWindow::ShortcutsChanged() {
+    // Called after a rebind or a reset. Nothing about the editor's BEHAVIOUR
+    // needs updating — HandleEditorKey asks hotkeys:: for the current
+    // binding every time a key arrives — so this is purely about the two
+    // places that had to copy a binding into a string in order to show it.
+    for (EditorWindow* editor : LiveEditors()) {
+        if (!editor || !editor->hwnd_) continue;
+        editor->RefreshToolTooltips();
+        editor->UpdatePinTooltip();
+    }
+}
+
+void EditorWindow::HintSettingChanged() {
+    const bool show = settings::GetBool(settings::key::kShowToolHints, true);
+    for (EditorWindow* editor : LiveEditors()) {
+        if (!editor) continue;
+        editor->showHints_ = show;
+        // The hint is painted by the canvas, so this is the one thing that
+        // has to be repainted — not the toolbar, which says nothing about it.
+        if (editor->canvas_) ::InvalidateRect(editor->canvas_, nullptr, FALSE);
     }
 }
 
@@ -2377,7 +2489,9 @@ void EditorWindow::PaintCanvas(HDC dc) {
         // "Cut", "Rectangle", "Square" and "Filled Square". That is more
         // discoverable and costs five more buttons. This says the same
         // thing for no width at all.
-        if (ToolHasCanvasHint(currentTool_) && !hasDraft_) {
+        // showHints_ last of the three, so the common cases short-circuit
+        // before it: mid-drag, or a tool with nothing to say.
+        if (ToolHasCanvasHint(currentTool_) && !hasDraft_ && showHints_) {
             // One line per tool with something to explain. Every line names
             // Shift first and in the same position, because after 1.9.3 it
             // means the same thing on all six of them — and a hint bar that

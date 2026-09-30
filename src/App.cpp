@@ -40,6 +40,7 @@ enum : int {
     // ID_SET_JOINWRAPPED was here; Text Layout replaced the checkbox with the
     // two rows below. The slot is kept so ID_SET_AUTOSAVE keeps its number.
     ID_SET_LAYOUT_RETIRED, ID_SET_AUTOSAVE, ID_SET_PIN, ID_PIN_RETIRED_1015,
+    ID_SET_HINTS,
     ID_FOLDER_SHOT_CHOOSE = 1020, ID_FOLDER_SHOT_RESET,
     ID_FOLDER_TEXT_CHOOSE, ID_FOLDER_TEXT_RESET,
     ID_FOLDER_VIDEO_CHOOSE, ID_FOLDER_VIDEO_RESET,
@@ -53,7 +54,6 @@ enum : int {
     // that CUSTOM and PREVIEW keep the numbers they have always had.
     ID_SHUTTER_OFF = 1074, ID_SHUTTER_RETIRED_1075, ID_SHUTTER_CUSTOM, ID_SHUTTER_PREVIEW,
     ID_ENGINE_AUTO = 1090, ID_ENGINE_WINDOWS, ID_ENGINE_TESSERACT,
-    ID_SHORTCUT_BASE  = 1080,   // + index into hotkeys::kAllActions
     ID_FPS_BASE      = 1100,   // + index into kFrameRateChoices
     ID_QUALITY_BASE  = 1110,   // + index
     ID_AUDIO_NONE    = 1120,
@@ -61,7 +61,33 @@ enum : int {
     ID_DELAY_BASE    = 1200,   // + index into kStartupDelayChoices
     ID_TONE_BASE     = 1210,   // + index into capture::shutter, 5 of them
     ID_COMPRESSION_BASE = 1220, // + index into video::Compression
+
+    // + index into hotkeys::kAllActions. LAST, and far out of everyone's
+    // way, because it is the only block here that grows when a feature is
+    // added rather than when hardware is plugged in.
+    //
+    // It was 1080, which had room for the seven actions of the day and
+    // stopped at 1086. Going to sixteen in 1.9.5 would have run it to 1095,
+    // straight through ID_ENGINE_AUTO/WINDOWS/TESSERACT at 1090-1092 — so
+    // three of the new shortcut rows would have silently changed the OCR
+    // engine, and picking an OCR engine would have opened a rebind dialog.
+    // Nothing would have warned: menu command ids are plain ints and a
+    // collision is just two names for one number.
+    ID_SHORTCUT_BASE = 1300,
 };
+
+// The guards the 1080 collision did not have. The microphone list — the only
+// block whose length the machine decides rather than we do — is explicitly
+// capped at ID_DELAY_BASE by its own handler, so it needs no assert of its
+// own; the rest are compile-time sizes.
+static_assert(ID_SHORTCUT_BASE > ID_COMPRESSION_BASE + 3,
+              "ID_SHORTCUT_BASE must sit clear of the compression block.");
+static_assert(ID_SHORTCUT_BASE > ID_DELAY_BASE + 6,
+              "ID_SHORTCUT_BASE must sit clear of the startup-delay block.");
+// And the growth that actually broke: the shortcut block is the only one
+// here whose length is a compile-time constant we keep increasing.
+static_assert(ID_SHORTCUT_BASE + hotkeys::kActionCount < 1400,
+              "The shortcut block has outgrown the space reserved for it.");
 
 const int kStartupDelayChoices[6] = { 5, 10, 15, 20, 30, 60 };
 
@@ -598,6 +624,15 @@ LRESULT App::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         // into a build failure, which is exactly the reminder you want the
         // next time an action is added.
         case hotkeys::Action::CloseEditor:
+        case hotkeys::Action::SelectTool1:
+        case hotkeys::Action::SelectTool2:
+        case hotkeys::Action::SelectTool3:
+        case hotkeys::Action::SelectTool4:
+        case hotkeys::Action::SelectTool5:
+        case hotkeys::Action::SelectTool6:
+        case hotkeys::Action::SelectTool7:
+        case hotkeys::Action::SelectTool8:
+        case hotkeys::Action::TogglePin:
             return 0;
         }
         return 0;
@@ -882,6 +917,24 @@ HMENU App::BuildMenu() {
     AppendCommand(menu, ID_SET_PIN, L"Keep the Editor on Top", true,
                   settings::GetBool(settings::key::kPinToScreen, false));
 
+    // The hint line along the bottom of the canvas — "Shift for a square",
+    // and so on. On by default, and switchable off because it is teaching
+    // material: useful exactly until you know it, and clutter for every
+    // capture after that.
+    //
+    // A menu row rather than a toolbar button. The bar is eight tools and
+    // five commands already, all of them things you DO; a preference that
+    // changes what the window says is a different kind of thing and belongs
+    // where the other preferences are. It also costs no width on a bar whose
+    // minimum width already sets the editor's minimum window size.
+    //
+    // Switching it off does not hide the information, which is the other
+    // half of why this is safe: every tool's modifiers are written down in
+    // Change Keyboard Shortcut and in the tooltips, so the hint bar is the
+    // convenient copy, not the only one.
+    AppendCommand(menu, ID_SET_HINTS, L"Show Tool Hints in the Editor", true,
+                  settings::GetBool(settings::key::kShowToolHints, true));
+
     // --- where the three capture commands write ---
     // Collected under one row. Three top-level folder rows, each able to grow
     // a ": FolderName" suffix, were the second-widest thing in the menu after
@@ -1033,6 +1086,7 @@ HMENU App::BuildMenu() {
         && !settings::GetBool(settings::key::kSaveCaptures, false)
         && !settings::GetBool(settings::key::kSkipEditor, false)
         && !settings::GetBool(settings::key::kPinToScreen, false)
+        &&  settings::GetBool(settings::key::kShowToolHints, true)
         &&  settings::GetInt(settings::key::kStartupDelay, 0) == 0
         && !settings::IsRunAtStartupEnabled()
         &&  video::IsDefault()
@@ -1191,6 +1245,8 @@ void App::OnCommand(int command) {
             // returns, so the new one needs a fresh pass to take effect.
             hotkeys::Unregister(hwnd_);
             hotkeys::Register(hwnd_);
+            // An open editor is showing the OLD key in its tooltips.
+            EditorWindow::ShortcutsChanged();
         }
         return;
     }
@@ -1306,6 +1362,18 @@ void App::OnCommand(int command) {
         EditorWindow::PinSettingChanged();
         return;
     }
+    case ID_SET_HINTS: {
+        const bool on = !settings::GetBool(settings::key::kShowToolHints, true);
+        // INVERTED against every other row here, because this is the one
+        // setting whose default is true. The rule being preserved is "at the
+        // default means nothing stored", which is what Sanitize's
+        // atDefaults test depends on — so it is the OFF state that gets
+        // written, and switching back on removes the value.
+        if (on) settings::Remove(settings::key::kShowToolHints);
+        else    settings::SetBool(settings::key::kShowToolHints, false);
+        EditorWindow::HintSettingChanged();
+        return;
+    }
 
 
     case ID_FOLDER_SHOT_CHOOSE:  ChooseFolder(MediaFolder::Screenshots()); return;
@@ -1333,6 +1401,7 @@ void App::OnCommand(int command) {
         hotkeys::ResetAll();
         hotkeys::Unregister(hwnd_);
         hotkeys::Register(hwnd_);
+        EditorWindow::ShortcutsChanged();
         return;
 
     case ID_ABOUT:
@@ -1770,8 +1839,9 @@ void App::Sanitize() {
     }
     message += L"These settings return to their defaults:\r\n"
                L"    • the three folder locations\r\n"
-               L"    • all seven keyboard shortcuts\r\n"
+               L"    • all sixteen keyboard shortcuts\r\n"
                L"    • Text Layout, Shutter Sound, After a Screenshot, Auto-Save\r\n"
+               L"    • Keep the Editor on Top, Show Tool Hints\r\n"
                L"    • all Screen Recording Settings\r\n"
                L"    • the annotation tool, colour and stroke width\r\n"
                L"    • Run at Startup (switched off)";
@@ -1843,6 +1913,8 @@ void App::Sanitize() {
     settings::Remove(settings::key::kSaveCaptures);
     settings::Remove(settings::key::kPinToScreen);
     EditorWindow::PinSettingChanged();
+    settings::Remove(settings::key::kShowToolHints);
+    EditorWindow::HintSettingChanged();
     settings::Remove(settings::key::kSkipEditor);
     settings::Remove(settings::key::kStartupDelay);
     video::RestoreDefaults();
@@ -1852,6 +1924,7 @@ void App::Sanitize() {
     // window and would otherwise keep firing until the next launch.
     hotkeys::Unregister(hwnd_);
     hotkeys::Register(hwnd_);
+    EditorWindow::ShortcutsChanged();
 
     // Removes the override and recreates the default directory, so the three
     // folders exist afterwards even if they didn't before.

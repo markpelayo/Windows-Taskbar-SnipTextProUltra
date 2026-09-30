@@ -1,5 +1,5 @@
-// Hotkeys.h — the seven rebindable shortcuts. Six are global; the last is
-// matched inside the editor. See IsGlobal below for why that distinction
+// Hotkeys.h — the sixteen rebindable shortcuts. Six are global; the other ten
+// are matched inside the editor. See IsGlobal below for why that distinction
 // is not a detail.
 //
 // A binding is a modifier mask plus a virtual-key code. Both halves are
@@ -33,10 +33,44 @@ enum class Action {
     // be — its default is Esc on its own, and a system-wide Esc would be a
     // catastrophe. It is checked by the editor's own key handler instead.
     CloseEditor,
+
+    // --- the editor's number keys, added in 1.9.5 ---------------------------
+    //
+    // APPENDED, never inserted, and that is not a style preference. The
+    // enum's integer value is the registry value name (`hotkey7`) AND, for
+    // the global six, the digit in their own default (Ctrl+Shift+N is derived
+    // from the value). Inserting anything above CloseEditor would silently
+    // re-point every stored binding at a different action and change what
+    // the defaults are.
+    //
+    // Eight tools then Pin, in the order they sit on the toolbar, because
+    // that is what makes "the third button is 3" true without a lookup
+    // table. Tool order is the Tool enum's order — see the note on it in
+    // Annotation.h — so SelectTool1 is the first button, whatever that is.
+    SelectTool1,
+    SelectTool2,
+    SelectTool3,
+    SelectTool4,
+    SelectTool5,
+    SelectTool6,
+    SelectTool7,
+    SelectTool8,
+    TogglePin,
 };
 
-constexpr int kActionCount = 7;
+constexpr int kActionCount = 16;
 extern const Action kAllActions[kActionCount];
+
+// The eight tool-selection actions, as a 0-based toolbar index.
+//
+// This is the seam between two enums that must stay aligned: Action's eight
+// SelectToolN and Tool's eight tools. The index is the only thing that
+// crosses it, so the editor converts index -> Tool and hotkeys never needs
+// to know what a Tool is.
+constexpr int kToolActionCount = 8;
+bool IsToolAction(Action action);
+// 0..7 for a tool action, -1 for anything else.
+int  ToolActionIndex(Action action);
 
 // Whether an action is registered system-wide. False means the window that
 // cares about it looks for the key itself, so the binding is rebindable and

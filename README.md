@@ -570,8 +570,10 @@ docs/RELEASING.md     how a version is cut
 ## Documentation
 
 - **[Architecture](docs/ARCHITECTURE.md)** — how it works, the interesting problems, and the bugs worth knowing about
+- **[The tray menu](docs/tray-menu.md)** — the whole menu laid out, with what every row is for
 - **[Changelog](CHANGELOG.md)** — release history
 - **[Release notes](docs/)** — one file per release, `RELEASE-NOTES-v*.md`. Newest: **[v1.9.7](docs/RELEASE-NOTES-v1.9.7.md)**
+- **[Releasing](docs/RELEASING.md)** — how a version is cut
 - **[Disclaimer](DISCLAIMER.md)** — no-warranty and liability terms, including what you are responsible for when you record a screen
 
 ## Troubleshooting

@@ -118,6 +118,19 @@ a failed auto-save, which had the identical shape.
 
 ---
 
+## New: a reference for the tray menu
+
+[`docs/tray-menu.md`](tray-menu.md) lays the whole menu out as a text
+skeleton — every row and submenu in order, with the labels that change
+according to state, and what each one is for.
+
+The menu is the entire interface outside the editor, and it had no reference
+of its own: the README explained individual settings where they came up, and
+nothing anywhere showed the *shape*. It also documents the two things about
+how the menu is built that are easy to get wrong — it is rebuilt from scratch
+on every open (so the saved-file counts cannot go stale), and its section
+headers are disabled items because Windows has no header item type.
+
 ## The toolbar figure is redrawn
 
 `docs/editor-toolbar.svg` and `.png` had not been touched since 1.8.2 and had

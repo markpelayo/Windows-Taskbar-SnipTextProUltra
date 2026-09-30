@@ -61,6 +61,11 @@ two of them capable of losing work. See
 
 ### Changed
 
+- **New: [`docs/tray-menu.md`](docs/tray-menu.md)** — the entire tray menu as
+  a text skeleton, every row and submenu in order with its state-dependent
+  labels, plus what each one is for and why. The menu is the whole interface
+  outside the editor and had no reference of its own; the README described
+  individual settings where they came up, and nothing showed the shape.
 - `docs/editor-toolbar.svg` / `.png` redrawn for the first time since 1.8.2:
   the current tool order, Rectangle shown selected, the `#007AFF` swatch,
   Crop in place of the long-removed Callout, the hint bar as it actually

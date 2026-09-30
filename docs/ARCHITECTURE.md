@@ -24,6 +24,9 @@ No Visual Studio project file. `build.bat` compiles `src/*.cpp` with `cl.exe`, l
 | `RegionOverlay.cpp` | The full-desktop selection overlay, in two styles |
 | `Ocr.cpp` | `Windows.Media.Ocr` plus reading-order sort |
 | `RecordingIndicator.cpp` | The green frame and the Stop pill shown while recording |
+
+The tray menu that `App.cpp` builds is documented row by row in [the tray menu reference](tray-menu.md).
+
 | `OcrLine.h` | One visual line: text plus bounding geometry |
 | `TextNormalizer.cpp` | Raw OCR lines → pasteable text |
 | `Clipboard.cpp` | Text clipboard write with read-back verification |

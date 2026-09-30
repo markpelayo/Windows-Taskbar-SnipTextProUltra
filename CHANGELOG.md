@@ -1793,7 +1793,6 @@ Y axis all changed because the platform is different. Nothing else did.
 [1.8.2]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.8.2
 [1.8.1]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.8.1
 [1.8.0]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.8.0
-[1.7.8]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.7.8
 [1.7.7]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.7.7
 [1.7.6]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.7.6
 [1.7.5]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.7.5

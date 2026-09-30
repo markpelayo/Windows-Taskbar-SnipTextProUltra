@@ -7,8 +7,11 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Only the release step needs write access, and only on a tag. Everything
-# else runs with the default read-only token.
+# Needed by the release step, which runs only on a tag. Declared at workflow
+# level, so it does apply to every run — including the fast build and a
+# workflow_dispatch, neither of which uses it. Worth knowing rather than
+# assuming otherwise: nothing here narrows it per job, because there is only
+# one job.
 permissions:
   contents: write
 

@@ -1,4 +1,5 @@
 build/
+build-full/
 out/
 .vs/
 *.user
@@ -11,6 +12,20 @@ out/
 *.idb
 CMakeFiles/
 CMakeCache.txt
+msbuild.log
+
+# vcpkg's installed tree, and the OCR model fetch-tessdata.ps1 downloads into
+# assets/. Both are build outputs that happen to live outside build/.
+#
+# Not optional tidiness: scripts/release.sh runs `git add -A`, so anything
+# untracked and unignored here gets swept into the release commit. Without
+# these lines, one local Tesseract build puts a 4 MB model and a whole
+# vcpkg_installed tree into a tagged release.
+vcpkg_installed/
+assets/eng.traineddata
+
+# macOS writes these into any folder it looks at.
+.DS_Store
 
 # Working notes from the port: a line-by-line reading of the macOS sources.
 # Useful while the port is still being verified, not part of the project.

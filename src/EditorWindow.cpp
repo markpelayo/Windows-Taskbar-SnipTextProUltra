@@ -1403,8 +1403,13 @@ LRESULT EditorWindow::OnSliderMessage(HWND hwnd, UINT message,
         return 1;   // fully painted above
 
     case WM_LBUTTONDOWN:
-        draggingSlider_ = true;
+        // SetCapture FIRST, then the flag — the order the canvas and the
+        // region overlay both use. SetCapture on a window that already
+        // holds the capture delivers WM_CAPTURECHANGED to it, and that
+        // handler clears this flag; setting it first would let a swallowed
+        // mouse-up leave the next drag dead on arrival.
         ::SetCapture(hwnd);
+        draggingSlider_ = true;
         SetCurrentLineWidth(SliderValueForX(GET_X_LPARAM(lParam)), false);
         ::InvalidateRect(hwnd, nullptr, FALSE);
         return 0;
@@ -1756,18 +1761,45 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
         // Capture can be taken away — Alt-Tab, a lock screen, a UAC prompt.
         // Without this the mark, handle or label keeps following the pointer
         // on every later hover, long after the button came up.
+        //
+        // This also arrives on the ordinary path, because ReleaseCapture in
+        // WM_LBUTTONUP sends it. That is why WM_LBUTTONUP reads the mode
+        // into a local first: resetting it here must not be able to cancel a
+        // drag that is in the middle of being committed.
+        //
+        // RegionOverlay::HandleMessage solves the identical problem with a
+        // releasingCapture_ flag, and documented it there first — which did
+        // not stop 1.9.0 shipping this bug nine hundred lines away. Two
+        // idioms, one hazard: a Win32 call inside a handler can send
+        // messages back into the same window before it returns.
         dragMode_ = DragMode::None;
         needsSnapshotBeforeDrag_ = false;
         dragPassedThreshold_ = false;
+        // A genuinely interrupted drag leaves a draft that nothing will ever
+        // commit, and it would keep being drawn. Safe on the normal path
+        // too: WM_LBUTTONUP moves draft_ out unconditionally.
+        hasDraft_ = false;
+        ::InvalidateRect(canvas_, nullptr, FALSE);
         return 0;
 
     case WM_LBUTTONUP: {
+        // The mode is read BEFORE the capture is released, and everything
+        // below uses the local rather than dragMode_.
+        //
+        // ReleaseCapture SENDS WM_CAPTURECHANGED synchronously, and that
+        // handler resets dragMode_ to None — so with the old order, by the
+        // time this line was reached every completed drag looked like a
+        // finished move and took the "nothing to commit" path below.
+        // Nothing was ever committed: no arrow, no rectangle, no crop, no
+        // pen stroke. The handler was added in 1.9.0 and broke all drawing.
+        const DragMode ending = dragMode_;
         ::ReleaseCapture();
+
         POINT view{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
         const PointD point = ToImagePoint(view);
         const double scale = ImageScale();
 
-        if (dragMode_ != DragMode::Drawing) {
+        if (ending != DragMode::Drawing) {
             // Covers Moving, Resizing and MovingLabel alike: the snapshot
             // was taken on the first drag event past the threshold, and
             // there is nothing to commit.
@@ -2657,6 +2689,18 @@ void EditorWindow::BeginLabelEntry(int index) {
     }
 
     BeginTextEntry(anchor);
+
+    // Re-validated, because BeginTextEntry opens with CommitTextEntry and
+    // that can ERASE an element — a Tool::Text mark committed blank is
+    // deleted rather than left as an invisible ghost. The copies above
+    // guard against the vector REALLOCATING; this guards against the index
+    // no longer existing, which is a different failure and an out-of-bounds
+    // write rather than a stale read.
+    if (index >= static_cast<int>(annotations_.size())) {
+        CancelTextEntry();
+        return;
+    }
+
     // Snapshot AFTER the field exists, not before. Snapshotting first meant
     // a failed CreateWindowEx — or an Esc — left a spent undo step that
     // visibly did nothing, and Snapshot had already cleared the redo stack.

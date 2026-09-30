@@ -17,12 +17,12 @@
 //
 // Still has to be kept in step by hand with VERSION and with
 // SnipTextProUltra.manifest — see docs/RELEASING.md.
-#define SNIPTEXT_VERSION_COMMA  1,9,0,0
-#define SNIPTEXT_VERSION_STRING "1.9.0.0"
-#define SNIPTEXT_VERSION_WIDE   L"1.9.0"
+#define SNIPTEXT_VERSION_COMMA  1,9,1,0
+#define SNIPTEXT_VERSION_STRING "1.9.1.0"
+#define SNIPTEXT_VERSION_WIDE   L"1.9.1"
 // Narrow, three-part, for the resource block's OriginalFilename, which has to
 // match the name of the file on disk — and that now carries the version.
-#define SNIPTEXT_VERSION_DOTTED "1.9.0"
+#define SNIPTEXT_VERSION_DOTTED "1.9.1"
 
 // --- which build is this? ---------------------------------------------------
 //

@@ -303,6 +303,11 @@ LRESULT RegionOverlay::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPA
         // synchronously even when we are the ones releasing, so without it
         // OnMouseUp would find its own state already wiped and every click
         // would do nothing.
+        //
+        // EditorWindow's canvas has the same hazard and solves it the other
+        // way, by reading its drag state into a local before releasing. It
+        // learned that in 1.9.1, after shipping the bug this comment had
+        // already described.
         if (releasingCapture_) return 0;
         pressedRecord_   = false;
         dragMode_        = DragMode::None;

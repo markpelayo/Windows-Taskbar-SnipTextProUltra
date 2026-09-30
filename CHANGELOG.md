@@ -8,6 +8,33 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.9.1] — 2026-09-30
+
+### Fixed
+
+- **Nothing could be drawn.** Every completed drag was discarded: no arrow,
+  no rectangle, no ellipse, no line, no pen stroke, no lifted piece — and
+  Crop drew its marquee and then did not crop. The preview during the drag
+  was correct, so the tools looked alive right up to the moment you let go.
+
+  1.9.0 added a `WM_CAPTURECHANGED` handler to the canvas, so that a drag
+  interrupted by Alt-Tab or a lock screen would not leave the mark following
+  the pointer afterwards. The handler resets `dragMode_` to `None`.
+
+  `ReleaseCapture` **sends** `WM_CAPTURECHANGED` synchronously, and
+  `WM_LBUTTONUP` called it on its first line. So by the time mouse-up got
+  round to asking what kind of drag had just finished, the answer had
+  already been overwritten — every drag looked like a completed *move*,
+  which has nothing to commit, and took that path.
+
+  `WM_LBUTTONUP` now reads the mode into a local **before** releasing the
+  capture and uses that for the rest of the handler, so a reset arriving
+  from inside `ReleaseCapture` cannot cancel a drag that is in the middle of
+  being committed.
+
+  The handler now also abandons the in-progress draft, which is what it
+  should have done for a genuine interruption in the first place.
+
 ## [1.9.0] — 2026-09-30
 
 A minor version, because a label stopped being a kind of mark and became a
@@ -1422,7 +1449,29 @@ The short version: the app model, the confirmation surface, the recording
 indicator, the hotkeys, the container format, the OCR engine and the editor's
 Y axis all changed because the platform is different. Nothing else did.
 
-[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.9.1...HEAD
+[1.9.1]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.1
+[1.9.0]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.0
+[1.8.6]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.8.6
+[1.8.5]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.8.5
+[1.8.4]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.8.4
+[1.8.3]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.8.3
+[1.8.2]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.8.2
+[1.8.1]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.8.1
+[1.8.0]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.8.0
+[1.7.8]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.7.8
+[1.7.7]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.7.7
+[1.7.6]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.7.6
+[1.7.5]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.7.5
+[1.7.4]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.7.4
+[1.7.3]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.7.3
+[1.7.2]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.7.2
+[1.7.1]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.7.1
+[1.7.0]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.7.0
+[1.6.3]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.6.3
+[1.6.2]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.6.2
+[1.6.1]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.6.1
+[1.6.0]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.6.0
 [1.5.0]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.5.0
 [1.4.0]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.4.0
 [1.3.1]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.3.1

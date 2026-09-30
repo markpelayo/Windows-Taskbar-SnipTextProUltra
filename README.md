@@ -16,7 +16,7 @@ Everything runs locally. OCR is Windows' own `Windows.Media.Ocr`, capture is GDI
 
 One executable, no installer, no third-party dependencies — nothing but the Windows SDK. The binary is statically linked, so there is no runtime to install.
 
-This is version 1.8.5. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
+This is version 1.8.6. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
 
 ### Trying it on sample text
 
@@ -48,7 +48,7 @@ A **tray icon** sits in the notification area whenever the program is running, s
 
 ### Pinning it
 
-1. Build it (below), then run `build\SnipTextProUltra_1.8.5.exe` once.
+1. Build it (below), then run `build\SnipTextProUltra_1.8.6.exe` once.
 2. Right-click its taskbar button → **Pin to taskbar**.
 
 That's it. The pinned icon is now the app.
@@ -68,7 +68,7 @@ That's it. The pinned icon is now the app.
 A `SHA-256` checksum is published beside each release binary. It is not a signature and does not pretend to be one; it only lets you confirm the file you downloaded is the file CI produced:
 
 ```
-Get-FileHash .\SnipTextProUltra_1.8.5.exe -Algorithm SHA256
+Get-FileHash .\SnipTextProUltra_1.8.6.exe -Algorithm SHA256
 ```
 
 ## Requirements
@@ -314,6 +314,23 @@ Turn it on and every annotation editor stays above other windows, so you can wor
 While it is on, the editor is left out of every capture the program takes — a window kept deliberately in front of everything else would otherwise land in every screenshot you took next, and moving it aside is the one thing you have ruled out. Switch it off and the editor appears in captures again.
 
 The setting has two switches, the menu row and the pin button in the centre of the editor's top bar, and they write the same value. Toggling either raises or lowers every open editor immediately. Switched on, the button takes the same filled face and accent ring a selected tool takes; its tooltip names the state in words.
+
+### Straight lines
+
+Hold **Shift** while drawing a **Line** or an **Arrow** and it snaps to the nearest 45° — horizontal, vertical, or either diagonal, in any direction. It follows the pointer live, so the line straightens the instant you press Shift and springs back when you let go, without releasing the mouse. It works when re-aiming an existing line by its end handle too.
+
+### Arranging and nudging
+
+Everything in the editor is an object, including a lifted piece of the picture, so anything can sit in front of or behind anything else.
+
+| Key | What it does |
+|---|---|
+| Ctrl+Up / Ctrl+Down | Bring the selection forward / send it back one step |
+| Ctrl+Shift+Up / Down | Send it all the way to the front / back |
+| Arrow keys | Nudge the selection one image pixel |
+| Shift+arrow | Nudge ten |
+
+Layering is on **Ctrl**+arrows rather than bare arrows because bare arrows nudge, which is the more common need and the one most people try first — it is also what PowerPoint and the Adobe tools use.
 
 ### Crop
 

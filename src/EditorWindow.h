@@ -122,6 +122,12 @@ private:
     void TakeDragSnapshotIfNeeded();
     void Undo();
     void Redo();
+    // Z-order. `delta` is -1 or +1 for one step; `toEnd` sends it all the
+    // way instead. The annotation array is the z-order, so this is a move
+    // within the array and nothing else.
+    void MoveSelection(int delta, bool toEnd);
+    // Arrow-key movement, in image pixels.
+    void NudgeSelection(double dx, double dy);
     void DeleteSelection();
     void ClearSelection();
 

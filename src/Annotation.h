@@ -48,7 +48,8 @@ inline constexpr int kToolCount = 9;
 // shows a hint while one of these is selected, and nothing at all while the
 // others are, so the hint line always describes the tool in hand.
 inline constexpr bool ToolHasShiftVariant(Tool tool) {
-    return tool == Tool::Lift || tool == Tool::Rectangle || tool == Tool::Ellipse;
+    return tool == Tool::Lift || tool == Tool::Rectangle || tool == Tool::Ellipse
+        || tool == Tool::Line || tool == Tool::Arrow;
 }
 
 // Which tools want a line of explanation on the canvas while they are

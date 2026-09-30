@@ -8,6 +8,40 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.8.6] — 2026-09-30
+
+### Added
+
+- **Shift snaps Line and Arrow to 45°.** Hold Shift while drawing and the
+  line locks to the nearest of the eight rays — horizontal, vertical and
+  both diagonals, in every direction. Read live, so it straightens the
+  moment Shift goes down and springs back when it comes up, without
+  releasing the button. It applies when re-aiming an existing line by its
+  end handle too, since that is the same gesture.
+
+  By projection rather than rotation: the snapped end is where the cursor
+  falls perpendicular onto the ray, so it stays beside the pointer instead
+  of swinging away at a fixed radius. Dragging roughly east gives an end
+  that tracks the cursor horizontally with its height pinned, which is what
+  the gesture is expected to feel like.
+
+  Line and Arrow only, as asked. Pen is freehand by definition, and the
+  closed shapes already use Shift for filling.
+
+- **Layering, on Ctrl+Up and Ctrl+Down.** Bring the selected mark forward or
+  send it back one step; add Shift to send it all the way. Everything in the
+  editor is an object, including a lifted piece of the picture, so anything
+  can be put in front of or behind anything else.
+
+- **Arrow keys nudge the selection** — one image pixel, ten with Shift.
+  Image pixels rather than view pixels, so a nudge on a capture shown at
+  half size moves the mark one pixel in the *file*.
+
+### Changed
+
+- The canvas hint now covers Line and Arrow, since they have a Shift
+  variant: *Drag to draw · Shift-drag to snap to 45°*.
+
 ## [1.8.5] — 2026-09-30
 
 ### Fixed

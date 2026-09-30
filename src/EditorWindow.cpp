@@ -337,6 +337,38 @@ void DrawCommandGlyph(HDC dc, Command command, const RECT& box, COLORREF ink) {
 // enabled. It is the only state that survives letting go of the mouse, so
 // it gets a doubled ring: at 34px one pixel of blue is easy to miss across
 // a desk, and two is not.
+// Constrains `to` to the nearest 45-degree ray out of `from`.
+//
+// PROJECTION rather than rotation: the snapped point is where the cursor
+// falls perpendicular onto the chosen ray, so the end of the line stays
+// beside the pointer instead of swinging away from it at a fixed radius.
+// Dragging roughly east gives end.x tracking the cursor with end.y pinned —
+// which is what "hold Shift for a straight line" is expected to feel like.
+PointD SnapToAxis(PointD from, PointD to) {
+    const double dx = to.x - from.x;
+    const double dy = to.y - from.y;
+    // Below about a pixel there is no direction to snap to, and atan2 of
+    // nearly-zero is noise that would make the line flick between axes.
+    if (std::hypot(dx, dy) < 1.0) return to;
+
+    constexpr double kPi = 3.14159265358979323846;
+    constexpr double kStep = kPi / 4.0;   // 45 degrees, so all eight rays
+    const double snapped = std::round(std::atan2(dy, dx) / kStep) * kStep;
+
+    const double ux = std::cos(snapped);
+    const double uy = std::sin(snapped);
+    // The projection is never negative: `snapped` is the NEAREST ray, so the
+    // vector is always within 22.5 degrees of it.
+    const double length = dx * ux + dy * uy;
+    return PointD{ from.x + length * ux, from.y + length * uy };
+}
+
+// Which tools that snap. Pen is freehand by definition; the closed shapes
+// use Shift for filling and a square-constraint would collide with it.
+bool ToolSnapsToAxis(Tool tool) {
+    return tool == Tool::Line || tool == Tool::Arrow;
+}
+
 // Draws into an off-screen bitmap and blits it once, on destruction.
 //
 // This is the whole of the "blinking" fix, and it is worth being precise
@@ -1601,7 +1633,13 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
 
         switch (dragMode_) {
         case DragMode::Drawing:
-            draft_.end = point;
+            // Read live, so the line straightens the moment Shift goes down
+            // and springs back the moment it comes up — without having to
+            // let go of the button.
+            draft_.end = (ToolSnapsToAxis(draft_.tool) &&
+                          (::GetKeyState(VK_SHIFT) & 0x8000) != 0)
+                             ? SnapToAxis(draft_.start, point)
+                             : point;
             if (draft_.tool == Tool::Pen && !draft_.points.empty()) {
                 const PointD& last = draft_.points.back();
                 // Skipping near-duplicates stops a slow stroke accumulating
@@ -1621,7 +1659,17 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
         case DragMode::Resizing:
             TakeDragSnapshotIfNeeded();
             if (selectedIndex_ >= 0 && selectedIndex_ < static_cast<int>(annotations_.size())) {
-                annotations_[selectedIndex_].Resize(activeHandle_, resizeOriginalRect_, point);
+                Annotation& mark = annotations_[selectedIndex_];
+                PointD target = point;
+                // The same constraint when re-aiming a line by its end, and
+                // for the same reason: it is the same gesture. The anchor is
+                // whichever end is NOT being dragged.
+                if (ToolSnapsToAxis(mark.tool) &&
+                    (::GetKeyState(VK_SHIFT) & 0x8000) != 0) {
+                    if (activeHandle_ == Handle::End)   target = SnapToAxis(mark.start, point);
+                    if (activeHandle_ == Handle::Start) target = SnapToAxis(mark.end, point);
+                }
+                mark.Resize(activeHandle_, resizeOriginalRect_, target);
             }
             break;
         default:
@@ -1658,7 +1706,13 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
         hasDraft_ = false;
         dragMode_ = DragMode::None;
         needsSnapshotBeforeDrag_ = false;
-        shape.end = point;
+        // Snapped here too, or releasing the button would drop the line back
+        // to the raw cursor position and undo the constraint at the last
+        // instant — the one frame the user is actually looking at.
+        shape.end = (ToolSnapsToAxis(shape.tool) &&
+                     (::GetKeyState(VK_SHIFT) & 0x8000) != 0)
+                        ? SnapToAxis(shape.start, point)
+                        : point;
 
         if (shape.tool == Tool::Pen) {
             // The mouse-up point is always appended, or every stroke ends
@@ -1798,6 +1852,17 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
             case 'Y': Redo(); return 0;
             case 'C': CopyToClipboard(); return 0;
             case 'S': SaveAsPng(); return 0;
+
+            // Layering. Ctrl+arrows rather than bare arrows, which are
+            // taken by nudging below — in every editor a bare arrow key
+            // moves the selection a pixel, and that is both the more
+            // common need and the one people try first. Ctrl is also what
+            // PowerPoint and the Adobe tools use for this.
+            //
+            // Up is towards the viewer, matching "bring forward". The
+            // array is back-to-front, so forward is a HIGHER index.
+            case VK_UP:   MoveSelection(+1, shift); return 0;
+            case VK_DOWN: MoveSelection(-1, shift); return 0;
             }
             return 0;
         }
@@ -1807,6 +1872,14 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
         case VK_BACK:
             DeleteSelection();
             return 0;
+
+        // A pixel at a time, ten with Shift. In IMAGE pixels, not view
+        // pixels: a nudge on a capture shown at half size should move the
+        // mark one pixel in the file, not two.
+        case VK_LEFT:  NudgeSelection(shift ? -10.0 :  -1.0, 0.0); return 0;
+        case VK_RIGHT: NudgeSelection(shift ?  10.0 :   1.0, 0.0); return 0;
+        case VK_UP:    NudgeSelection(0.0, shift ? -10.0 : -1.0); return 0;
+        case VK_DOWN:  NudgeSelection(0.0, shift ?  10.0 :  1.0); return 0;
         // Esc is not handled here at all. It runs through
         // PreTranslateMessage, so it behaves the same whether the canvas,
         // a tool button or the slider has focus — see HandleEditorKey.
@@ -2021,6 +2094,8 @@ void EditorWindow::PaintCanvas(HDC dc) {
                     ? L"Drag to copy a piece  ·  Shift-drag to cut it out"
                 : (currentTool_ == Tool::Crop)
                     ? L"Drag to keep that area  ·  Marks are kept, and Ctrl+Z undoes it"
+                : ToolSnapsToAxis(currentTool_)
+                    ? L"Drag to draw  ·  Shift-drag to snap to 45°"
                     : L"Drag for an outline  ·  Shift-drag to fill it";
 
             Gdiplus::FontFamily family(L"Segoe UI");
@@ -2196,6 +2271,42 @@ void EditorWindow::Redo() {
     scaledImage_.reset();
     UpdateTitleForCrop();
     RefreshToolbarState();
+    ::InvalidateRect(canvas_, nullptr, FALSE);
+}
+
+void EditorWindow::MoveSelection(int delta, bool toEnd) {
+    if (selectedIndex_ < 0 || selectedIndex_ >= static_cast<int>(annotations_.size())) return;
+    const int count = static_cast<int>(annotations_.size());
+    if (count < 2) return;   // nothing to move past
+
+    // The array IS the z-order: marks are drawn front to back in order, and
+    // hit-testing walks it backwards so the topmost is found first. Moving a
+    // mark in the array is the whole operation — there is no separate depth
+    // to keep in step, which is why this cannot drift out of sync with what
+    // is on screen.
+    const int from = selectedIndex_;
+    const int to   = toEnd ? (delta > 0 ? count - 1 : 0)
+                           : (std::min)(count - 1, (std::max)(0, from + delta));
+    if (from == to) return;
+
+    Snapshot();
+    Annotation moved = std::move(annotations_[from]);
+    annotations_.erase(annotations_.begin() + from);
+    annotations_.insert(annotations_.begin() + to, std::move(moved));
+    // The selection follows the mark, not the slot. Anything else means the
+    // second press of the same key moves a different mark.
+    selectedIndex_ = to;
+
+    RefreshToolbarState();
+    ::InvalidateRect(canvas_, nullptr, FALSE);
+}
+
+void EditorWindow::NudgeSelection(double dx, double dy) {
+    if (selectedIndex_ < 0 || selectedIndex_ >= static_cast<int>(annotations_.size())) return;
+    // Coalesced like a slider drag: holding an arrow key auto-repeats, and
+    // one undo step per repeat tick would bury the stack.
+    SnapshotStyleChangeIfNeeded();
+    annotations_[selectedIndex_].MoveBy(dx, dy);
     ::InvalidateRect(canvas_, nullptr, FALSE);
 }
 

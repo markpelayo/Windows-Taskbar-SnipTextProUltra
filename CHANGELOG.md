@@ -8,6 +8,51 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.9.2] — 2026-09-30
+
+### Added
+
+- **Shift gives you a perfect square or a perfect circle.** Hold it while
+  dragging a Rectangle or an Ellipse and the shape is constrained to 1:1.
+  Read live, so it squares up the moment Shift goes down and springs back
+  when it comes up, without releasing the button.
+
+  The side is the *larger* of the two spans, so the shape grows to contain
+  the drag rather than shrinking to fit inside it — it keeps up with the
+  pointer instead of lagging behind the dominant axis.
+
+### Changed
+
+- **Filling a shape moved from Shift to Ctrl.** Shift was taken, and it had
+  to be: constraining proportions is what Shift means in every drawing
+  application, and filling is not a constraint. Keeping that convention
+  intact is worth more than the one gesture.
+
+  | | drag | Shift | Ctrl | Ctrl+Shift |
+  |---|---|---|---|---|
+  | **Rectangle** | outline | square | filled | filled square |
+  | **Ellipse** | outline | circle | filled | filled circle |
+
+  Two independent switches rather than four behaviours: Shift constrains,
+  Ctrl fills. That is why the fourth column needs no explanation of its own.
+
+  Ctrl-drag was free — Ctrl+*arrows* is layering, and that is the keyboard.
+
+- **Ctrl shows the fill live in the preview**, which Shift never did: the
+  old fill was only applied at mouse-up, so the preview was always an
+  outline.
+
+  The modifier keys drive the preview themselves, on key-down and key-up as
+  well as on mouse-move. Reading them only while the pointer moves left a
+  hole: press Shift, then release the button without moving, and the last
+  frame drawn was a square while the mark committed was a rectangle. All
+  three paths now call one resolver, so preview and commit agree by
+  construction.
+
+- Lift keeps Shift for cutting. It is the one place Shift is not a
+  constraint, and it has its own hint line rather than surprising anyone
+  silently.
+
 ## [1.9.1] — 2026-09-30
 
 ### Fixed
@@ -1449,7 +1494,8 @@ The short version: the app model, the confirmation surface, the recording
 indicator, the hotkeys, the container format, the OCR engine and the editor's
 Y axis all changed because the platform is different. Nothing else did.
 
-[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.9.1...HEAD
+[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.9.2...HEAD
+[1.9.2]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.2
 [1.9.1]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.1
 [1.9.0]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.0
 [1.8.6]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.8.6

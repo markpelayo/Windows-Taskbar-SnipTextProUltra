@@ -392,11 +392,21 @@ The registry key is still `pinRegionToScreen`, a leftover from the first design.
 
 ---
 
-## Shift is the modifier, and it means one thing per tool
+## Two modifiers, and each means one thing everywhere
 
-Three tools change behaviour when Shift is held at mouse-**up**: Lift cuts instead of copying, and Rectangle and Ellipse fill instead of outlining. Read at mouse-up rather than mouse-down, so the decision is the one you were holding when you let go.
+**Shift constrains the geometry.** 45 degrees on Line and Arrow, 1:1 on Rectangle and Ellipse. That is what Shift means in every drawing application, and consistency there is worth more than any individual gesture — which is why filling, which briefly lived on Shift, moved to **Ctrl** in 1.9.2. Filling is not a constraint.
 
-`ToolHasCanvasHint()` is what the canvas hint keys off — the three Shift variants plus Crop — so the hint line always describes the tool in hand and disappears for the five that have nothing to explain. A modifier nobody knows about is a feature that does not exist.
+The two compose, so `Ctrl+Shift` needs no separate explanation: it is a filled square. Two independent switches rather than four behaviours to memorise.
+
+Lift is the one exception — its Shift cuts instead of copying, which is not a constraint. Different kind of operation, and it carries its own hint line.
+
+Both modifiers are read **live** during the drag for the preview, and again at mouse-**up** for the committed mark, by the same two predicates, so what you see while dragging is what you get when you release.
+
+`ToolHasCanvasHint()` is what the canvas hint keys off — the five Shift variants plus Crop, six in all — so the hint always describes the tool in hand and disappears for the two with nothing to explain, Pen and Text.
+
+One wrinkle worth knowing: that gate is a *Shift* predicate guarding hints which also describe **Ctrl**. It is correct only because the two fillable tools happen to be Shift tools as well. If filling ever lands on a tool with no Shift behaviour, its hint will silently not appear.
+
+`ResolveDragEnd` and `FillFromModifiers` are the single source of both answers, and they are called from three places: the mouse-move that is drawing, Shift or Ctrl changing state, and mouse-up. That third caller is why the committed mark matches the last frame previewed; the second is why it matches when the pointer never moved. Handling only mouse-move left a real hole — press Shift, release the button without moving, and you committed a rectangle while looking at a square. A modifier nobody knows about is a feature that does not exist.
 
 Filling used to be a separate `Tool::Redact`. Its only difference from Rectangle was the brush, and it forced a second hidden colour behind the swatch — black, so that redactions did not default to bright green — which meant the one control on the bar that should always mean one thing meant two. Folding it into a modifier removed the tool, the second colour and the `ToolCoversPixels` branch.
 

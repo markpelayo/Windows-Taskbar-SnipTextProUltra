@@ -97,6 +97,13 @@ private:
     void ApplyAlwaysOnTop();
     void ReturnFocusToCanvas();
 
+    // Re-resolves the in-progress draft against the modifier keys as they
+    // are RIGHT NOW. Called from the drag itself and from Shift/Ctrl going
+    // down or up, so the preview follows the keys even when the pointer is
+    // perfectly still — which is exactly what happens when you press Shift
+    // and then release the button without moving.
+    void RefreshDraftForModifiers();
+
     // Runs the editor-wide key bindings. Returns true if the key was
     // used, so the caller knows not to dispatch it.
     bool HandleEditorKey(UINT key, UINT modifiers);

@@ -45,10 +45,20 @@ enum class Tool { Arrow, Rectangle, Ellipse, Line, Pen, Text, Lift, Crop };
 // selects the wrong tool.
 inline constexpr int kToolCount = 8;
 
-// Which tools do something different when Shift is held. Lift cuts instead
-// of copying; Rectangle and Ellipse fill instead of outlining. The canvas
-// shows a hint while one of these is selected, and nothing at all while the
-// others are, so the hint line always describes the tool in hand.
+// Which tools do something different when Shift is held.
+//
+// Shift means CONSTRAIN THE GEOMETRY everywhere it can: 45 degrees on Line
+// and Arrow, 1:1 on Rectangle and Ellipse. That is what it means in every
+// drawing application, and keeping it consistent is worth more than any one
+// gesture — which is why filling moved to Ctrl in 1.9.2, where it had
+// briefly lived on Shift.
+//
+// Lift is the exception: its Shift cuts instead of copying, which is not a
+// constraint. It is a different kind of operation and it has its own hint
+// line, so at least it says so rather than surprising anyone silently.
+//
+// The canvas shows a hint while one of these is selected, and nothing at
+// all while the others are, so the hint always describes the tool in hand.
 inline constexpr bool ToolHasShiftVariant(Tool tool) {
     return tool == Tool::Lift || tool == Tool::Rectangle || tool == Tool::Ellipse
         || tool == Tool::Line || tool == Tool::Arrow;

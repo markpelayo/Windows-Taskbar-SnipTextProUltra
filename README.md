@@ -16,7 +16,7 @@ Everything runs locally. OCR is Windows' own `Windows.Media.Ocr`, capture is GDI
 
 One executable, no installer, no third-party dependencies — nothing but the Windows SDK. The binary is statically linked, so there is no runtime to install.
 
-This is version 1.9.1. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
+This is version 1.9.2. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
 
 ### Trying it on sample text
 
@@ -48,7 +48,7 @@ A **tray icon** sits in the notification area whenever the program is running, s
 
 ### Pinning it
 
-1. Build it (below), then run `build\SnipTextProUltra_1.9.1.exe` once.
+1. Build it (below), then run `build\SnipTextProUltra_1.9.2.exe` once.
 2. Right-click its taskbar button → **Pin to taskbar**.
 
 That's it. The pinned icon is now the app.
@@ -68,7 +68,7 @@ That's it. The pinned icon is now the app.
 A `SHA-256` checksum is published beside each release binary. It is not a signature and does not pretend to be one; it only lets you confirm the file you downloaded is the file CI produced:
 
 ```
-Get-FileHash .\SnipTextProUltra_1.9.1.exe -Algorithm SHA256
+Get-FileHash .\SnipTextProUltra_1.9.2.exe -Algorithm SHA256
 ```
 
 ## Requirements
@@ -350,9 +350,16 @@ Marks survive it. One straddling the new edge is clipped where the picture is an
 
 The tool reverts to Arrow once the crop lands, since it is an action rather than a mode — leaving it armed would mean the next drag silently crops again.
 
-### Filling a shape
+### Squares, circles and fills
 
-**Shift-drag** a rectangle or an ellipse and it fills with the colour you picked, instead of being drawn as an outline. Plain drag gives the outline. It is the same modifier idea as Lift, and like Lift the canvas shows a hint along the bottom while one of those tools is selected, so the shortcut is not a secret.
+| | Rectangle | Ellipse |
+|---|---|---|
+| Drag | outline | outline |
+| **Shift**-drag | **square** | **circle** |
+| **Ctrl**-drag | filled | filled |
+| **Ctrl+Shift**-drag | filled square | filled circle |
+
+Shift always constrains the geometry — 45° on a line or arrow, 1:1 here — which is what it does in every other drawing application. Ctrl always fills. They compose, so there is nothing extra to learn for the fourth row. The canvas shows a hint along the bottom while one of these tools is selected, so none of it is a secret.
 
 A filled rectangle is also how you redact something. Worth knowing why it is a flat fill and not a blur: pixelation and blur both *look* like protection while leaving the original recoverable. A screenshot has a known font at a known size, so the attack is not to invert the blur but to run it forwards — render candidate text, pixelate it on the same grid, compare, one glyph at a time. A flat fill's output does not depend on the pixels underneath, so there is nothing to work back from.
 
@@ -551,7 +558,7 @@ docs/RELEASING.md     how a version is cut
 
 - **[Architecture](docs/ARCHITECTURE.md)** — how it works, the interesting problems, and the bugs worth knowing about
 - **[Changelog](CHANGELOG.md)** — release history
-- **[Release notes](docs/)** — one file per release, `RELEASE-NOTES-v*.md`. Newest: **[v1.9.1](docs/RELEASE-NOTES-v1.9.1.md)**
+- **[Release notes](docs/)** — one file per release, `RELEASE-NOTES-v*.md`. Newest: **[v1.9.2](docs/RELEASE-NOTES-v1.9.2.md)**
 - **[Disclaimer](DISCLAIMER.md)** — no-warranty and liability terms, including what you are responsible for when you record a screen
 
 ## Troubleshooting

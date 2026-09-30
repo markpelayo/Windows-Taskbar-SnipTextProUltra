@@ -355,11 +355,54 @@ PointD SnapToAxis(PointD from, PointD to) {
     return PointD{ from.x + length * ux, from.y + length * uy };
 }
 
-// Which tools snap. Pen is freehand by definition; the closed shapes
-// use Shift for filling and a square-constraint would collide with it.
+// Constrains a dragged rectangle to 1:1 — a square, or a circle for the
+// ellipse.
+//
+// The side is the LARGER of the two spans, which is what every drawing app
+// does: the shape grows to contain the drag rather than shrinking to fit
+// inside it, so it keeps up with the pointer instead of lagging behind the
+// dominant axis. The signs are preserved, so it still opens in whichever
+// direction you are pulling.
+PointD SquareOff(PointD from, PointD to) {
+    const double dx = to.x - from.x;
+    const double dy = to.y - from.y;
+    const double side = (std::max)(std::fabs(dx), std::fabs(dy));
+    return PointD{ from.x + (dx < 0.0 ? -side : side),
+                   from.y + (dy < 0.0 ? -side : side) };
+}
+
+// The two closed shapes. They are the tools that can be squared off AND the
+// tools that can be filled — one predicate rather than two identical ones,
+// because if that ever stops being true it should be a deliberate edit.
+bool ToolIsClosedShape(Tool tool) {
+    return tool == Tool::Rectangle || tool == Tool::Ellipse;
+}
+
+// Which tools snap to 45 degrees. Pen is freehand by definition, and the
+// closed shapes constrain to 1:1 instead — a different constraint for a
+// different kind of shape, both on Shift.
 bool ToolSnapsToAxis(Tool tool) {
     return tool == Tool::Line || tool == Tool::Arrow;
 }
+
+// Where a drag's end point lands, given the tool and the modifier keys as
+// they are right now.
+//
+// One function rather than three copies. It is called from the mouse-move
+// that is drawing, from Shift or Ctrl changing state mid-drag, and again at
+// mouse-up — and the whole promise of the feature is that those three agree.
+// They agreed by inspection before; now they agree by construction.
+PointD ResolveDragEnd(Tool tool, PointD start, PointD raw) {
+    if ((::GetKeyState(VK_SHIFT) & 0x8000) == 0) return raw;
+    if (ToolSnapsToAxis(tool))   return SnapToAxis(start, raw);
+    if (ToolIsClosedShape(tool)) return SquareOff(start, raw);
+    return raw;
+}
+
+bool FillFromModifiers(Tool tool) {
+    return ToolIsClosedShape(tool) && (::GetKeyState(VK_CONTROL) & 0x8000) != 0;
+}
+
 
 // Draws into an off-screen bitmap and blits it once, on destruction.
 //
@@ -1283,11 +1326,33 @@ void EditorWindow::PinSettingChanged() {
 COLORREF EditorWindow::ActiveColour() const {
     // One colour again. This returned a separate black for the Redact tool,
     // which existed because a redaction defaulting to bright green is
-    // absurd. A Shift-filled rectangle is drawn in whatever you picked, the
+    // absurd. A Ctrl-filled rectangle is drawn in whatever you picked, the
     // same as every other mark, so there is nothing left to special-case —
     // and one swatch that always means one thing is worth more than the
     // convenience it replaced.
     return currentColour_;
+}
+
+void EditorWindow::RefreshDraftForModifiers() {
+    // Only meaningful mid-draw. A move, a resize or a label swing has no
+    // modifier behaviour, and there is no draft to re-resolve.
+    if (dragMode_ != DragMode::Drawing || !hasDraft_) return;
+
+    // Against the last pointer position, because the pointer has not moved
+    // — that is the whole point of this function. Without it the preview
+    // only caught up on the next mouse-move, so pressing Shift and then
+    // releasing the button without moving committed a shape that did not
+    // match the last frame drawn.
+    const PointD resolved = ResolveDragEnd(draft_.tool, draft_.start, dragLastPoint_);
+    const bool   fill     = FillFromModifiers(draft_.tool);
+    if (resolved.x == draft_.end.x && resolved.y == draft_.end.y &&
+        fill == draft_.filled) {
+        return;   // nothing changed; do not repaint for a key we do not use
+    }
+
+    draft_.end    = resolved;
+    draft_.filled = fill;
+    ::InvalidateRect(canvas_, nullptr, FALSE);
 }
 
 void EditorWindow::ReturnFocusToCanvas() {
@@ -1696,14 +1761,18 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
         }
 
         switch (dragMode_) {
-        case DragMode::Drawing:
-            // Read live, so the line straightens the moment Shift goes down
-            // and springs back the moment it comes up — without having to
-            // let go of the button.
-            draft_.end = (ToolSnapsToAxis(draft_.tool) &&
-                          (::GetKeyState(VK_SHIFT) & 0x8000) != 0)
-                             ? SnapToAxis(draft_.start, point)
-                             : point;
+        case DragMode::Drawing: {
+            // Shift constrains the geometry — 45 degrees on a line, 1:1 on
+            // a closed shape. Ctrl fills. Two independent switches rather
+            // than four behaviours to learn, which is why Ctrl+Shift needs
+            // no explanation of its own.
+            //
+            // Both resolved through the same pair of functions the key
+            // handlers and mouse-up use, so the preview and the committed
+            // mark agree by construction rather than by inspection.
+            draft_.end    = ResolveDragEnd(draft_.tool, draft_.start, point);
+            draft_.filled = FillFromModifiers(draft_.tool);
+
             if (draft_.tool == Tool::Pen && !draft_.points.empty()) {
                 const PointD& last = draft_.points.back();
                 // Skipping near-duplicates stops a slow stroke accumulating
@@ -1713,6 +1782,7 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
                 }
             }
             break;
+        }
         case DragMode::Moving:
             TakeDragSnapshotIfNeeded();
             if (selectedIndex_ >= 0 && selectedIndex_ < static_cast<int>(annotations_.size())) {
@@ -1819,13 +1889,11 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
         hasDraft_ = false;
         dragMode_ = DragMode::None;
         needsSnapshotBeforeDrag_ = false;
-        // Snapped here too, or releasing the button would drop the line back
-        // to the raw cursor position and undo the constraint at the last
-        // instant — the one frame the user is actually looking at.
-        shape.end = (ToolSnapsToAxis(shape.tool) &&
-                     (::GetKeyState(VK_SHIFT) & 0x8000) != 0)
-                        ? SnapToAxis(shape.start, point)
-                        : point;
+        // Resolved here too, and identically, or releasing the button would
+        // drop the shape back to the raw cursor position and undo the
+        // constraint at the last instant — the one frame the user is
+        // actually looking at.
+        shape.end = ResolveDragEnd(shape.tool, shape.start, point);
 
         if (shape.tool == Tool::Pen) {
             // The mouse-up point is always appended, or every stroke ends
@@ -1847,12 +1915,11 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
             return 0;
         }
 
-        if (shape.tool == Tool::Rectangle || shape.tool == Tool::Ellipse) {
-            // Read at mouse-UP, like Lift's Shift, so the decision is the
-            // one you were holding when you let go rather than the one you
-            // happened to start with. Both modifiers work the same way for
-            // the same reason.
-            shape.filled = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        if (ToolIsClosedShape(shape.tool)) {
+            // CTRL, not Shift. Shift was moved to squaring the shape off,
+            // which is what it means in every drawing application — and
+            // fill is not a constraint, so it had no business there.
+            shape.filled = FillFromModifiers(shape.tool);
         }
 
         if (shape.tool == Tool::Lift) {
@@ -1929,7 +1996,23 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
         return 0;
     }
 
+    // Shift or Ctrl changing state mid-drag, with the pointer still. Before
+    // WM_KEYDOWN's Ctrl block below, which returns unconditionally and would
+    // otherwise swallow a bare VK_CONTROL — and WM_KEYUP is not handled
+    // anywhere else, so this is the only place a release can be seen.
+    case WM_KEYUP:
+        if (wParam == VK_SHIFT || wParam == VK_CONTROL) {
+            RefreshDraftForModifiers();
+            return 0;
+        }
+        break;
+
     case WM_KEYDOWN: {
+        if (wParam == VK_SHIFT || wParam == VK_CONTROL) {
+            RefreshDraftForModifiers();
+            return 0;
+        }
+
         const bool control = (::GetKeyState(VK_CONTROL) & 0x8000) != 0;
         const bool shift   = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
 
@@ -2170,24 +2253,24 @@ void EditorWindow::PaintCanvas(HDC dc) {
             }
         }
 
-        // Lift is the only tool with a modifier, and a modifier nobody knows
-        // about is a feature that does not exist. Every other tool does one
+        // A modifier nobody knows about is a feature that does not exist,
+        // and there are six tools with something to say now. Every other tool does one
         // thing and needs no explanation, so rather than a permanent status
         // bar taking space from all eight, the hint appears only while the
         // tool it describes is selected, and only while nothing is being
         // dragged — by the time a drag is under way the choice has been made,
         // and the label would just sit under the cursor.
         //
-        // The alternative was a second toolbar button per variant — "Lift"
-        // and "Cut", "Rectangle" and "Filled Rectangle". That is more
-        // discoverable and costs three more buttons. This says the same
+        // The alternative was a toolbar button per variant — "Lift" and
+        // "Cut", "Rectangle", "Square" and "Filled Square". That is more
+        // discoverable and costs five more buttons. This says the same
         // thing for no width at all.
         if (ToolHasCanvasHint(currentTool_) && !hasDraft_) {
-            // One line per tool that has a modifier. A modifier nobody
-            // knows about is a feature that does not exist, and there are
-            // three of them now — Lift's cut, and fill on both closed
-            // shapes — so the line is chosen by tool rather than hardcoded
-            // to the only one that used to have one.
+            // One line per tool with something to explain: Lift's cut,
+            // Crop's whole behaviour, the 45-degree snap on Line and
+            // Arrow, and square-or-fill on the two closed shapes. Chosen
+            // by tool rather than hardcoded to the one that used to be
+            // the only one.
             const wchar_t* hint =
                 (currentTool_ == Tool::Lift)
                     ? L"Drag to copy a piece  ·  Shift-drag to cut it out"
@@ -2195,7 +2278,9 @@ void EditorWindow::PaintCanvas(HDC dc) {
                     ? L"Drag to keep that area  ·  Marks are kept, and Ctrl+Z undoes it"
                 : ToolSnapsToAxis(currentTool_)
                     ? L"Drag to draw  ·  Shift-drag to snap to 45°"
-                    : L"Drag for an outline  ·  Shift-drag to fill it";
+                : (currentTool_ == Tool::Ellipse)
+                    ? L"Drag for an outline  ·  Shift for a circle  ·  Ctrl to fill"
+                    : L"Drag for an outline  ·  Shift for a square  ·  Ctrl to fill";
 
             Gdiplus::FontFamily family(L"Segoe UI");
             Font font(&family, 12.0f, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);

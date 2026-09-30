@@ -16,7 +16,7 @@ No Visual Studio project file. `build.bat` compiles `src/*.cpp` with `cl.exe`, l
 | `App.cpp` | The flyout menu, hotkeys, both capture pipelines, recording state |
 | `framework.h` | Windows configuration macros and the RAII wrappers |
 | `Util.cpp` | Strings, code points, paths, time, DPI, geometry |
-| `Hotkeys.cpp` | The sixteen shortcuts: bindings, persistence, and the rebinding window |
+| `Hotkeys.cpp` | The seventeen shortcuts: bindings, persistence, and the rebinding window |
 | `Settings.cpp` | Registry-backed settings, and Run-at-Startup |
 | `MediaFolder.cpp` | One output folder — three instances |
 | `Bitmap.cpp` | 32-bit BGRA DIB section, PNG encoding, clipboard |
@@ -397,7 +397,7 @@ The registry key is still `pinRegionToScreen`, a leftover from the first design.
 
 ## The number keys, and why the toolbar's order is load-bearing
 
-`1` through `8` select the eight tools; `9` toggles Keep the Editor on Top. The digit is the button's position on the bar, which is only true without a lookup table because **the `Tool` enum's order *is* the toolbar's order *is* the digit order** — one list doing three jobs.
+`1` through `8` select the eight tools; `9` snaps another screenshot into the picture; `0` toggles Keep the Editor on Top. The digit is the button's position on the bar, which is only true without a lookup table because **the `Tool` enum's order *is* the toolbar's order *is* the digit order** — one list doing three jobs.
 
 The alternative was a separate display-order array, letting the enum keep a stable numbering. It was rejected because all four casts that convert between a tool and a button index are round trips through this order, and two orders would mean every one of them has to declare which it means.
 
@@ -457,17 +457,31 @@ The one hole no drawing can close is `Auto-Save Images`, which writes the untouc
 
 ## The editor toolbar
 
-Two bars, and everything on both of them is owner-drawn. The top carries three groups: Undo and Redo anchored left, the Pin toggle centred, Copy and Save anchored right. The bottom carries the swatch, the width slider and the eight tools.
+**One bar** since 1.10.0, and everything on it is owner-drawn. Five groups, left to right, separated by a wider gap than the buttons within a group:
 
-All thirteen icon buttons are 34 × 28 and go through one `DrawIconButtonFace`, which draws an antialiased rounded rectangle with GDI+ — GDI does not antialias, so a GDI rounded corner is a staircase, worse than the square corner it replaces, so the two bars cannot drift apart the first time one of them is adjusted. (The colour swatch is owner-drawn too but keeps its own branch at 44 × 28: it shows a colour, not a glyph.) Only *switched-on* buttons get the filled face, a heavier accent outline and accent-coloured ink — the selected tool, and Pin when enabled — because that is the only state which survives letting go of the mouse. Save's permanent ring, inherited from `BS_DEFPUSHBUTTON`, was the last thing making the top row look like a separate toolbar, and it is gone.
+| group | buttons |
+|---|---|
+| how it looks | swatch, width slider |
+| make a mark | the eight tools, then Snap |
+| history | Undo, Redo |
+| output | Copy, Save |
+| this window | Pin |
 
-Anchoring each group to its own edge is what makes overlap impossible by construction rather than by clamping — widening the window only grows the gaps. The single failure mode left is the window being too narrow, and `WM_GETMINMAXINFO` forbids it: `34 + (82 + 12) × 2 = 222`, where 82 is a flank of two icon buttons plus padding. The centred control must clear the *wider* flank on both sides because centring is symmetrical; here the flanks are equal by construction, both being two icon buttons.
+Until 1.10.0 the last three lived on a second bar along the top, with Undo/Redo anchored left, Pin **centred** and Copy/Save anchored right. Moving them down emptied that bar, so it was removed and its 44px went back to the canvas.
 
-222 is far below the tool row's 502, so the **bottom** row now sets the floor — the first time it has since the editor was written. The minimum went 700 (seven text tools) → 678 (a text command group) → 540 (nine icon tools, Crop added) → 502 with Callout removed: well under the 700 that seven text-labelled tools needed.
+All fourteen icon buttons are 34 × 28 and go through one `DrawIconButtonFace`, which draws an antialiased rounded rectangle with GDI+ — GDI does not antialias, so a GDI rounded corner is a staircase, worse than the square corner it replaces. One function for all of them is what stops the groups drifting apart the first time one is adjusted. (The colour swatch is owner-drawn too but keeps its own branch at 44 × 28: it shows a colour, not a glyph.) Only *switched-on* buttons get the filled face, a heavier accent outline and accent-coloured ink — the selected tool, and Pin when enabled — because that is the only state which survives letting go of the mouse. A disabled button never gets it, which 1.9.4 had to fix once the shortcut flash made pressed-and-disabled reachable.
 
-Pin is a real toggle rather than a label, writing the same registry value the tray row writes. `EditorWindow::PinSettingChanged` repaints it in every live editor and is called from both switches and from Sanitize, so two windows cannot disagree about one setting. `LiveEditors()` is maintained by the constructor and destructor rather than by `WM_CREATE`/`WM_DESTROY`, because the object outlives its window by one message-loop turn — App defers the delete. `WM_DESTROY` nulls `pinButton_` for exactly that gap, so a notification arriving in it has nothing to invalidate. The list itself is deliberately never destroyed: `App` is a function-local static constructed *before* the first editor, so this vector would be torn down first, and `~App` destroying `editors_` would then erase from a dead container.
+Everything is now laid out from the **left**, in one run, and that made the old collision reasoning disappear rather than improve. Three groups anchored to three different edges could not be pushed together by widening the window — but they *could* collide when the window narrowed, and because Pin was **centred**, the wider flank had to be reserved on *both* sides. The floor was `34 + (82 + 12) × 2 = 222`, the width at which the centre would meet a flank.
 
-The colour picker opens **upwards**, above the swatch. 1.8.1 moved it downwards out of the window, on the diagnosis that rising into the canvas was what covered the picture; the real cause was the colour wheel in the tenth cell being drawn at a radius of a whole cell instead of half of one, unclipped, so it escaped the popup entirely. A swatch on the bottom bar opens upwards. It is clamped to the monitor's *work area* — work area rather than monitor rectangle, or a window near the top of the screen pushes its picker off the desk.
+Nothing is centred now. The row is a fixed width, so there is one floor instead of two competing ones, and it is simply that width.
+
+`kMinToolRowWidth` sums the whole row and comes to **760**, which is the window's minimum client width. It is derived, never written as a literal — a literal is a number that has to be remembered every time a button is added, and is not, which is how the Lift button once went missing on small captures.
+
+The minimum went 700 (seven text tools) → 678 (a text command group) → 540 (nine icon tools, Crop added) → 502 (two rows, Callout removed) → 760 (one row, Snap added). Wider than 502 because fourteen buttons on one line cost width; the window is also 44px **shorter**, because `kMinContentHeight` is now `kMinCanvasHeight + kBarHeight` rather than `+ kBarHeight * 2`. Minimum client area 760 × 424, was 502 × 468.
+
+Pin is a real toggle rather than a label, writing the same registry value the tray row writes. `EditorWindow::PinSettingChanged` repaints it in every live editor and is called from both switches and from Sanitize, so two windows cannot disagree about one setting. `LiveEditors()` is maintained by the constructor and destructor rather than by `WM_CREATE`/`WM_DESTROY`, because the object outlives its window by one message-loop turn — App defers the delete. `WM_DESTROY` nulls `pinButton_` and `snapButton_` for exactly that gap, so a notification arriving in it has nothing to invalidate. The list itself is deliberately never destroyed: `App` is a function-local static constructed *before* the first editor, so this vector would be torn down first, and `~App` destroying `editors_` would then erase from a dead container.
+
+The colour picker opens **upwards**, above the swatch. 1.8.1 moved it downwards out of the window, on the diagnosis that rising into the canvas was what covered the picture; the real cause was the colour wheel in the tenth cell being drawn at a radius of a whole cell instead of half of one, unclipped, so it escaped the popup entirely. A swatch on the bar along the bottom opens upwards. It is clamped to the monitor's *work area* — work area rather than monitor rectangle, or a window near the top of the screen pushes its picker off the desk.
 
 Pin is icon-only, so its state lives entirely in its appearance plus its tooltip, and `UpdatePinTooltip` rewrites that text on every toggle. Setting it once at creation would leave a tooltip saying "Off" over a button drawn as on — the one place on screen contradicting the control.
 
@@ -522,6 +536,16 @@ The registry write is deferred to mouse-up. Writing on every changed mouse-move 
 
 The alternative — cut the bitmap down, shift every mark — fails on undo. Undo snapshots state, so a destructive crop would put a **bitmap in every undo step**: 33 MB for a 4K capture, fifty steps, a gigabyte and a half of history for a screenshot editor. A rectangle is sixteen bytes. That is the whole argument, and it is why `EditorState` carries `{ annotations, crop }` rather than just the array.
 
+**Snap is the same argument a second time.** A snapped screenshot is a *Lift that carries its own bitmap* — `ownPicture`, non-null only for those. Everything a snap needs already existed on Lift: `source` is the rectangle read from, `start`/`end` are where it lands, so moving, resizing, hit-testing, the eight handles, z-order, undo and the crop clip all work with no new code. The difference is one pointer, which is why it is not a ninth tool and why `Draw` needs a single line to pick between them.
+
+The bitmap is a `shared_ptr`, and that is the crop argument applied to pixels the editor genuinely does have to own. An `Annotation` is copied wholesale into every undo snapshot, so a by-value bitmap would put 33 MB into *each step* — five 4K snaps across fifty steps would be gigabytes. Shared, the same five cost ~166 MB total, independent of the undo depth.
+
+It is cloned once at capture time, with `Bitmap::Clone`'s **area** overload, into a bitmap that owns its pixels rather than borrowing the captured DIB's `scan0`. That matters: the argument-less `Image::Clone` is the one that shares a buffer, and a snap that shared the frozen desktop's buffer would draw freed memory the moment the overlay was destroyed. One copy per snap buys a lifetime with nothing to reason about.
+
+`PictureForLift` skips Lifts that have an `ownPicture`, so a picture containing only snaps never builds a full-size GDI+ wrapper over the capture on every repaint for nothing.
+
+The one thing Snap needs that no other mark does is to survive a **nested modal loop**: `RegionOverlay::Run` pumps every queued message for the thread while `SnapIntoPicture` is on the stack, so a `WM_CLOSE` already in the queue can destroy the editor — App's deferred reap is *posted*, and a nested pump dispatches that too. `StillAlive(this)` compares the pointer as a value against `LiveEditors()` and dereferences nothing, which is the only form of check that is legal on an object that may already be gone. The same race sits behind `GetSaveFileNameW` and the system colour picker; this is the first place it is guarded, because Snap is on a bare digit and the overlay stays up for seconds.
+
 Three things fall out for free: undo is putting the old rectangle back; repeated crops cannot accumulate a rounding offset, because no mark is ever rewritten; and "undo the crop" restores the picture exactly rather than approximating it.
 
 The crop enters the coordinate system in exactly one place — `ToImagePoint` adds `crop_.topLeft`, `ToViewPoint` subtracts it — which is the payoff of every view↔image conversion having gone through that pair since the beginning.
@@ -537,9 +561,9 @@ The Lift clamp is against the crop rather than the capture, or a lift starting i
 
 ---
 
-## Ten shortcuts that are not global
+## Eleven shortcuts that are not global
 
-`hotkeys::` registers six actions with `RegisterHotKey`, which claims a combination from the entire system. The other ten must not be. `Action::CloseEditor` defaults to a bare Esc, and the nine added in 1.9.5 default to the bare digits 1 through 9 — registering any of them globally would take that key from every program on the machine.
+`hotkeys::` registers six actions with `RegisterHotKey`, which claims a combination from the entire system. The other eleven must not be. `Action::CloseEditor` defaults to a bare Esc, and the ten added since 1.9.5 default to the bare digits 1 through 9 and 0 — registering any of them globally would take that key from every program on the machine.
 
 `IsGlobal()` is what separates them, and in 1.9.5 it changed from a list of exceptions (`action != CloseEditor`) to a **threshold**: everything from `CloseEditor` onwards is local. That is not a tidy-up. The list version would have quietly registered nine bare digits system-wide the moment they were appended, because a list of exceptions has to be remembered and a threshold does not.
 

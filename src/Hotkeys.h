@@ -56,9 +56,17 @@ enum class Action {
     SelectTool7,
     SelectTool8,
     TogglePin,
+
+    // Appended in 1.10.0, AFTER TogglePin, for the reason above: the enum
+    // value is the registry value name, so inserting it between the tools
+    // and TogglePin would have re-pointed anyone's stored Pin binding at
+    // this instead. Its position in the MENU comes from kAllActions, which
+    // is a separate list — so it reads in bar order without the enum having
+    // to be in bar order.
+    SnapIntoEditor,
 };
 
-constexpr int kActionCount = 16;
+constexpr int kActionCount = 17;
 extern const Action kAllActions[kActionCount];
 
 // The eight tool-selection actions, as a 0-based toolbar index.

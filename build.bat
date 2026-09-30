@@ -45,7 +45,7 @@ if not exist "%OUT%" mkdir "%OUT%"
 
 rem The version goes in the file name, read from VERSION so it cannot drift
 rem from what the binary reports about itself.
-set VER=1.9.7
+set VER=1.10.0
 for /f "usebackq tokens=*" %%v in ("%ROOT%VERSION") do set VER=%%v
 set EXENAME=SnipTextProUltra_%VER%
 

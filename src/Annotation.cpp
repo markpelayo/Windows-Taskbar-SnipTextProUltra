@@ -281,10 +281,16 @@ void Annotation::Draw(Graphics& graphics, double scale, PointD offset,
             graphics.DrawRectangle(&marquee, p0.X, p0.Y, p1.X - p0.X, p1.Y - p0.Y);
             break;
         }
-        if (!picture) break;   // nothing to read from; see the header
+        // A snap reads from its own bitmap; an ordinary lift reads from the
+        // capture it was taken out of. One pointer is the whole difference
+        // between the two, which is why a snap is not a separate tool.
+        Gdiplus::Image* pixels = ownPicture ? static_cast<Gdiplus::Image*>(ownPicture.get())
+                                            : picture;
+        if (!pixels) break;   // nothing to read from; see the header
 
         // The blank goes down first, so that dragging a lifted piece back over
         // its own source covers the patch rather than being covered by it.
+        // Never set on a snap: there is no source on this picture to blank.
         if (blankSource) {
             SolidBrush fill(ToGdipColour(blankColour));
             const PointF a = Map({ source.MinX(), source.MinY() }, scale, offset);
@@ -304,7 +310,7 @@ void Annotation::Draw(Graphics& graphics, double scale, PointD offset,
         // UI, and both want their edges kept.
         const InterpolationMode previous = graphics.GetInterpolationMode();
         graphics.SetInterpolationMode(InterpolationModeNearestNeighbor);
-        graphics.DrawImage(picture, destination,
+        graphics.DrawImage(pixels, destination,
                            static_cast<REAL>(source.x),     static_cast<REAL>(source.y),
                            static_cast<REAL>(source.width), static_cast<REAL>(source.height),
                            UnitPixel);

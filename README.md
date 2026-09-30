@@ -16,7 +16,7 @@ Everything runs locally. OCR is Windows' own `Windows.Media.Ocr`, capture is GDI
 
 One executable, no installer, no third-party dependencies — nothing but the Windows SDK. The binary is statically linked, so there is no runtime to install.
 
-This is version 1.9.7. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
+This is version 1.10.0. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
 
 ### Trying it on sample text
 
@@ -48,7 +48,7 @@ A **tray icon** sits in the notification area whenever the program is running, s
 
 ### Pinning it
 
-1. Build it (below), then run `build\SnipTextProUltra_1.9.7.exe` once.
+1. Build it (below), then run `build\SnipTextProUltra_1.10.0.exe` once.
 2. Right-click its taskbar button → **Pin to taskbar**.
 
 That's it. The pinned icon is now the app.
@@ -68,7 +68,7 @@ That's it. The pinned icon is now the app.
 A `SHA-256` checksum is published beside each release binary. It is not a signature and does not pretend to be one; it only lets you confirm the file you downloaded is the file CI produced:
 
 ```
-Get-FileHash .\SnipTextProUltra_1.9.7.exe -Algorithm SHA256
+Get-FileHash .\SnipTextProUltra_1.10.0.exe -Algorithm SHA256
 ```
 
 ## Requirements
@@ -183,13 +183,13 @@ In any region capture: drag to select, **Space** switches to click-a-whole-windo
 
 **Esc** closes the annotation editor whenever it is the active window — it does not matter whether the canvas, a tool button or the slider has focus, or whether the window is pinned. It does not ask whether you want to save — nothing there has been written to disk, and Copy and Save are one keystroke each. It is a cascade: Esc cancels an in-progress label first, then clears the selection, and only closes the window when there is neither.
 
-It is rebindable in *Change Keyboard Shortcut*, under the **Only inside the editor** heading, along with the nine number keys. Those ten are the shortcuts that are **not** global: the six capture shortcuts are claimed from the whole system, while these are matched inside the editor — which is what makes a bare Esc, and bare digits, safe defaults rather than a catastrophe.
+It is rebindable in *Change Keyboard Shortcut*, under the **Only inside the editor** heading, along with the ten number keys. Those eleven are the shortcuts that are **not** global: the six capture shortcuts are claimed from the whole system, while these are matched inside the editor — which is what makes a bare Esc, and bare digits, safe defaults rather than a catastrophe.
 
 ### Changing them
 
-**Settings → Change Keyboard Shortcut** lists all sixteen with their current bindings — six global ones, then the ten that work only inside the editor. Pick one and a small window appears; press the combination you want and Enter to save.
+**Settings → Change Keyboard Shortcut** lists all seventeen with their current bindings — six global ones, then the eleven that work only inside the editor. Pick one and a small window appears; press the combination you want and Enter to save.
 
-Anything the keyboard can produce works, including a bare function key — press `F9` and that is the binding, no modifier required. A bare *letter or digit* is refused for the six global shortcuts, since registering one would take that key from every program on the machine, but allowed for the editor-only ten, which register nothing. **Delete** unbinds a shortcut entirely, leaving the action reachable only from the menu. **Esc** cancels without changing anything — except when the shortcut being changed is Close the Screenshot Editor itself, where Esc is a legal binding and you cancel by clicking away instead, and **Reset to Defaults** puts all sixteen back.
+Anything the keyboard can produce works, including a bare function key — press `F9` and that is the binding, no modifier required. A bare *letter or digit* is refused for the six global shortcuts, since registering one would take that key from every program on the machine, but allowed for the editor-only eleven, which register nothing. **Delete** unbinds a shortcut entirely, leaving the action reachable only from the menu. **Esc** cancels without changing anything — except when the shortcut being changed is Close the Screenshot Editor itself, where Esc is a legal binding and you cancel by clicking away instead, and **Reset to Defaults** puts all seventeen back.
 
 While that window is open the app's own shortcuts stand down. They have to: a global hotkey fires before the foreground window sees the key, so otherwise pressing the shortcut you were trying to change would trigger its action instead of being captured.
 
@@ -301,9 +301,19 @@ If the clipboard write fails — another program can hold the clipboard open —
 
 ## The annotation editor
 
-Opened by the Screenshot commands. Eight tools, left to right: **rectangle, ellipse, arrow, line, freehand pen, text, lift, crop**, with a colour swatch and a stroke-width slider before them (the slider also sets text size).
+Opened by the Screenshot commands. **One toolbar along the bottom**, in four groups, left to right:
 
-Press **1** to **8** to pick a tool — the digit is its position on the bar, so rectangle is 1 — and **9** to toggle Keep the Editor on Top. All nine are rebindable under *Change Keyboard Shortcut → Only inside the editor*, and hovering a button names its current key. Bare digits are safe here because these shortcuts are editor-local: they are never registered system-wide, and the editor ignores them entirely while you are typing a text label.
+| group | buttons |
+|---|---|
+| how it looks | colour swatch · stroke-width slider (also sets text size) |
+| make a mark | rectangle · ellipse · arrow · line · freehand pen · text · lift · crop · **snap** |
+| history | undo · redo |
+| output | copy · save |
+| this window | keep on top |
+
+The gaps between groups are what make it scannable: a button's neighbours tell you what kind of thing it is. Until 1.10.0 the history, output and pin buttons were on a second bar along the top; moving them down gave the canvas that 44px back.
+
+Press **1** to **8** to pick a tool — the digit is its position on the bar, so rectangle is 1 — **9** to snap another screenshot in, and **0** to toggle Keep the Editor on Top. All ten are rebindable under *Change Keyboard Shortcut → Only inside the editor*, and hovering a button names its current key. Bare digits are safe here because these shortcuts are editor-local: they are never registered system-wide, and the editor ignores them entirely while you are typing a text label.
 
 A fresh editor opens with **rectangle** selected — the most-used tool, and therefore also the first button and the `1` key. Marks are drawn in **blue (#007AFF)** until you pick something else from the swatch. Both are remembered once you change them.
 
@@ -317,7 +327,7 @@ Turn it on and every annotation editor stays above other windows, so you can wor
 
 While it is on, the editor is left out of every capture the program takes — a window kept deliberately in front of everything else would otherwise land in every screenshot you took next, and moving it aside is the one thing you have ruled out. Switch it off and the editor appears in captures again.
 
-The setting has two switches, the menu row and the pin button in the centre of the editor's top bar, and they write the same value. Toggling either raises or lowers every open editor immediately. Switched on, the button takes the same filled face and accent ring a selected tool takes; its tooltip names the state in words.
+The setting has two switches, the menu row and the pin button at the right-hand end of the editor's toolbar, and they write the same value. Toggling either raises or lowers every open editor immediately. Switched on, the button takes the same filled face and accent ring a selected tool takes; its tooltip names the state in words.
 
 ### Labelling a mark
 
@@ -370,6 +380,26 @@ Once you know them, **Show Tool Hints in the Editor** in the tray menu turns tha
 A filled rectangle is also how you redact something. Worth knowing why it is a flat fill and not a blur: pixelation and blur both *look* like protection while leaving the original recoverable. A screenshot has a known font at a known size, so the attack is not to invert the blur but to run it forwards — render candidate text, pixelate it on the same grid, compare, one glyph at a time. A flat fill's output does not depend on the pixels underneath, so there is nothing to work back from.
 
 > If **Auto-Save Images** is on, the untouched original went to disk the moment the shot was taken, before you covered anything. Redact, save, send the clean copy, and the readable original is still in your screenshots folder.
+
+### Snap another screenshot in
+
+The last button in the mark-making group, and `9`. Press it and the editor **hides itself from the capture**, the crosshair comes up, and whatever you drag lands in the middle of the current picture as another movable piece.
+
+From there it is an ordinary mark: drag it, resize it from its handles, send it behind or in front of other marks with `Ctrl`+arrows, delete it, undo it. Cropping the picture clips it like anything else.
+
+It is for the cases where one screenshot is not the whole story — a dialog and the setting that caused it, a before and an after, an error and the log line behind it — without leaving the editor for an image program.
+
+| | |
+|---|---|
+| **where it lands** | centred in the current picture, shrunk to fit with a margin |
+| **never enlarged** | a small snap stays its own size; blowing a window fragment up to fill the canvas is not what anyone means |
+| **shrunk when it has to be** | a full-screen snap dropped in at 1:1 would cover everything, leaving nothing visible to grab |
+
+Two things worth knowing. The editor takes itself out of the capture only *for the duration* — and if it was already hidden because **Keep the Editor on Top** is on, it stays hidden afterwards, because that setting's whole bargain is that a pinned window does not appear in your captures. Other editor windows behind it stay capturable, so grabbing a piece of an earlier capture works.
+
+And **the original picture is never modified**. A snap is a mark sitting on top, exactly like a lifted piece, so `Ctrl+Z` removes it and nothing underneath was touched.
+
+> Under the hood a snap *is* a Lift — one that carries its own bitmap instead of reading from the capture. That is why it inherits every behaviour above for free, and why the bitmap is shared rather than copied: an annotation is copied into every undo snapshot, and a by-value bitmap would put 33 MB into each step.
 
 ### Lift
 
@@ -572,7 +602,7 @@ docs/RELEASING.md     how a version is cut
 - **[Architecture](docs/ARCHITECTURE.md)** — how it works, the interesting problems, and the bugs worth knowing about
 - **[The tray menu](docs/tray-menu.md)** — the whole menu laid out, with what every row is for
 - **[Changelog](CHANGELOG.md)** — release history
-- **[Release notes](docs/)** — one file per release, `RELEASE-NOTES-v*.md`. Newest: **[v1.9.7](docs/RELEASE-NOTES-v1.9.7.md)**
+- **[Release notes](docs/)** — one file per release, `RELEASE-NOTES-v*.md`. Newest: **[v1.10.0](docs/RELEASE-NOTES-v1.10.0.md)**
 - **[Releasing](docs/RELEASING.md)** — how a version is cut
 - **[Disclaimer](DISCLAIMER.md)** — no-warranty and liability terms, including what you are responsible for when you record a screen
 

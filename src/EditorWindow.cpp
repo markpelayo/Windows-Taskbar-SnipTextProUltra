@@ -3,6 +3,11 @@
 #include "EditorSettings.h"
 #include "Hotkeys.h"
 #include "MediaFolder.h"
+// For Snap: the editor runs the same region overlay the tray commands do,
+// rather than asking App to do it. Depending on the overlay is a smaller
+// coupling than depending on App, and the overlay is a plain class with a
+// blocking Run() designed to be used exactly this way.
+#include "RegionOverlay.h"
 #include "Settings.h"
 #include "Util.h"
 
@@ -43,6 +48,7 @@ constexpr int IDC_SAVE       = 104;
 constexpr int IDC_SWATCH     = 105;
 constexpr int IDC_SLIDER     = 106;
 constexpr int IDC_PINTOGGLE  = 107;
+constexpr int IDC_SNAP       = 108;
 constexpr int IDC_TOOL_FIRST = 110;
 // 200, not 120. The tool buttons run from IDC_TOOL_FIRST upwards, one per
 // tool, and at eight tools they reach 117 — three short of where this used to
@@ -94,29 +100,35 @@ constexpr int kSliderWidth   = 120;
 // resizing but the CREATION size still had its own copy of the old literal,
 // so any capture small enough to hit the floor opened one button short.
 //
-// Two rows have to fit now, so the floor is whichever needs more.
+// ONE row now. The top bar is gone: Undo, Redo, Copy, Save and Pin moved
+// down beside the tools in 1.10.0, which left the top bar empty, so it was
+// removed and its 44px given back to the canvas.
 //
-// Bottom: padding, swatch, slider, then the tool icons.
+// The gap between groups is what carries the meaning. Left to right:
+//
+//   swatch  slider  │ 8 tools + Snap │ Undo Redo │ Copy Save │ Pin
+//                   └ make a mark ───┘└ history ─┘└ output ──┘└ window
+//
+// Five kinds of thing, and a button's neighbours now tell you which kind it
+// is. That is the whole reason for the wider gaps: a single evenly-spaced row
+// of fourteen buttons is a row you have to read, not a row you can scan.
+constexpr int kGroupGap      = 14;
+
 constexpr int kMinToolRowWidth = kBarPadding
                                + kSwatchWidth + 6
                                + kSliderWidth + 12
-                               + kToolCount * kToolWidth + (kToolCount - 1) * kToolGap
+                               // the tools, plus Snap on the end of them
+                               + (kToolCount + 1) * kToolWidth
+                               + kToolCount * kToolGap
+                               + kGroupGap + kToolWidth * 2 + kToolGap    // undo redo
+                               + kGroupGap + kToolWidth * 2 + kToolGap    // copy save
+                               + kGroupGap + kToolWidth                   // pin
                                + kBarPadding;
 
-// Top: three groups. Undo and Redo anchored left, Pin centred, Copy and
-// Save anchored right. Two icon buttons each side, so both flanks are the
-// same width by construction and the centre really is the centre.
-//
-// The floor is where the centred control would touch a flank. Because it is
-// centred, the wider flank has to be reserved on BOTH sides — plus a gutter,
-// without which the three meet exactly at the minimum width and it reads as
-// a rendering fault rather than a deliberate limit.
-constexpr int kCommandGutter   = 12;
-constexpr int kFlankWidth      = kBarPadding + kToolWidth * 2 + kToolGap;
-constexpr int kMinCommandRowWidth = kToolWidth + (kFlankWidth + kCommandGutter) * 2;
-
-constexpr int kMinContentWidth = (kMinToolRowWidth > kMinCommandRowWidth)
-                                     ? kMinToolRowWidth : kMinCommandRowWidth;
+// Nothing competes with it any more, so the floor is just the one row. The
+// old kMinCommandRowWidth existed because the top bar's centred Pin button
+// had to clear both flanks; with no centred control there is no second floor.
+constexpr int kMinContentWidth = kMinToolRowWidth;
 
 // The whole client area, bars included — the same thing the width constant
 // means. Defining it as the CANVAS height instead is what let the two floors
@@ -124,7 +136,9 @@ constexpr int kMinContentWidth = (kMinToolRowWidth > kMinCommandRowWidth)
 // client at 468, while the resize minimum used 380 as the entire client and
 // left the canvas 292px.
 constexpr int kMinCanvasHeight  = 380;
-constexpr int kMinContentHeight = kMinCanvasHeight + kBarHeight * 2;
+// One bar, not two, since 1.10.0 — so the same minimum canvas now needs 44px
+// less window.
+constexpr int kMinContentHeight = kMinCanvasHeight + kBarHeight;
 
 // Chrome is drawn in view units, not image units, so handles stay a usable
 // size on a canvas that has been scaled down.
@@ -236,7 +250,7 @@ ScopedPen MakeGlyphPen(COLORREF ink, double widthPixels) {
 // does and stays selected; these happen once and are over — but they are
 // drawn by the same code at the same size, which is the whole point of
 // making them icons.
-enum class Command { Undo, Redo, Copy, Save, Pin };
+enum class Command { Undo, Redo, Copy, Save, Pin, Snap };
 
 void DrawCommandGlyph(HDC dc, Command command, const RECT& box, COLORREF ink) {
     const int side = (std::min)(util::RectWidth(box), util::RectHeight(box));
@@ -337,6 +351,32 @@ void DrawCommandGlyph(HDC dc, Command command, const RECT& box, COLORREF ink) {
         ::Ellipse(dc, head[0].x, head[0].y, head[1].x, head[1].y);
         g.Line(4.6, 11.0, 15.4, 11.0);
         g.Line(10.0, 11.5, 10.0, 17.5);
+        break;
+    }
+
+    case Command::Snap: {
+        // A dashed frame with a plus inside it: "select an area, and add it".
+        //
+        // Not a camera. A camera glyph would say "take a screenshot", which is
+        // what the tray menu's rows say and is only half of what this does —
+        // the half that matters here is that the result lands in THIS picture
+        // as another movable piece. The dashed frame is the same marquee the
+        // region overlay draws and the same one the Lift glyph uses, so the
+        // family resemblance carries the meaning: Lift takes a piece out of
+        // this picture, Snap brings a piece in from the screen.
+        //
+        // Drawn with the plain pen rather than a dashed one: ExtCreatePen with
+        // a dash pattern at this size renders as a dotted smudge, so the gaps
+        // are drawn as gaps instead — four corner brackets.
+        const double l = 2.5, t = 4.0, r = 17.5, b = 17.0, arm = 3.4;
+        g.Line(l, t, l + arm, t);            g.Line(l, t, l, t + arm);
+        g.Line(r - arm, t, r, t);            g.Line(r, t, r, t + arm);
+        g.Line(l, b - arm, l, b);            g.Line(l, b, l + arm, b);
+        g.Line(r, b - arm, r, b);            g.Line(r - arm, b, r, b);
+
+        // The plus, centred in the frame.
+        g.Line(10.0, 7.2, 10.0, 13.8);
+        g.Line(6.7, 10.5, 13.3, 10.5);
         break;
     }
     }
@@ -805,7 +845,7 @@ bool EditorWindow::Create() {
                                          static_cast<int>(image_->Width() * fit));
     const int contentHeight = (std::max)(kMinContentHeight,
                                          static_cast<int>(image_->Height() * fit)
-                                             + kBarHeight * 2);
+                                             + kBarHeight);
 
     // ...ForDpi, not the plain one. AdjustWindowRectEx reports non-client
     // metrics at 96 DPI regardless of the actual display, and this process is
@@ -955,6 +995,12 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
         for (int i = 0; i < kToolCount; ++i) {
             toolButtons_[i] = MakeButton(hwnd_, L"", IDC_TOOL_FIRST + i, BS_OWNERDRAW);
         }
+        // Created HERE, immediately after the tools, rather than next to the
+        // other commands — because Tab order follows creation order, not
+        // layout order. Snap sits fifth from the right on the bar but is one
+        // of the mark-making group, and a Tab that jumped over it to Pin and
+        // came back would be a small lie about what belongs together.
+        snapButton_ = MakeButton(hwnd_, L"", IDC_SNAP, BS_OWNERDRAW);
 
         // Unlabelled squares without tooltips would be a guessing game.
         // TTF_SUBCLASS so the tooltip control hooks each button itself; the
@@ -987,6 +1033,9 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
             for (int i = 0; i < kToolCount; ++i) {
                 addTip(toolButtons_[i], ToolTitle(static_cast<Tool>(i)));
             }
+            // Placeholder; UpdateSnapTooltip names its live key, the way the
+            // tool buttons and Pin do.
+            addTip(snapButton_, L"Snap another screenshot into this one");
             addTip(undoButton_, L"Undo  (Ctrl+Z)");
             addTip(redoButton_, L"Redo  (Ctrl+Y)");
             addTip(copyButton_, L"Copy to clipboard  (Ctrl+C)");
@@ -1003,6 +1052,7 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
 
         LayoutChildren();
         RefreshToolTooltips();
+        UpdateSnapTooltip();
         RefreshToolbarState();
         return 0;
     }
@@ -1084,7 +1134,7 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
                             item->CtlID <  static_cast<UINT>(IDC_TOOL_FIRST + kToolCount);
         const bool isCommand = item->CtlID == IDC_UNDO || item->CtlID == IDC_REDO ||
                                item->CtlID == IDC_COPY || item->CtlID == IDC_SAVE ||
-                               item->CtlID == IDC_PINTOGGLE;
+                               item->CtlID == IDC_PINTOGGLE || item->CtlID == IDC_SNAP;
         if (isTool || isCommand) {
             const bool disabled = (item->itemState & ODS_DISABLED) != 0;
             const bool pressed  = (item->itemState & ODS_SELECTED) != 0;
@@ -1130,6 +1180,7 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
                 case IDC_COPY:      command = Command::Copy; break;
                 case IDC_SAVE:      command = Command::Save; break;
                 case IDC_PINTOGGLE: command = Command::Pin;  break;
+                case IDC_SNAP:      command = Command::Snap; break;
                 default:            command = Command::Undo; break;
                 }
                 DrawCommandGlyph(item->hDC, command, glyphBox, ink);
@@ -1177,6 +1228,14 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
             ReturnFocusToCanvas();
             return 0;
         }
+        case IDC_SNAP:
+            // CommitTextEntry first: the overlay takes over the screen, and
+            // an open label field left behind it would be a field the user
+            // cannot see while they are choosing a region.
+            CommitTextEntry();
+            SnapIntoPicture();
+            return 0;
+
         case IDC_SWATCH: ShowColourPopup(); return 0;
         case IDC_TEXTEDIT:
             if (HIWORD(wParam) == EN_KILLFOCUS) CommitTextEntry();
@@ -1214,8 +1273,9 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
         // Children are destroyed after the parent's WM_DESTROY, so these
         // handles are about to become invalid while this object is still
         // listed in LiveEditors — see the note in the destructor.
-        pinButton_ = nullptr;
-        tooltips_  = nullptr;
+        pinButton_  = nullptr;
+        snapButton_ = nullptr;
+        tooltips_   = nullptr;
         // Same reason, and it must be dropped WITHOUT sending BM_SETSTATE:
         // the timer could otherwise fire against a handle that is about to
         // be invalid. KillTimer, then forget the button.
@@ -1235,56 +1295,57 @@ void EditorWindow::LayoutChildren() {
     const int width  = util::RectWidth(client);
     const int height = util::RectHeight(client);
 
-    const int topY = (kBarHeight - kButtonHeight) / 2;
-    int x = kBarPadding;
+    int x = 0;
     auto place = [&](HWND control, int w, int h, int y, int gap = 6) {
         if (control) ::MoveWindow(control, x, y, w, h, TRUE);
         x += w + gap;
     };
 
-    // --- top bar: history left, the switch centred, output right ---
+    // --- one bar, five groups, left to right ---------------------------------
     //
-    // Three groups, each anchored to its own edge, so they are positioned
-    // independently and cannot be pushed into one another by the window
-    // getting wider. What CAN collide is the centred control meeting a
-    // flank, and that is what kMinCommandRowWidth is for — WM_GETMINMAXINFO
-    // stops the window before it happens, so no clamping is needed here.
+    //   swatch slider │ tools + Snap │ Undo Redo │ Copy Save │ Pin
+    //     how it looks│ make a mark  │  history  │  output   │ this window
     //
-    // Reading left to right: what you did, what will happen next, where it
-    // goes. Undo beside nothing else it could be confused with, and Save at
-    // the far end where a final action belongs.
+    // All laid out from the LEFT, unlike the old top bar, which anchored three
+    // groups to three different edges so that widening the window could not
+    // push them into each other. That mattered when a control was CENTRED —
+    // centring is symmetrical, so the wider flank had to be reserved on both
+    // sides, and the window minimum was set by where the centre would collide.
+    // Nothing is centred now, so a single left-to-right run is both simpler
+    // and impossible to collide: the row is a fixed width and the window
+    // minimum is exactly that width.
+    //
+    // Reading order is deliberate. Style first, because it applies to what you
+    // are about to draw. Then the marks. Then what you did (history), then
+    // where it goes (output), then the window itself — the only button that
+    // changes nothing about the picture, alone at the far end.
+    const int barY = height - kBarHeight + (kBarHeight - kButtonHeight) / 2;
     x = kBarPadding;
-    place(undoButton_, kToolWidth, kButtonHeight, topY, kToolGap);
-    place(redoButton_, kToolWidth, kButtonHeight, topY, kToolGap);
+    place(swatch_, kSwatchWidth, kButtonHeight, barY);
+    place(slider_, kSliderWidth, kButtonHeight, barY, 12);
 
-    if (pinButton_) {
-        ::MoveWindow(pinButton_, (width - kToolWidth) / 2, topY,
-                     kToolWidth, kButtonHeight, TRUE);
-    }
-
-    // Laid out from the right edge inwards, so Save is always the last
-    // thing on the row whatever the window is doing.
-    int rightX = width - kBarPadding - kToolWidth;
-    if (saveButton_) {
-        ::MoveWindow(saveButton_, rightX, topY, kToolWidth, kButtonHeight, TRUE);
-    }
-    rightX -= kToolWidth + kToolGap;
-    if (copyButton_) {
-        ::MoveWindow(copyButton_, rightX, topY, kToolWidth, kButtonHeight, TRUE);
-    }
-
-    // --- bottom bar: style, then tools ---
-    const int bottomY = height - kBarHeight + (kBarHeight - kButtonHeight) / 2;
-    x = kBarPadding;
-    place(swatch_, kSwatchWidth, kButtonHeight, bottomY);
-    place(slider_, kSliderWidth, kButtonHeight, bottomY, 12);
     for (HWND button : toolButtons_) {
-        place(button, kToolWidth, kButtonHeight, bottomY, kToolGap);
+        place(button, kToolWidth, kButtonHeight, barY, kToolGap);
     }
+    // Snap sits with the tools because it ADDS something to the picture, which
+    // is what the tools do. It is not one of them — it is an action that takes
+    // effect at once rather than a mode you then drag in — so it is a Command,
+    // and only the layout puts it here.
+    place(snapButton_, kToolWidth, kButtonHeight, barY, kGroupGap);
 
+    place(undoButton_, kToolWidth, kButtonHeight, barY, kToolGap);
+    place(redoButton_, kToolWidth, kButtonHeight, barY, kGroupGap);
+
+    place(copyButton_, kToolWidth, kButtonHeight, barY, kToolGap);
+    place(saveButton_, kToolWidth, kButtonHeight, barY, kGroupGap);
+
+    place(pinButton_,  kToolWidth, kButtonHeight, barY, kToolGap);
+
+    // The canvas now starts at the top of the client area and stops at the
+    // bar: one bar, so one subtraction. It was kBarHeight..height-kBarHeight.
     if (canvas_) {
-        ::MoveWindow(canvas_, 0, kBarHeight, width,
-                     (std::max)(1, height - kBarHeight * 2), TRUE);
+        ::MoveWindow(canvas_, 0, 0, width,
+                     (std::max)(1, height - kBarHeight), TRUE);
     }
 }
 
@@ -1443,7 +1504,8 @@ bool EditorWindow::HandleEditorKey(UINT key, UINT modifiers) {
         return true;
     }
 
-    // The number keys: 1-8 pick a tool, 9 toggles Keep the Editor on Top.
+    // The number keys: 1-8 pick a tool, 9 snaps another screenshot in, 0
+    // toggles Keep the Editor on Top.
     //
     // Deliberately LAST. Everything above is an escape hatch — a label
     // being typed, or a selection to drop — and those have to win, because
@@ -1465,6 +1527,18 @@ bool EditorWindow::HandleEditorKey(UINT key, UINT modifiers) {
         if (index < 0 || index >= kToolCount) continue;
         ::SendMessageW(hwnd_, WM_COMMAND,
                        static_cast<WPARAM>(IDC_TOOL_FIRST + index), 0);
+        return true;
+    }
+
+    if (hotkeys::Matches(hotkeys::Action::SnapIntoEditor, key, modifiers)) {
+        // POSTED, not sent, and this is the one dispatch here that has to be.
+        // SnapIntoPicture runs the region overlay, which spins its own modal
+        // message loop — and this function is itself running inside the
+        // message loop's PreTranslateMessage hook. Sending would nest a modal
+        // loop inside the pump that is still mid-keystroke; posting lets this
+        // keystroke finish first, exactly as the Esc-to-close binding does
+        // with WM_CLOSE.
+        ::PostMessageW(hwnd_, WM_COMMAND, static_cast<WPARAM>(IDC_SNAP), 0);
         return true;
     }
 
@@ -1502,6 +1576,152 @@ void EditorWindow::PinSettingChanged() {
 static_assert(hotkeys::kToolActionCount == kToolCount,
               "Every tool needs a SelectToolN action, and vice versa.");
 
+bool EditorWindow::StillAlive(const EditorWindow* editor) {
+    if (!editor) return false;
+    const std::vector<EditorWindow*>& live = LiveEditors();
+    // ~EditorWindow erases itself from this vector, so absence means gone.
+    return std::find(live.begin(), live.end(), editor) != live.end();
+}
+
+void EditorWindow::SnapIntoPicture() {
+    if (!hwnd_ || !image_) return;
+
+    // Never stack one overlay on another. The tray commands guard on this
+    // too; it is a static because the overlay is inherently one-at-a-time.
+    if (RegionOverlay::IsShowing()) return;
+
+    // Take THIS editor out of the capture for the duration — otherwise the
+    // first thing you would snap is the window you are snapping into, and
+    // the crosshair would be drawn over a picture of itself.
+    //
+    // Only this one. Another editor open behind it stays capturable, because
+    // grabbing a piece of an earlier capture is a reasonable thing to want
+    // and there is no way to ask for it if we hide them all.
+    //
+    // Restored to whatever it was, not unconditionally re-included: a PINNED
+    // editor is already excluded on purpose (see ApplyAlwaysOnTop), and
+    // turning that off here would quietly undo the pin's side of the
+    // bargain and put the window back into every later capture.
+    const bool alreadyExcluded = settings::GetBool(settings::key::kPinToScreen, false);
+    if (!alreadyExcluded) util::ExcludeFromCapture(hwnd_);
+
+    std::unique_ptr<Bitmap> shot;
+    {
+        // Scoped so the frozen desktop — a full-screen bitmap — is released
+        // before anything else happens, rather than being held alive for the
+        // rest of this function.
+        RegionOverlay overlay;
+        const RegionOverlay::Selection selection = overlay.Run(RegionOverlay::Style::Instant);
+        if (selection.confirmed && overlay.FrozenDesktop()) {
+            shot = overlay.FrozenDesktop()->Crop(selection.bounds);
+        }
+    }
+
+    if (!alreadyExcluded) util::IncludeInCapture(hwnd_);
+
+    // STILL ALIVE? RegionOverlay::Run pumps with GetMessage(nullptr, ...) —
+    // every queued message for the thread, for every window, dispatched
+    // while this function sits on the stack. So a WM_CLOSE that was already
+    // in the queue when the posted WM_COMMAND was dispatched gets delivered
+    // in there: DestroyWindow, WM_DESTROY, onClose_, and App's posted
+    // WM_REAP_EDITORS is pumped too, which drops the unique_ptr and frees
+    // this object. Run would then return into a member function of a
+    // destroyed editor. Press 9 and then Esc inside one message-loop turn
+    // and that is the sequence.
+    //
+    // `this` is compared as a VALUE and nothing is dereferenced, which is
+    // why the check is a static taking a pointer rather than a member
+    // reading hwnd_. The address cannot have been reused by a new editor:
+    // every route that opens one is guarded on RegionOverlay::IsShowing().
+    //
+    // The same race exists behind GetSaveFileNameW and the system colour
+    // picker, which pump the same way. This is the first place it is
+    // actually guarded, and the reason to guard it here is that Snap is on a
+    // bare digit and the overlay is up for seconds rather than milliseconds.
+    if (!StillAlive(this)) return;
+
+    // Cancelled with Esc, or a click that never became a drag. Not a failure,
+    // and nothing should be pushed onto the undo stack for it.
+    if (!shot || shot->Width() <= 0 || shot->Height() <= 0 || !shot->Bits()) {
+        ReturnFocusToCanvas();
+        return;
+    }
+
+    // Not needed, and kept only because it costs nothing and the invariant
+    // it protects is one line away from being true again. GrabRect already
+    // flushed after its BitBlt, and Crop is a memcpy — so nothing GDI wrote
+    // is pending on these bits. The moment anything blts into a snap, this
+    // is the flush that has to be here.
+    ::GdiFlush();
+
+    const int w = shot->Width();
+    const int h = shot->Height();
+
+    // A view over the DIB's pixels — this constructor does not copy — and
+    // then a Clone that does, into a bitmap that owns its own memory.
+    //
+    // The clone is the point. A view borrows `shot`'s buffer, and `shot` is a
+    // local that is about to go away; the annotation has to outlive it, be
+    // copied into undo snapshots, and survive until the editor closes. One
+    // copy here, once per snap, buys a lifetime with nothing to reason about.
+    Gdiplus::Bitmap view(w, h, shot->Stride(), PixelFormat32bppRGB,
+                         static_cast<BYTE*>(shot->Bits()));
+    if (view.GetLastStatus() != Gdiplus::Ok) { ReturnFocusToCanvas(); return; }
+
+    std::shared_ptr<Gdiplus::Bitmap> owned(
+        view.Clone(0, 0, w, h, PixelFormat32bppRGB));
+    if (!owned || owned->GetLastStatus() != Gdiplus::Ok) {
+        ReturnFocusToCanvas();
+        return;
+    }
+
+    // Centred in the current crop, shrunk to fit with a margin, never
+    // enlarged.
+    //
+    // Inside the crop, not beside the picture: a mark outside the crop is
+    // clipped out of the canvas AND out of the export and is excluded from
+    // hit-testing, so it would arrive invisible and unselectable — the exact
+    // trap the Text tool had until 1.9.7.
+    //
+    // Never enlarged, because a snap smaller than the picture is almost
+    // always a piece of a window, and blowing it up to fill 90% of the canvas
+    // would be a strange thing to do to it. Shrinking is different: a
+    // full-screen snap dropped into a small region at 1:1 would cover the
+    // picture completely and the user would have nothing visible to grab.
+    const double cropW = static_cast<double>(CropWidth());
+    const double cropH = static_cast<double>(CropHeight());
+    const double fit = (std::min)(1.0,
+                                  (std::min)(cropW * 0.9 / w, cropH * 0.9 / h));
+    const double destW = w * fit;
+    const double destH = h * fit;
+    const double left  = crop_.left + (cropW - destW) / 2.0;
+    const double top   = crop_.top  + (cropH - destH) / 2.0;
+
+    // A Lift with its own pixels. See the note on `ownPicture`: everything
+    // that makes a lifted piece movable, resizable, layerable and undoable
+    // applies unchanged, so there is nothing here but the geometry.
+    Annotation snap;
+    snap.tool        = Tool::Lift;
+    snap.colour      = currentColour_;   // only used by the drag marquee
+    snap.ownPicture  = std::move(owned);
+    snap.source      = RectD{ 0.0, 0.0, static_cast<double>(w), static_cast<double>(h) };
+    snap.start       = PointD{ left, top };
+    snap.end         = PointD{ left + destW, top + destH };
+    snap.blankSource = false;            // there is no source here to blank
+
+    Snapshot();
+    annotations_.push_back(std::move(snap));
+
+    // Selected, so its handles are already up: the first thing anyone does
+    // with a piece that has just landed in the middle of the picture is move
+    // it or resize it.
+    selectedIndex_ = static_cast<int>(annotations_.size()) - 1;
+
+    RefreshToolbarState();
+    ::InvalidateRect(canvas_, nullptr, FALSE);
+    ReturnFocusToCanvas();
+}
+
 void EditorWindow::RefreshToolTooltips() {
     if (!tooltips_) return;
 
@@ -1534,6 +1754,23 @@ void EditorWindow::RefreshToolTooltips() {
     }
 }
 
+void EditorWindow::UpdateSnapTooltip() {
+    if (!tooltips_ || !snapButton_) return;
+
+    snapTooltip_ = L"Snap another screenshot into this one \u2014 drag a region, "
+                   L"and it lands here as a piece you can move and resize";
+    const hotkeys::Binding binding = hotkeys::Current(hotkeys::Action::SnapIntoEditor);
+    if (binding.IsBound()) snapTooltip_ += L"  (" + hotkeys::Describe(binding) + L")";
+
+    TOOLINFOW info{};
+    info.cbSize   = sizeof(info);
+    info.uFlags   = TTF_IDISHWND | TTF_SUBCLASS;
+    info.hwnd     = hwnd_;
+    info.uId      = reinterpret_cast<UINT_PTR>(snapButton_);
+    info.lpszText = const_cast<LPWSTR>(snapTooltip_.c_str());
+    ::SendMessageW(tooltips_, TTM_UPDATETIPTEXTW, 0, reinterpret_cast<LPARAM>(&info));
+}
+
 void EditorWindow::ShortcutsChanged() {
     // Called after a rebind or a reset. Nothing about the editor's BEHAVIOUR
     // needs updating — HandleEditorKey asks hotkeys:: for the current
@@ -1543,6 +1780,7 @@ void EditorWindow::ShortcutsChanged() {
         if (!editor || !editor->hwnd_) continue;
         editor->RefreshToolTooltips();
         editor->UpdatePinTooltip();
+        editor->UpdateSnapTooltip();
     }
 }
 
@@ -3531,7 +3769,13 @@ std::unique_ptr<Gdiplus::Bitmap> EditorWindow::PictureForLift() const {
     // handful of marks and nothing else.
     bool needed = false;
     for (const Annotation& annotation : annotations_) {
-        if (annotation.tool == Tool::Lift) { needed = true; break; }
+        // A SNAP is a Lift that reads from its own bitmap, so it does not
+        // need this view at all. Counting one would build a full-size wrapper
+        // over the capture on every repaint for nothing.
+        if (annotation.tool == Tool::Lift && !annotation.ownPicture) {
+            needed = true;
+            break;
+        }
     }
     if (!needed && !(hasDraft_ && draft_.tool == Tool::Lift)) return nullptr;
 

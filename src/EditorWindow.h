@@ -54,6 +54,12 @@ public:
     // naming a shortcut that is no longer bound to them.
     static void ShortcutsChanged();
 
+    // Is this pointer still a live editor? Compares the VALUE and
+    // dereferences nothing, so it is safe to ask about an object that may
+    // already have been destroyed — which is exactly what SnapIntoPicture
+    // needs after the region overlay's modal loop returns.
+    static bool StillAlive(const EditorWindow* editor);
+
     EditorWindow(const EditorWindow&) = delete;
     EditorWindow& operator=(const EditorWindow&) = delete;
     ~EditorWindow();
@@ -250,6 +256,11 @@ private:
     HWND textEdit_   = nullptr;
     HWND colourPopup_ = nullptr;
     HWND toolButtons_[kToolCount]{};
+    // Snap sits with the tools on the bar because it adds to the picture,
+    // but it is a COMMAND, not a tool: it acts the moment it is pressed
+    // rather than arming a mode you then drag in. Hence its own handle here
+    // rather than a ninth entry in toolButtons_.
+    HWND snapButton_ = nullptr;
     HWND undoButton_ = nullptr;
     HWND redoButton_ = nullptr;
     HWND copyButton_ = nullptr;
@@ -311,6 +322,12 @@ private:
     // The title carries the size, and a crop changes it.
     void UpdateTitleForCrop();
     void RefreshToolTooltips();
+    void UpdateSnapTooltip();
+
+    // Snap: capture a region with this editor hidden from the capture, then
+    // drop it into the picture as a Lift that carries its own pixels.
+    // Blocks while the overlay is up — see the note inside about that.
+    void SnapIntoPicture();
 
     // Makes a toolbar button look clicked for a moment, so a keyboard
     // shortcut has a visible answer and says WHICH command it ran. Ctrl+Z
@@ -372,6 +389,7 @@ private:
     // that outlives the call.
     std::wstring toolTips_[kToolCount];
     std::wstring pinTooltip_;
+    std::wstring snapTooltip_;
     double   currentLineWidth_ = 4.0;
 
     DragMode   dragMode_ = DragMode::None;

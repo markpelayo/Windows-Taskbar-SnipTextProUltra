@@ -14,10 +14,15 @@
 
 #include "framework.h"
 
-// Image as well as Graphics now, because Lift's Draw takes the picture it
-// reads its pixels out of. Forward declarations rather than gdiplus.h: this
-// header is included widely, and Gdiplus::Bitmap collides with our ::Bitmap.
-namespace Gdiplus { class Graphics; class Image; }
+// Image as well as Graphics, because Lift's Draw takes the picture it reads
+// its pixels out of — and Bitmap too, because a snap carries its own.
+// Forward declarations rather than gdiplus.h: this header is included widely,
+// and the unqualified name Bitmap already means our own class here, so the
+// real header would have to be kept out of every translation unit that uses
+// both. `std::shared_ptr` to an incomplete type is fine; the deleter is
+// captured where the object is created, which is in a file that does have
+// gdiplus.h.
+namespace Gdiplus { class Graphics; class Image; class Bitmap; }
 
 // Lift is the odd one out: every other tool draws ink of its own, while Lift
 // re-draws a rectangle of the underlying picture somewhere else. It is still
@@ -180,6 +185,29 @@ struct Annotation {
     RectD    source;
     bool     blankSource = false;
     COLORREF blankColour = RGB(255, 255, 255);
+
+    // A SNAP: a Lift whose pixels come from its own bitmap instead of from
+    // the editor's capture. Non-null only for those.
+    //
+    // It is deliberately not a ninth Tool. Everything a snap needs already
+    // exists on Lift — `source` is the rectangle read from, start/end are
+    // where it lands, so moving, resizing, hit-testing, handles, z-order,
+    // undo and the crop clip all work with no new code at all. The only
+    // difference is which image the pixels come from, and that is one
+    // pointer. A separate tool would have duplicated every one of those
+    // behaviours to change that pointer.
+    //
+    // SHARED, not owned, and that is the load-bearing part. An Annotation is
+    // copied wholesale into every undo snapshot, so a by-value bitmap would
+    // put 33 MB into each step of the undo stack — the same trap that made
+    // the crop a RECT over an untouched capture rather than a cropped copy.
+    // A shared_ptr copy is a refcount, so fifty undo steps holding the same
+    // snap cost one bitmap between them.
+    //
+    // A Gdiplus::Bitmap rather than our own Bitmap because Draw needs to
+    // hand it straight to DrawImage, and it owns its pixels rather than
+    // borrowing a DIB's buffer — so nothing has to outlive anything.
+    std::shared_ptr<Gdiplus::Bitmap> ownPicture;
 
     // The stroke-width slider doubles as the text-size control, with a floor
     // so a hairline stroke still produces a readable label.

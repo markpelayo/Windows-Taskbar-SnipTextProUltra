@@ -8,7 +8,7 @@ This is the whole layout, top to bottom, with what each row is for. Rows whose
 text changes with state are shown with the state in `‹angle brackets›`.
 
 ```
-SnipTextProUltra 1.9.7 · Mark Pelayo          ← click opens the repository
+SnipTextProUltra 1.10.0 · Mark Pelayo        ← click opens the repository
 ────────────────────────────────────────
 Screenshot a Region…              ‹shortcut›
 Screenshot Full Screen            ‹shortcut›
@@ -38,7 +38,8 @@ Change Keyboard Shortcut                     ▸
     Text                                         6
     Lift                                         7
     Crop                                         8
-    Keep the Editor on Top                       9
+    Snap Another Screenshot In                   9
+    Keep the Editor on Top                       0
     ────────────────────────────────────
     Reset to Defaults
 Text Layout                                   ▸
@@ -143,15 +144,15 @@ Recording (MM:SS)** row with the elapsed time.
 
 ### Change Keyboard Shortcut
 
-All sixteen bindings and their current keys. Pick one, press the combination,
+All seventeen bindings and their current keys. Pick one, press the combination,
 Enter to save. `Delete` unbinds; `Esc` cancels.
 
 The split matters more than it looks. The **six above the line are global** —
 claimed from the whole system with `RegisterHotKey`, so they are taken away
 from every other program, which is why an unmodified key is refused for them
-unless it is a function key. The **ten below** are matched inside the editor
+unless it is a function key. The **eleven below** are matched inside the editor
 and register nothing, which is what makes a bare `Esc` and the bare digits
-`1`–`9` safe defaults there.
+`1`–`9` and `0` safe defaults there.
 
 ### Text Layout
 

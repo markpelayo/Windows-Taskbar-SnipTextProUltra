@@ -8,6 +8,63 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.10.0] — 2026-09-30
+
+A new capability and a one-row toolbar. Minor rather than patch because the
+window's minimum size changed and there is something the editor could not do
+before. See [the release notes](docs/RELEASE-NOTES-v1.10.0.md).
+
+### Added
+
+- **Snap another screenshot into the one you are editing.** The last button in
+  the mark-making group, and `9`. The editor hides itself from the capture, the
+  crosshair comes up, and whatever you drag lands in the middle of the current
+  picture as a movable, resizable, layerable, undoable piece. Cropping clips
+  it like anything else, and the original picture is never modified.
+
+  For the cases where one screenshot is not the whole story — a dialog and the
+  setting that caused it, a before and an after — without leaving the editor.
+
+  Implemented as a **Lift that carries its own bitmap**. Everything a snap
+  needs already existed on Lift: `source` is the rectangle read from,
+  start/end are where it lands, so moving, resizing, hit-testing, handles,
+  z-order, undo and the crop clip all work with no new code. The difference
+  is one pointer, which is why it is not a ninth tool.
+
+  The bitmap is held by `shared_ptr`. An annotation is copied wholesale into
+  every undo snapshot, so a by-value bitmap would put 33 MB into each step —
+  the same trap that made the crop a `RECT` over an untouched capture rather
+  than a cropped copy. It is also cloned once at capture time into a bitmap
+  that owns its pixels, so nothing has to outlive anything.
+
+  Placed centred in the current crop and shrunk to fit with a margin, never
+  enlarged. Inside the crop rather than beside the picture, because a mark
+  outside the crop is clipped out of the canvas AND the export and excluded
+  from hit-testing — it would arrive invisible and unselectable, which is the
+  trap the Text tool had until 1.9.7.
+
+### Changed
+
+- **One toolbar, not two.** Undo, redo, copy, save and pin moved from the top
+  bar down beside the tools, which left the top bar empty — so it is gone and
+  its 44px went back to the canvas.
+
+  Five groups with wider gaps between them: *how it looks* · *make a mark* ·
+  *history* · *output* · *this window*. A button's neighbours now tell you
+  what kind of thing it is; fourteen evenly-spaced buttons would be a row you
+  have to read rather than scan.
+
+  The minimum client area is now **760 × 424**, was 502 × 468 — wider, because
+  fourteen buttons on one line cost width, and shorter by exactly the bar that
+  went away. The old floor needed two numbers because the top bar's *centred*
+  Pin button had to clear both flanks; with nothing centred, the row is a
+  fixed width and the floor is simply that width.
+- **The Pin shortcut moved from `9` to `0`**, so the digits run along the bar
+  with no gap: 1–8 tools, 9 snap, 0 pin. Only the default moved — anyone who
+  had rebound it keeps what they chose.
+- `docs/editor-toolbar.svg` / `.png` redrawn for the single row, with the
+  group brackets labelled and every button carrying its number key.
+
 ## [1.9.7] — 2026-09-30
 
 A pre-release audit pass. Five bugs, one of them a regression from 1.9.6 and
@@ -1782,7 +1839,8 @@ The short version: the app model, the confirmation surface, the recording
 indicator, the hotkeys, the container format, the OCR engine and the editor's
 Y axis all changed because the platform is different. Nothing else did.
 
-[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.9.7...HEAD
+[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.10.0...HEAD
+[1.10.0]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.10.0
 [1.9.7]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.7
 [1.9.6]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.6
 [1.9.5]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.5

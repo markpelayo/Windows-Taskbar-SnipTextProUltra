@@ -304,6 +304,34 @@ private:
     // The title carries the size, and a crop changes it.
     void UpdateTitleForCrop();
 
+    // Makes a toolbar button look clicked for a moment, so a keyboard
+    // shortcut has a visible answer and says WHICH command it ran. Ctrl+Z
+    // and Ctrl+Y are the pair that needs it: they are adjacent keys with
+    // opposite effects, and on a drawing with few marks the result of
+    // guessing wrong can be hard to see on the canvas.
+    //
+    // Implemented with BM_SETSTATE rather than a "pretend pressed" member of
+    // our own, so the fake press goes through exactly the same ODS_SELECTED
+    // path in WM_DRAWITEM as a real one.
+    //
+    // That shares the mechanism but it does NOT mean the two are
+    // interchangeable, and assuming so cost a visual bug: holding the button
+    // down across a command that disables it reaches pressed-and-disabled,
+    // which a real click cannot, because a click releases before
+    // WM_COMMAND. The draw site handles it; the note is here because the
+    // reachable state space is what grew, not the drawing code.
+    //
+    // Does nothing for a DISABLED button, or while a label is being typed.
+    // A Ctrl+Z with an empty undo stack should not flash — "nothing
+    // happened" is the honest answer, and it is information worth having.
+    // Only Undo and Redo are ever disabled, so Copy and Save always flash;
+    // they report their own success in the title bar instead.
+    void FlashButton(HWND button);
+    void ReleaseFlashedButton();
+    // Which button is mid-flash, so the timer knows what to let go of. Only
+    // ever one: the commands are mutually exclusive in time.
+    HWND flashingButton_ = nullptr;
+
     // One undo step. The crop travels with the annotations because a crop
     // IS an edit — Ctrl+Z after cropping has to put the picture back, not
     // just the marks.

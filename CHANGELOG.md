@@ -8,6 +8,60 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.9.4] — 2026-09-30
+
+Feedback for the keyboard shortcuts. See
+[the release notes](docs/RELEASE-NOTES-v1.9.4.md).
+
+### Added
+
+- **`Ctrl+Z`, `Ctrl+Y`, `Ctrl+C` and `Ctrl+S` now flash the matching toolbar
+  button**, so a shortcut says *which* command it ran rather than leaving you
+  to infer it from the canvas. Undo and redo are the pair that needed this:
+  adjacent keys with opposite effects, and on a drawing with few marks the
+  result of hitting the wrong one can be genuinely hard to see.
+
+  Implemented with `BM_SETSTATE` rather than a separate "pretend pressed"
+  flag, so the fake press travels the same `ODS_SELECTED` path through
+  `WM_DRAWITEM` as a real click. 150ms — short enough not to look stuck, long
+  enough not to be missed between saccades.
+
+  A **disabled** button does not flash, and neither does anything while a
+  label is being typed. `Ctrl+Z` on an empty undo stack stays silent, because
+  "nothing happened" is the truthful answer and is itself worth knowing. This
+  is also why the flash is raised *before* the command runs rather than
+  after: the button's enabled state still describes whether the command is
+  about to do anything, which afterwards it may not — the last undo disables
+  Undo. Only Undo and Redo are ever disabled, so Copy and Save always flash;
+  they report success or failure in the title bar instead.
+
+  Holding a shortcut down auto-repeats, and each repeat restarts the release
+  timer rather than stacking one, so the button stays down for the whole run
+  of undos and comes back up once.
+
+### Fixed
+
+- **A disabled toolbar button could draw with the blue "switched on" face.**
+  Found by audit. Sharing `BM_SETSTATE` with a real click shares the
+  mechanism but not the reachable states: a real click releases the button
+  before `WM_COMMAND`, so the `EnableWindow(FALSE)` that follows the last
+  undo always landed on a released button. The shortcut flash holds it down
+  across that disable, producing pressed-and-disabled — the selected-tool
+  blue with a greyed glyph, a combination that appears nowhere else in the
+  UI, on precisely the case the feature was built for. The face now ignores
+  `active` and `pressed` when the button is disabled, so a spent Undo simply
+  goes grey, which is the honest signal anyway.
+- Two stale comments corrected: `WM_TIMER` claimed `baseTitle_` was captured
+  once at construction (`UpdateTitleForCrop` rewrites it — which is exactly
+  why the revert survives a crop landing mid-flash), and `WM_CREATE`
+  promised Save an accent ring that was never wired up.
+
+### Changed
+
+- **The title-bar confirmation now lasts 2 seconds, up from 1.2.** 1.2s was
+  long enough to notice that something had changed and too short to read the
+  word, which is the worst of both.
+
 ## [1.9.3] — 2026-09-30
 
 Shift now constrains the geometry on **every** tool that has geometry, with no
@@ -1550,7 +1604,8 @@ The short version: the app model, the confirmation surface, the recording
 indicator, the hotkeys, the container format, the OCR engine and the editor's
 Y axis all changed because the platform is different. Nothing else did.
 
-[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.9.3...HEAD
+[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.9.4...HEAD
+[1.9.4]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.4
 [1.9.3]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.3
 [1.9.2]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.2
 [1.9.1]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.1

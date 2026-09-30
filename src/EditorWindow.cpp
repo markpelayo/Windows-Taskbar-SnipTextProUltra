@@ -52,7 +52,21 @@ constexpr int IDC_TOOL_FIRST = 110;
 constexpr int IDC_TEXTEDIT   = 200;
 
 constexpr UINT_PTR kTitleFlashTimer = 1;
-constexpr UINT     kTitleFlashMs    = 1200;
+// 2000, up from 1200. 1.2s reads as a flicker rather than a message — long
+// enough to notice something changed, too short to actually read the word,
+// which is the worst of both. Two seconds is the shortest interval that can
+// be read without hurrying.
+constexpr UINT     kTitleFlashMs    = 2000;
+
+// The fake button press that answers a keyboard shortcut.
+//
+// 150ms is chosen against human reaction time rather than against taste: a
+// press shorter than about 100ms can be missed entirely between saccades,
+// and anything past ~250ms starts to read as the button being stuck. This is
+// the same range Windows itself uses for the visual answer to a keyboard
+// space-bar press on a focused button.
+constexpr UINT_PTR kButtonFlashTimer = 2;
+constexpr UINT     kButtonFlashMs    = 150;
 
 // Posted to the frame so the system colour picker opens on a later
 // message-loop turn, after the popup that requested it has finished
@@ -894,10 +908,14 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
     switch (message) {
     case WM_CREATE: {
         // Icons, like the tools, because a bar that is half words and half
-        // pictures reads as two bars that happen to be touching. Save keeps
-        // a visual emphasis of its own — an accent ring drawn in
-        // WM_DRAWITEM — since BS_DEFPUSHBUTTON's ring goes away with
-        // owner-drawing and Save is still the primary action here.
+        // pictures reads as two bars that happen to be touching.
+        //
+        // No accent ring on Save, despite what this comment used to promise:
+        // BS_DEFPUSHBUTTON's ring goes away under owner-drawing, and the
+        // replacement was never wired up — WM_DRAWITEM's `active` is true
+        // only for the selected tool and for Pin. Left as it is deliberately.
+        // The bar is five buttons wide and Ctrl+S is on the shortcut list;
+        // emphasis that has to be explained is not emphasis.
         undoButton_ = MakeButton(hwnd_, L"", IDC_UNDO, BS_OWNERDRAW);
         redoButton_ = MakeButton(hwnd_, L"", IDC_REDO, BS_OWNERDRAW);
         copyButton_ = MakeButton(hwnd_, L"", IDC_COPY, BS_OWNERDRAW);
@@ -1075,7 +1093,20 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
             }
 
             RECT box = item->rcItem;
-            DrawIconButtonFace(item->hDC, box, active, pressed);
+            // A disabled button gets the plain face, never the blue one.
+            //
+            // This never came up before 1.9.4, because a real mouse click
+            // clears the pushed state before WM_COMMAND runs — so the
+            // EnableWindow(FALSE) that follows the last undo always landed on
+            // a released button. The shortcut flash holds the button down
+            // ACROSS that disable, which made a state reachable that a click
+            // cannot produce: pressed and disabled at once, drawn as the blue
+            // "switched on" face with a greyed-out glyph. Blue means the
+            // selected tool or Pin being on, and a spent Undo button is
+            // neither. Resolved here at the draw site rather than by
+            // shortening the flash, because the face is what was wrong.
+            DrawIconButtonFace(item->hDC, box, active && !disabled,
+                               pressed && !disabled);
 
             RECT glyphBox = box;
             ::InflateRect(&glyphBox, -5, -4);
@@ -1154,10 +1185,15 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
     case WM_TIMER:
         if (wParam == kTitleFlashTimer) {
             ::KillTimer(hwnd_, kTitleFlashTimer);
-            // The base title is captured once, at construction. Reading the
-            // current title here would let a second flash inside the revert
-            // window latch "Copied" permanently.
+            // Reverted to baseTitle_, never to the CURRENT window text: a
+            // second flash inside the revert window would otherwise latch
+            // "Copied" permanently. baseTitle_ is not a one-time capture —
+            // UpdateTitleForCrop rewrites it — which is exactly why this
+            // stays correct when a crop lands mid-flash. It is recomputed,
+            // not remembered.
             ::SetWindowTextW(hwnd_, baseTitle_.c_str());
+        } else if (wParam == kButtonFlashTimer) {
+            ReleaseFlashedButton();
         }
         return 0;
 
@@ -1173,6 +1209,12 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
         // listed in LiveEditors — see the note in the destructor.
         pinButton_ = nullptr;
         tooltips_  = nullptr;
+        // Same reason, and it must be dropped WITHOUT sending BM_SETSTATE:
+        // the timer could otherwise fire against a handle that is about to
+        // be invalid. KillTimer, then forget the button.
+        ::KillTimer(hwnd_, kButtonFlashTimer);
+        ::KillTimer(hwnd_, kTitleFlashTimer);
+        flashingButton_ = nullptr;
         if (onClose_) onClose_(this);
         return 0;
     }
@@ -2084,10 +2126,19 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
         // Ctrl+Z edits the text instead of undoing the drawing.
         if (control) {
             switch (wParam) {
-            case 'Z': if (shift) Redo(); else Undo(); return 0;
-            case 'Y': Redo(); return 0;
-            case 'C': CopyToClipboard(); return 0;
-            case 'S': SaveAsPng(); return 0;
+            // FlashButton FIRST, then the command. Two reasons, and both
+            // matter: it decides whether to flash from the button's enabled
+            // state, which the command itself can change (the last undo
+            // disables Undo); and Save can block on a dialog or a slow disk,
+            // so the press wants to be on screen before that starts rather
+            // than after it finishes.
+            case 'Z':
+                if (shift) { FlashButton(redoButton_); Redo(); }
+                else       { FlashButton(undoButton_); Undo(); }
+                return 0;
+            case 'Y': FlashButton(redoButton_); Redo();            return 0;
+            case 'C': FlashButton(copyButton_); CopyToClipboard(); return 0;
+            case 'S': FlashButton(saveButton_); SaveAsPng();       return 0;
 
             // Layering. Ctrl+arrows rather than bare arrows, which are
             // taken by nudging below — in every editor a bare arrow key
@@ -3466,4 +3517,46 @@ void EditorWindow::FlashTitle(const wchar_t* note) {
     ::KillTimer(hwnd_, kTitleFlashTimer);
     ::SetWindowTextW(hwnd_, note);
     ::SetTimer(hwnd_, kTitleFlashTimer, kTitleFlashMs, nullptr);
+}
+
+void EditorWindow::FlashButton(HWND button) {
+    // A disabled button does not flash: see the note in the header. This is
+    // also what makes it safe to flash BEFORE running the command rather
+    // than after — the button's enabled state still describes whether the
+    // command is about to do anything, which after the fact it may not.
+    if (!button || !::IsWindowEnabled(button)) return;
+
+    // Nor while a label is being typed. Ctrl+Z with the inline field open
+    // backs out of the LABEL — Undo() cancels the text entry and returns
+    // without touching the undo stack — so flashing Undo would claim an undo
+    // that did not happen, which is the one thing this feature exists not to
+    // do. Reachable only when focus has left the field without EN_KILLFOCUS
+    // clearing the flag, which HandleEditorKey already guards against, so
+    // this is narrow; IsWindowEnabled cannot see it either way.
+    if (textEntryActive_) return;
+
+    // A different button already lit: let it go now rather than leaving two
+    // pressed until the one timer fires.
+    if (flashingButton_ && flashingButton_ != button) ReleaseFlashedButton();
+
+    flashingButton_ = button;
+    ::SendMessageW(button, BM_SETSTATE, TRUE, 0);
+
+    // Restarted, not stacked. Holding Ctrl+Z down auto-repeats, and each
+    // repeat pushes the release out — so the button stays down for the whole
+    // run of undos and comes up once, which is what the gesture looks like.
+    ::KillTimer(hwnd_, kButtonFlashTimer);
+    ::SetTimer(hwnd_, kButtonFlashTimer, kButtonFlashMs, nullptr);
+}
+
+void EditorWindow::ReleaseFlashedButton() {
+    ::KillTimer(hwnd_, kButtonFlashTimer);
+
+    // Taken and cleared BEFORE the send. BM_SETSTATE on an owner-drawn
+    // button sends WM_DRAWITEM back to this window synchronously, so this
+    // has to be re-entrant-safe — the same rule that WM_LBUTTONUP learned
+    // the hard way with ReleaseCapture in 1.9.1.
+    const HWND button = flashingButton_;
+    flashingButton_ = nullptr;
+    if (button) ::SendMessageW(button, BM_SETSTATE, FALSE, 0);
 }

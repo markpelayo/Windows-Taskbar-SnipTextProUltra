@@ -63,7 +63,7 @@ enum class Action {
     // this instead. Its position in the MENU comes from kAllActions, which
     // is a separate list — so it reads in bar order without the enum having
     // to be in bar order.
-    SnapIntoEditor,
+    AddScreenshot,
 };
 
 constexpr int kActionCount = 17;

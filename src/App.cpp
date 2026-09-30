@@ -633,7 +633,7 @@ LRESULT App::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         case hotkeys::Action::SelectTool7:
         case hotkeys::Action::SelectTool8:
         case hotkeys::Action::TogglePin:
-        case hotkeys::Action::SnapIntoEditor:
+        case hotkeys::Action::AddScreenshot:
             return 0;
         }
         return 0;

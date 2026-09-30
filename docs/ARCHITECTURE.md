@@ -397,7 +397,7 @@ The registry key is still `pinRegionToScreen`, a leftover from the first design.
 
 ## The number keys, and why the toolbar's order is load-bearing
 
-`1` through `8` select the eight tools; `9` snaps another screenshot into the picture; `0` toggles Keep the Editor on Top. The digit is the button's position on the bar, which is only true without a lookup table because **the `Tool` enum's order *is* the toolbar's order *is* the digit order** — one list doing three jobs.
+`1` through `8` select the eight tools; `9` adds a screenshot to the picture; `0` toggles Keep the Editor on Top. The digit is the button's position on the bar, which is only true without a lookup table because **the `Tool` enum's order *is* the toolbar's order *is* the digit order** — one list doing three jobs.
 
 The alternative was a separate display-order array, letting the enum keep a stable numbering. It was rejected because all four casts that convert between a tool and a button index are round trips through this order, and two orders would mean every one of them has to declare which it means.
 
@@ -457,15 +457,15 @@ The one hole no drawing can close is `Auto-Save Images`, which writes the untouc
 
 ## The editor toolbar
 
-**One bar** since 1.10.0, and everything on it is owner-drawn. Five groups, left to right, separated by a wider gap than the buttons within a group:
+**One bar** since 1.10.0, and everything on it is owner-drawn. Three groups, left to right:
 
 | group | buttons |
 |---|---|
 | how it looks | swatch, width slider |
-| make a mark | the eight tools, then Snap |
-| history | Undo, Redo |
-| output | Copy, Save |
-| this window | Pin |
+| make a mark | the eight tools, then Add a Screenshot |
+| everything else | Undo, Redo, Copy, Save, Pin |
+
+1.10.0 shipped that right-hand run sub-divided into *history*, *output* and *this window*. 1.10.1 collapsed it: the distinction that matters when you are hunting for a button is "changes the picture" versus "does not", and three more gaps was more structure than there was meaning — it also cost 20px of window width.
 
 Until 1.10.0 the last three lived on a second bar along the top, with Undo/Redo anchored left, Pin **centred** and Copy/Save anchored right. Moving them down emptied that bar, so it was removed and its 44px went back to the canvas.
 
@@ -475,11 +475,11 @@ Everything is now laid out from the **left**, in one run, and that made the old 
 
 Nothing is centred now. The row is a fixed width, so there is one floor instead of two competing ones, and it is simply that width.
 
-`kMinToolRowWidth` sums the whole row and comes to **760**, which is the window's minimum client width. It is derived, never written as a literal — a literal is a number that has to be remembered every time a button is added, and is not, which is how the Lift button once went missing on small captures.
+`kMinToolRowWidth` sums the whole row and comes to **740**, which is the window's minimum client width. It is derived, never written as a literal — a literal is a number that has to be remembered every time a button is added, and is not, which is how the Lift button once went missing on small captures.
 
-The minimum went 700 (seven text tools) → 678 (a text command group) → 540 (nine icon tools, Crop added) → 502 (two rows, Callout removed) → 760 (one row, Snap added). Wider than 502 because fourteen buttons on one line cost width; the window is also 44px **shorter**, because `kMinContentHeight` is now `kMinCanvasHeight + kBarHeight` rather than `+ kBarHeight * 2`. Minimum client area 760 × 424, was 502 × 468.
+The minimum went 700 (seven text tools) → 678 (a text command group) → 540 (nine icon tools, Crop added) → 502 (two rows, Callout removed) → 760 (one row, Add a Screenshot added, 1.10.0) → 740 (the three surplus group gaps collapsed, 1.10.1). Wider than 502 because fourteen buttons on one line cost width; the window is also 44px **shorter**, because `kMinContentHeight` is now `kMinCanvasHeight + kBarHeight` rather than `+ kBarHeight * 2`. Minimum client area 740 × 424, was 502 × 468.
 
-Pin is a real toggle rather than a label, writing the same registry value the tray row writes. `EditorWindow::PinSettingChanged` repaints it in every live editor and is called from both switches and from Sanitize, so two windows cannot disagree about one setting. `LiveEditors()` is maintained by the constructor and destructor rather than by `WM_CREATE`/`WM_DESTROY`, because the object outlives its window by one message-loop turn — App defers the delete. `WM_DESTROY` nulls `pinButton_` and `snapButton_` for exactly that gap, so a notification arriving in it has nothing to invalidate. The list itself is deliberately never destroyed: `App` is a function-local static constructed *before* the first editor, so this vector would be torn down first, and `~App` destroying `editors_` would then erase from a dead container.
+Pin is a real toggle rather than a label, writing the same registry value the tray row writes. `EditorWindow::PinSettingChanged` repaints it in every live editor and is called from both switches and from Sanitize, so two windows cannot disagree about one setting. `LiveEditors()` is maintained by the constructor and destructor rather than by `WM_CREATE`/`WM_DESTROY`, because the object outlives its window by one message-loop turn — App defers the delete. `WM_DESTROY` nulls `pinButton_` and `addShotButton_` for exactly that gap, so a notification arriving in it has nothing to invalidate. The list itself is deliberately never destroyed: `App` is a function-local static constructed *before* the first editor, so this vector would be torn down first, and `~App` destroying `editors_` would then erase from a dead container.
 
 The colour picker opens **upwards**, above the swatch. 1.8.1 moved it downwards out of the window, on the diagnosis that rising into the canvas was what covered the picture; the real cause was the colour wheel in the tenth cell being drawn at a radius of a whole cell instead of half of one, unclipped, so it escaped the popup entirely. A swatch on the bar along the bottom opens upwards. It is clamped to the monitor's *work area* — work area rather than monitor rectangle, or a window near the top of the screen pushes its picker off the desk.
 
@@ -536,15 +536,23 @@ The registry write is deferred to mouse-up. Writing on every changed mouse-move 
 
 The alternative — cut the bitmap down, shift every mark — fails on undo. Undo snapshots state, so a destructive crop would put a **bitmap in every undo step**: 33 MB for a 4K capture, fifty steps, a gigabyte and a half of history for a screenshot editor. A rectangle is sixteen bytes. That is the whole argument, and it is why `EditorState` carries `{ annotations, crop }` rather than just the array.
 
-**Snap is the same argument a second time.** A snapped screenshot is a *Lift that carries its own bitmap* — `ownPicture`, non-null only for those. Everything a snap needs already existed on Lift: `source` is the rectangle read from, `start`/`end` are where it lands, so moving, resizing, hit-testing, the eight handles, z-order, undo and the crop clip all work with no new code. The difference is one pointer, which is why it is not a ninth tool and why `Draw` needs a single line to pick between them.
+**Add a Screenshot is the same argument a second time.** An added screenshot is a *Lift that carries its own bitmap* — `addedImage`, non-null only for those. Everything it needs already existed on Lift: `source` is the rectangle read from, `start`/`end` are where it lands, so moving, resizing, hit-testing, the eight handles, z-order, undo and the crop clip all work with no new code. The difference is one pointer, which is why it is not a ninth tool and why `Draw` needs a single line to pick between them.
 
 The bitmap is a `shared_ptr`, and that is the crop argument applied to pixels the editor genuinely does have to own. An `Annotation` is copied wholesale into every undo snapshot, so a by-value bitmap would put 33 MB into *each step* — five 4K snaps across fifty steps would be gigabytes. Shared, the same five cost ~166 MB total, independent of the undo depth.
 
-It is cloned once at capture time, with `Bitmap::Clone`'s **area** overload, into a bitmap that owns its pixels rather than borrowing the captured DIB's `scan0`. That matters: the argument-less `Image::Clone` is the one that shares a buffer, and a snap that shared the frozen desktop's buffer would draw freed memory the moment the overlay was destroyed. One copy per snap buys a lifetime with nothing to reason about.
+It holds **our own `Bitmap`**, the DIB, and `Draw` builds a `Gdiplus::Bitmap` view over it as a local when it paints — which copies nothing and cannot outlive the pixels.
 
-`PictureForLift` skips Lifts that have an `ownPicture`, so a picture containing only snaps never builds a full-size GDI+ wrapper over the capture on every repaint for nothing.
+That local is the one place the wrapper-outlives-the-Graphics rule above cannot be obeyed by declaration order, because `Draw` returns long before the caller's `Graphics` does. So it calls `graphics.Flush(FlushIntentionSync)` before leaving, which buys the same guarantee a different way — and only for an added shot, so an ordinary picture pays nothing.
 
-The one thing Snap needs that no other mark does is to survive a **nested modal loop**: `RegionOverlay::Run` pumps every queued message for the thread while `SnapIntoPicture` is on the stack, so a `WM_CLOSE` already in the queue can destroy the editor — App's deferred reap is *posted*, and a nested pump dispatches that too. `StillAlive(this)` compares the pointer as a value against `LiveEditors()` and dereferences nothing, which is the only form of check that is legal on an object that may already be gone. The same race sits behind `GetSaveFileNameW` and the system colour picker; this is the first place it is guarded, because Snap is on a bare digit and the overlay stays up for seconds.
+That is the fix for the bug 1.10.0 shipped with, and it is worth recording precisely because the wrong version looked so reasonable. The first attempt wrapped the captured DIB in a `Gdiplus::Bitmap` and called `Clone()` on the wrapper, on the belief that `Clone` deep-copies. **It does not reliably: cloning a bitmap that was constructed over an existing buffer can hand back a bitmap still pointing at that buffer.** The captured DIB was a local, so it died when the capture function returned and every later paint read a dangling pointer.
+
+Why it rendered **black** rather than faulting immediately is worth recording, because the obvious explanation is wrong. A DIB section's storage is *unmapped* on delete, and reading unmapped memory faults at once. What happens instead is that the range is reused: the next canvas paint allocates `scaledImage_`, a fresh DIB section of comparable size, and a fresh DIB section is zero-filled — which under `PixelFormat32bppRGB`, where alpha is ignored, is opaque black. `ApplyCrop` is then the only operation that releases `scaledImage_` and reallocates it at a *different* size, so the range stops being reclaimed and the read finally lands on unmapped memory. That is precisely why cropping crashed and nothing else did.
+
+Owning the DIB removes the class of problem rather than the instance, and it is one full-frame copy cheaper than the version that was wrong.
+
+`PictureForLift` skips Lifts that have an `addedImage`, so a picture containing only added shots never builds a full-size GDI+ wrapper over the capture on every repaint for nothing.
+
+The one thing Add a Screenshot needs that no other mark does is to survive a **nested modal loop**: `RegionOverlay::Run` pumps every queued message for the thread while `AddScreenshot` is on the stack, so a `WM_CLOSE` already in the queue can destroy the editor — App's deferred reap is *posted*, and a nested pump dispatches that too. `StillAlive(this)` compares the pointer as a value against `LiveEditors()` and dereferences nothing, which is the only form of check that is legal on an object that may already be gone. The same race sits behind `GetSaveFileNameW` and the system colour picker; this is the first place it is guarded, because it is on a bare digit and the overlay stays up for seconds.
 
 Three things fall out for free: undo is putting the old rectangle back; repeated crops cannot accumulate a rounding offset, because no mark is ever rewritten; and "undo the crop" restores the picture exactly rather than approximating it.
 

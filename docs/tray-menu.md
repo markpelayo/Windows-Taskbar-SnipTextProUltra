@@ -8,7 +8,7 @@ This is the whole layout, top to bottom, with what each row is for. Rows whose
 text changes with state are shown with the state in `‹angle brackets›`.
 
 ```
-SnipTextProUltra 1.10.0 · Mark Pelayo        ← click opens the repository
+SnipTextProUltra 1.10.1 · Mark Pelayo        ← click opens the repository
 ────────────────────────────────────────
 Screenshot a Region…              ‹shortcut›
 Screenshot Full Screen            ‹shortcut›
@@ -38,7 +38,7 @@ Change Keyboard Shortcut                     ▸
     Text                                         6
     Lift                                         7
     Crop                                         8
-    Snap Another Screenshot In                   9
+    Add a Screenshot                             9
     Keep the Editor on Top                       0
     ────────────────────────────────────
     Reset to Defaults

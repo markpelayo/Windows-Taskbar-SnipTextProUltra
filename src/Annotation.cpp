@@ -281,16 +281,46 @@ void Annotation::Draw(Graphics& graphics, double scale, PointD offset,
             graphics.DrawRectangle(&marquee, p0.X, p0.Y, p1.X - p0.X, p1.Y - p0.Y);
             break;
         }
-        // A snap reads from its own bitmap; an ordinary lift reads from the
-        // capture it was taken out of. One pointer is the whole difference
-        // between the two, which is why a snap is not a separate tool.
-        Gdiplus::Image* pixels = ownPicture ? static_cast<Gdiplus::Image*>(ownPicture.get())
-                                            : picture;
-        if (!pixels) break;   // nothing to read from; see the header
+        // An ADDED screenshot reads from its own bitmap; an ordinary lift
+        // reads from the capture it was taken out of. One pointer is the
+        // whole difference between them, which is why this is not a separate
+        // tool.
+        //
+        // The view is built here, as a local, and that is deliberate rather
+        // than lazy. This constructor WRAPS the DIB's pixels — it copies
+        // nothing — so the view must not outlive them; making it a local
+        // means it cannot. `::Bitmap` is qualified because this file says
+        // `using namespace Gdiplus`, which makes the bare name ambiguous.
+        //
+        // Cost is one small GDI+ object per added shot per repaint, no pixel
+        // copy. PictureForLift already pays exactly this for the capture on
+        // every paint, so it is the house rate rather than a new one.
+        std::unique_ptr<Gdiplus::Bitmap> ownView;
+        if (addedImage && addedImage->Bits()) {
+            ownView = std::make_unique<Gdiplus::Bitmap>(
+                addedImage->Width(), addedImage->Height(), addedImage->Stride(),
+                PixelFormat32bppRGB, static_cast<BYTE*>(addedImage->Bits()));
+            if (ownView->GetLastStatus() != Ok) ownView.reset();
+        }
+
+        // Branched on addedImage, NOT on whether the view was built — and
+        // that distinction is the whole point. Falling back to `picture` when
+        // the wrap fails would draw the top-left corner of the UNDERLYING
+        // capture into this mark's frame: a plausible-looking picture that is
+        // the wrong picture, which for a screenshot tool is a worse failure
+        // than drawing nothing, because nobody can tell it happened.
+        Gdiplus::Image* pixels = nullptr;
+        if (addedImage) {
+            if (!ownView) break;            // its own pixels, or none
+            pixels = ownView.get();
+        } else {
+            pixels = picture;               // an ordinary lift reads the capture
+            if (!pixels) break;             // nothing to read from; see the header
+        }
 
         // The blank goes down first, so that dragging a lifted piece back over
         // its own source covers the patch rather than being covered by it.
-        // Never set on a snap: there is no source on this picture to blank.
+        // Never set on an added screenshot: there is no source here to blank.
         if (blankSource) {
             SolidBrush fill(ToGdipColour(blankColour));
             const PointF a = Map({ source.MinX(), source.MinY() }, scale, offset);
@@ -315,6 +345,26 @@ void Annotation::Draw(Graphics& graphics, double scale, PointD offset,
                            static_cast<REAL>(source.width), static_cast<REAL>(source.height),
                            UnitPixel);
         graphics.SetInterpolationMode(previous);
+
+        // Flushed while the view is still alive, and ONLY for an added shot.
+        //
+        // This file already states the rule twice, where PaintCanvas and
+        // Flatten declare their `picture` wrapper BEFORE the Graphics and
+        // call the order load-bearing: GDI+ batches, so a DrawImage issued
+        // here may still be pending when the source wrapper is destroyed.
+        //
+        // `ownView` cannot obey that rule by declaration order. It is a local
+        // of this function, and this function returns long before the
+        // caller's Graphics does — hoisting it anywhere inside Draw changes
+        // nothing. So the batch is forced out here instead, which is the same
+        // guarantee bought a different way.
+        //
+        // Not the 1.10.0 bug even if it never fired: only the wrapper would
+        // have died early, while the PIXELS belong to addedImage and live for
+        // the whole paint. This is about keeping the invariant the rest of
+        // the file relies on true, rather than having two places assert
+        // something a third quietly contradicts.
+        if (ownView) graphics.Flush(FlushIntentionSync);
         break;
     }
     case Tool::Rectangle: {

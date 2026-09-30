@@ -16,7 +16,7 @@ Everything runs locally. OCR is Windows' own `Windows.Media.Ocr`, capture is GDI
 
 One executable, no installer, no third-party dependencies — nothing but the Windows SDK. The binary is statically linked, so there is no runtime to install.
 
-This is version 1.10.0. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
+This is version 1.10.1. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
 
 ### Trying it on sample text
 
@@ -48,7 +48,7 @@ A **tray icon** sits in the notification area whenever the program is running, s
 
 ### Pinning it
 
-1. Build it (below), then run `build\SnipTextProUltra_1.10.0.exe` once.
+1. Build it (below), then run `build\SnipTextProUltra_1.10.1.exe` once.
 2. Right-click its taskbar button → **Pin to taskbar**.
 
 That's it. The pinned icon is now the app.
@@ -68,7 +68,7 @@ That's it. The pinned icon is now the app.
 A `SHA-256` checksum is published beside each release binary. It is not a signature and does not pretend to be one; it only lets you confirm the file you downloaded is the file CI produced:
 
 ```
-Get-FileHash .\SnipTextProUltra_1.10.0.exe -Algorithm SHA256
+Get-FileHash .\SnipTextProUltra_1.10.1.exe -Algorithm SHA256
 ```
 
 ## Requirements
@@ -301,19 +301,17 @@ If the clipboard write fails — another program can hold the clipboard open —
 
 ## The annotation editor
 
-Opened by the Screenshot commands. **One toolbar along the bottom**, in four groups, left to right:
+Opened by the Screenshot commands. **One toolbar along the bottom**, in three groups, left to right:
 
 | group | buttons |
 |---|---|
 | how it looks | colour swatch · stroke-width slider (also sets text size) |
-| make a mark | rectangle · ellipse · arrow · line · freehand pen · text · lift · crop · **snap** |
-| history | undo · redo |
-| output | copy · save |
-| this window | keep on top |
+| make a mark | rectangle · ellipse · arrow · line · freehand pen · text · lift · crop · **add a screenshot** |
+| everything else | undo · redo · copy · save · keep on top |
 
-The gaps between groups are what make it scannable: a button's neighbours tell you what kind of thing it is. Until 1.10.0 the history, output and pin buttons were on a second bar along the top; moving them down gave the canvas that 44px back.
+The wide gap before undo is what makes it scannable: to the left of it, everything changes the picture; to the right, nothing does. That is the only distinction worth a gap — sub-dividing the right-hand half into history, output and window was more structure than there was meaning, and it cost window width for nothing. Until 1.10.0 the history, output and pin buttons were on a second bar along the top; moving them down gave the canvas that 44px back.
 
-Press **1** to **8** to pick a tool — the digit is its position on the bar, so rectangle is 1 — **9** to snap another screenshot in, and **0** to toggle Keep the Editor on Top. All ten are rebindable under *Change Keyboard Shortcut → Only inside the editor*, and hovering a button names its current key. Bare digits are safe here because these shortcuts are editor-local: they are never registered system-wide, and the editor ignores them entirely while you are typing a text label.
+Press **1** to **8** to pick a tool — the digit is its position on the bar, so rectangle is 1 — **9** to add a screenshot, and **0** to toggle Keep the Editor on Top. All ten are rebindable under *Change Keyboard Shortcut → Only inside the editor*, and hovering a button names its current key. Bare digits are safe here because these shortcuts are editor-local: they are never registered system-wide, and the editor ignores them entirely while you are typing a text label.
 
 A fresh editor opens with **rectangle** selected — the most-used tool, and therefore also the first button and the `1` key. Marks are drawn in **blue (#007AFF)** until you pick something else from the swatch. Both are remembered once you change them.
 
@@ -381,7 +379,7 @@ A filled rectangle is also how you redact something. Worth knowing why it is a f
 
 > If **Auto-Save Images** is on, the untouched original went to disk the moment the shot was taken, before you covered anything. Redact, save, send the clean copy, and the readable original is still in your screenshots folder.
 
-### Snap another screenshot in
+### Add a screenshot
 
 The last button in the mark-making group, and `9`. Press it and the editor **hides itself from the capture**, the crosshair comes up, and whatever you drag lands in the middle of the current picture as another movable piece.
 
@@ -392,14 +390,14 @@ It is for the cases where one screenshot is not the whole story — a dialog and
 | | |
 |---|---|
 | **where it lands** | centred in the current picture, shrunk to fit with a margin |
-| **never enlarged** | a small snap stays its own size; blowing a window fragment up to fill the canvas is not what anyone means |
-| **shrunk when it has to be** | a full-screen snap dropped in at 1:1 would cover everything, leaving nothing visible to grab |
+| **never enlarged** | a small shot stays its own size; blowing a window fragment up to fill the canvas is not what anyone means |
+| **shrunk when it has to be** | a full-screen shot dropped in at 1:1 would cover everything, leaving nothing visible to grab |
 
 Two things worth knowing. The editor takes itself out of the capture only *for the duration* — and if it was already hidden because **Keep the Editor on Top** is on, it stays hidden afterwards, because that setting's whole bargain is that a pinned window does not appear in your captures. Other editor windows behind it stay capturable, so grabbing a piece of an earlier capture works.
 
-And **the original picture is never modified**. A snap is a mark sitting on top, exactly like a lifted piece, so `Ctrl+Z` removes it and nothing underneath was touched.
+And **the original picture is never modified**. An added shot is a mark sitting on top, exactly like a lifted piece, so `Ctrl+Z` removes it and nothing underneath was touched.
 
-> Under the hood a snap *is* a Lift — one that carries its own bitmap instead of reading from the capture. That is why it inherits every behaviour above for free, and why the bitmap is shared rather than copied: an annotation is copied into every undo snapshot, and a by-value bitmap would put 33 MB into each step.
+> Under the hood an added shot *is* a Lift — one that carries its own bitmap instead of reading from the capture. That is why it inherits every behaviour above for free, and why the bitmap is shared rather than copied: an annotation is copied into every undo snapshot, and a by-value bitmap would put 33 MB into each step.
 
 ### Lift
 
@@ -602,7 +600,7 @@ docs/RELEASING.md     how a version is cut
 - **[Architecture](docs/ARCHITECTURE.md)** — how it works, the interesting problems, and the bugs worth knowing about
 - **[The tray menu](docs/tray-menu.md)** — the whole menu laid out, with what every row is for
 - **[Changelog](CHANGELOG.md)** — release history
-- **[Release notes](docs/)** — one file per release, `RELEASE-NOTES-v*.md`. Newest: **[v1.10.0](docs/RELEASE-NOTES-v1.10.0.md)**
+- **[Release notes](docs/)** — one file per release, `RELEASE-NOTES-v*.md`. Newest: **[v1.10.1](docs/RELEASE-NOTES-v1.10.1.md)**
 - **[Releasing](docs/RELEASING.md)** — how a version is cut
 - **[Disclaimer](DISCLAIMER.md)** — no-warranty and liability terms, including what you are responsible for when you record a screen
 

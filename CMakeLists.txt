@@ -118,7 +118,7 @@ endif()
 add_executable(SnipTextProUltra WIN32 ${SOURCES})
 
 # The CMake target stays "SnipTextProUltra" so the generated project names are short;
-# the file on disk is SnipTextProUltra_1.10.0.exe.
+# the file on disk is SnipTextProUltra_1.10.1.exe.
 #
 # The version in the file name comes from the VERSION file rather than being
 # typed here, so it cannot drift from what the binary reports about itself.

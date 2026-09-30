@@ -3,7 +3,8 @@
 #include "EditorSettings.h"
 #include "Hotkeys.h"
 #include "MediaFolder.h"
-// For Snap: the editor runs the same region overlay the tray commands do,
+// For Add a Screenshot: the editor runs the region overlay the tray
+// commands do,
 // rather than asking App to do it. Depending on the overlay is a smaller
 // coupling than depending on App, and the overlay is a plain class with a
 // blocking Run() designed to be used exactly this way.
@@ -48,7 +49,7 @@ constexpr int IDC_SAVE       = 104;
 constexpr int IDC_SWATCH     = 105;
 constexpr int IDC_SLIDER     = 106;
 constexpr int IDC_PINTOGGLE  = 107;
-constexpr int IDC_SNAP       = 108;
+constexpr int IDC_ADDSHOT       = 108;
 constexpr int IDC_TOOL_FIRST = 110;
 // 200, not 120. The tool buttons run from IDC_TOOL_FIRST upwards, one per
 // tool, and at eight tools they reach 117 — three short of where this used to
@@ -106,23 +107,24 @@ constexpr int kSliderWidth   = 120;
 //
 // The gap between groups is what carries the meaning. Left to right:
 //
-//   swatch  slider  │ 8 tools + Snap │ Undo Redo │ Copy Save │ Pin
-//                   └ make a mark ───┘└ history ─┘└ output ──┘└ window
+//   swatch  slider  │ 8 tools + Add │ Undo Redo Copy Save Pin
+//                   └ make a mark ──┘└ everything else ────┘
 //
-// Five kinds of thing, and a button's neighbours now tell you which kind it
-// is. That is the whole reason for the wider gaps: a single evenly-spaced row
-// of fourteen buttons is a row you have to read, not a row you can scan.
+// TWO gaps, not four. The bar reads as "changes the picture" / "does not",
+// which is the distinction that actually matters when you are hunting for a
+// button — history, output and the window toggle are all simply not marks.
+// Sub-dividing that second half into three more groups was more structure
+// than there was meaning, and it cost 20px of window width for nothing.
 constexpr int kGroupGap      = 14;
 
 constexpr int kMinToolRowWidth = kBarPadding
                                + kSwatchWidth + 6
                                + kSliderWidth + 12
-                               // the tools, plus Snap on the end of them
+                               // the tools, plus Add a Screenshot after them
                                + (kToolCount + 1) * kToolWidth
                                + kToolCount * kToolGap
-                               + kGroupGap + kToolWidth * 2 + kToolGap    // undo redo
-                               + kGroupGap + kToolWidth * 2 + kToolGap    // copy save
-                               + kGroupGap + kToolWidth                   // pin
+                               // undo redo copy save pin, one tight run
+                               + kGroupGap + kToolWidth * 5 + kToolGap * 4
                                + kBarPadding;
 
 // Nothing competes with it any more, so the floor is just the one row. The
@@ -250,7 +252,7 @@ ScopedPen MakeGlyphPen(COLORREF ink, double widthPixels) {
 // does and stays selected; these happen once and are over — but they are
 // drawn by the same code at the same size, which is the whole point of
 // making them icons.
-enum class Command { Undo, Redo, Copy, Save, Pin, Snap };
+enum class Command { Undo, Redo, Copy, Save, Pin, AddShot };
 
 void DrawCommandGlyph(HDC dc, Command command, const RECT& box, COLORREF ink) {
     const int side = (std::min)(util::RectWidth(box), util::RectHeight(box));
@@ -354,7 +356,7 @@ void DrawCommandGlyph(HDC dc, Command command, const RECT& box, COLORREF ink) {
         break;
     }
 
-    case Command::Snap: {
+    case Command::AddShot: {
         // A dashed frame with a plus inside it: "select an area, and add it".
         //
         // Not a camera. A camera glyph would say "take a screenshot", which is
@@ -363,7 +365,7 @@ void DrawCommandGlyph(HDC dc, Command command, const RECT& box, COLORREF ink) {
         // as another movable piece. The dashed frame is the same marquee the
         // region overlay draws and the same one the Lift glyph uses, so the
         // family resemblance carries the meaning: Lift takes a piece out of
-        // this picture, Snap brings a piece in from the screen.
+        // this picture, this brings one in from the screen.
         //
         // Drawn with the plain pen rather than a dashed one: ExtCreatePen with
         // a dash pattern at this size renders as a dotted smudge, so the gaps
@@ -997,10 +999,10 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
         }
         // Created HERE, immediately after the tools, rather than next to the
         // other commands — because Tab order follows creation order, not
-        // layout order. Snap sits fifth from the right on the bar but is one
+        // layout order. Add a Screenshot sits sixth from the right but is one
         // of the mark-making group, and a Tab that jumped over it to Pin and
         // came back would be a small lie about what belongs together.
-        snapButton_ = MakeButton(hwnd_, L"", IDC_SNAP, BS_OWNERDRAW);
+        addShotButton_ = MakeButton(hwnd_, L"", IDC_ADDSHOT, BS_OWNERDRAW);
 
         // Unlabelled squares without tooltips would be a guessing game.
         // TTF_SUBCLASS so the tooltip control hooks each button itself; the
@@ -1033,9 +1035,9 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
             for (int i = 0; i < kToolCount; ++i) {
                 addTip(toolButtons_[i], ToolTitle(static_cast<Tool>(i)));
             }
-            // Placeholder; UpdateSnapTooltip names its live key, the way the
+            // Placeholder; UpdateAddShotTooltip names its live key, the way the
             // tool buttons and Pin do.
-            addTip(snapButton_, L"Snap another screenshot into this one");
+            addTip(addShotButton_, L"Add a Screenshot");
             addTip(undoButton_, L"Undo  (Ctrl+Z)");
             addTip(redoButton_, L"Redo  (Ctrl+Y)");
             addTip(copyButton_, L"Copy to clipboard  (Ctrl+C)");
@@ -1052,7 +1054,7 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
 
         LayoutChildren();
         RefreshToolTooltips();
-        UpdateSnapTooltip();
+        UpdateAddShotTooltip();
         RefreshToolbarState();
         return 0;
     }
@@ -1134,7 +1136,7 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
                             item->CtlID <  static_cast<UINT>(IDC_TOOL_FIRST + kToolCount);
         const bool isCommand = item->CtlID == IDC_UNDO || item->CtlID == IDC_REDO ||
                                item->CtlID == IDC_COPY || item->CtlID == IDC_SAVE ||
-                               item->CtlID == IDC_PINTOGGLE || item->CtlID == IDC_SNAP;
+                               item->CtlID == IDC_PINTOGGLE || item->CtlID == IDC_ADDSHOT;
         if (isTool || isCommand) {
             const bool disabled = (item->itemState & ODS_DISABLED) != 0;
             const bool pressed  = (item->itemState & ODS_SELECTED) != 0;
@@ -1180,7 +1182,7 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
                 case IDC_COPY:      command = Command::Copy; break;
                 case IDC_SAVE:      command = Command::Save; break;
                 case IDC_PINTOGGLE: command = Command::Pin;  break;
-                case IDC_SNAP:      command = Command::Snap; break;
+                case IDC_ADDSHOT:      command = Command::AddShot; break;
                 default:            command = Command::Undo; break;
                 }
                 DrawCommandGlyph(item->hDC, command, glyphBox, ink);
@@ -1228,12 +1230,12 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
             ReturnFocusToCanvas();
             return 0;
         }
-        case IDC_SNAP:
+        case IDC_ADDSHOT:
             // CommitTextEntry first: the overlay takes over the screen, and
             // an open label field left behind it would be a field the user
             // cannot see while they are choosing a region.
             CommitTextEntry();
-            SnapIntoPicture();
+            AddScreenshot();
             return 0;
 
         case IDC_SWATCH: ShowColourPopup(); return 0;
@@ -1274,7 +1276,7 @@ LRESULT EditorWindow::OnFrameMessage(UINT message, WPARAM wParam, LPARAM lParam)
         // handles are about to become invalid while this object is still
         // listed in LiveEditors — see the note in the destructor.
         pinButton_  = nullptr;
-        snapButton_ = nullptr;
+        addShotButton_ = nullptr;
         tooltips_   = nullptr;
         // Same reason, and it must be dropped WITHOUT sending BM_SETSTATE:
         // the timer could otherwise fire against a handle that is about to
@@ -1301,10 +1303,10 @@ void EditorWindow::LayoutChildren() {
         x += w + gap;
     };
 
-    // --- one bar, five groups, left to right ---------------------------------
+    // --- one bar, three groups, left to right --------------------------------
     //
-    //   swatch slider │ tools + Snap │ Undo Redo │ Copy Save │ Pin
-    //     how it looks│ make a mark  │  history  │  output   │ this window
+    //   swatch slider │ tools + Add a Screenshot │ Undo Redo Copy Save Pin
+    //     how it looks │       make a mark        │    everything else
     //
     // All laid out from the LEFT, unlike the old top bar, which anchored three
     // groups to three different edges so that widening the window could not
@@ -1327,17 +1329,17 @@ void EditorWindow::LayoutChildren() {
     for (HWND button : toolButtons_) {
         place(button, kToolWidth, kButtonHeight, barY, kToolGap);
     }
-    // Snap sits with the tools because it ADDS something to the picture, which
-    // is what the tools do. It is not one of them — it is an action that takes
-    // effect at once rather than a mode you then drag in — so it is a Command,
+    // Add a Screenshot sits with the tools because it ADDS something to the
+    // picture, which is what the tools do. It is not one of them — it acts at
+    // once rather than arming a mode you then drag in — so it is a Command,
     // and only the layout puts it here.
-    place(snapButton_, kToolWidth, kButtonHeight, barY, kGroupGap);
+    place(addShotButton_, kToolWidth, kButtonHeight, barY, kGroupGap);
 
     place(undoButton_, kToolWidth, kButtonHeight, barY, kToolGap);
-    place(redoButton_, kToolWidth, kButtonHeight, barY, kGroupGap);
+    place(redoButton_, kToolWidth, kButtonHeight, barY, kToolGap);
 
     place(copyButton_, kToolWidth, kButtonHeight, barY, kToolGap);
-    place(saveButton_, kToolWidth, kButtonHeight, barY, kGroupGap);
+    place(saveButton_, kToolWidth, kButtonHeight, barY, kToolGap);
 
     place(pinButton_,  kToolWidth, kButtonHeight, barY, kToolGap);
 
@@ -1504,7 +1506,7 @@ bool EditorWindow::HandleEditorKey(UINT key, UINT modifiers) {
         return true;
     }
 
-    // The number keys: 1-8 pick a tool, 9 snaps another screenshot in, 0
+    // The number keys: 1-8 pick a tool, 9 adds a screenshot, 0
     // toggles Keep the Editor on Top.
     //
     // Deliberately LAST. Everything above is an escape hatch — a label
@@ -1530,15 +1532,15 @@ bool EditorWindow::HandleEditorKey(UINT key, UINT modifiers) {
         return true;
     }
 
-    if (hotkeys::Matches(hotkeys::Action::SnapIntoEditor, key, modifiers)) {
+    if (hotkeys::Matches(hotkeys::Action::AddScreenshot, key, modifiers)) {
         // POSTED, not sent, and this is the one dispatch here that has to be.
-        // SnapIntoPicture runs the region overlay, which spins its own modal
+        // AddScreenshot runs the region overlay, which spins its own modal
         // message loop — and this function is itself running inside the
         // message loop's PreTranslateMessage hook. Sending would nest a modal
         // loop inside the pump that is still mid-keystroke; posting lets this
         // keystroke finish first, exactly as the Esc-to-close binding does
         // with WM_CLOSE.
-        ::PostMessageW(hwnd_, WM_COMMAND, static_cast<WPARAM>(IDC_SNAP), 0);
+        ::PostMessageW(hwnd_, WM_COMMAND, static_cast<WPARAM>(IDC_ADDSHOT), 0);
         return true;
     }
 
@@ -1583,7 +1585,7 @@ bool EditorWindow::StillAlive(const EditorWindow* editor) {
     return std::find(live.begin(), live.end(), editor) != live.end();
 }
 
-void EditorWindow::SnapIntoPicture() {
+void EditorWindow::AddScreenshot() {
     if (!hwnd_ || !image_) return;
 
     // Never stack one overlay on another. The tray commands guard on this
@@ -1591,7 +1593,7 @@ void EditorWindow::SnapIntoPicture() {
     if (RegionOverlay::IsShowing()) return;
 
     // Take THIS editor out of the capture for the duration — otherwise the
-    // first thing you would snap is the window you are snapping into, and
+    // first thing you would capture is the window you are adding it to, and
     // the crosshair would be drawn over a picture of itself.
     //
     // Only this one. Another editor open behind it stays capturable, because
@@ -1636,7 +1638,7 @@ void EditorWindow::SnapIntoPicture() {
     //
     // The same race exists behind GetSaveFileNameW and the system colour
     // picker, which pump the same way. This is the first place it is
-    // actually guarded, and the reason to guard it here is that Snap is on a
+    // actually guarded, and the reason to guard it here is that this is on a
     // bare digit and the overlay is up for seconds rather than milliseconds.
     if (!StillAlive(this)) return;
 
@@ -1657,23 +1659,21 @@ void EditorWindow::SnapIntoPicture() {
     const int w = shot->Width();
     const int h = shot->Height();
 
-    // A view over the DIB's pixels — this constructor does not copy — and
-    // then a Clone that does, into a bitmap that owns its own memory.
+    // No GDI+ wrapper and no Clone here any more: the DIB goes to the
+    // annotation whole, and Draw builds its own view over it when it paints.
     //
-    // The clone is the point. A view borrows `shot`'s buffer, and `shot` is a
-    // local that is about to go away; the annotation has to outlive it, be
-    // copied into undo snapshots, and survive until the editor closes. One
-    // copy here, once per snap, buys a lifetime with nothing to reason about.
-    Gdiplus::Bitmap view(w, h, shot->Stride(), PixelFormat32bppRGB,
-                         static_cast<BYTE*>(shot->Bits()));
-    if (view.GetLastStatus() != Gdiplus::Ok) { ReturnFocusToCanvas(); return; }
-
-    std::shared_ptr<Gdiplus::Bitmap> owned(
-        view.Clone(0, 0, w, h, PixelFormat32bppRGB));
-    if (!owned || owned->GetLastStatus() != Gdiplus::Ok) {
-        ReturnFocusToCanvas();
-        return;
-    }
+    // This is the bug 1.10.0 shipped. The first version wrapped these pixels
+    // in a Gdiplus::Bitmap and called Clone() on the wrapper, believing Clone
+    // produces an independent copy. It does not when the rectangle covers the
+    // whole source and the format is unchanged — GDI+ takes a copy-on-write
+    // path and hands back a bitmap still referencing the original scan0.
+    // `shot` is a local, so its DIB section was deleted on the way out of
+    // here and every later paint read a dangling pointer.
+    //
+    // Owning the DIB removes the class of bug rather than the instance, and
+    // it is also one full-frame copy cheaper than the version that was wrong.
+    // No GdiFlush either: GrabRect already flushed after its BitBlt, and Crop
+    // is a memcpy, so nothing GDI wrote to these bits is pending.
 
     // Centred in the current crop, shrunk to fit with a margin, never
     // enlarged.
@@ -1683,10 +1683,10 @@ void EditorWindow::SnapIntoPicture() {
     // hit-testing, so it would arrive invisible and unselectable — the exact
     // trap the Text tool had until 1.9.7.
     //
-    // Never enlarged, because a snap smaller than the picture is almost
+    // Never enlarged, because a shot smaller than the picture is almost
     // always a piece of a window, and blowing it up to fill 90% of the canvas
     // would be a strange thing to do to it. Shrinking is different: a
-    // full-screen snap dropped into a small region at 1:1 would cover the
+    // full-screen shot dropped into a small region at 1:1 would cover the
     // picture completely and the user would have nothing visible to grab.
     const double cropW = static_cast<double>(CropWidth());
     const double cropH = static_cast<double>(CropHeight());
@@ -1697,20 +1697,20 @@ void EditorWindow::SnapIntoPicture() {
     const double left  = crop_.left + (cropW - destW) / 2.0;
     const double top   = crop_.top  + (cropH - destH) / 2.0;
 
-    // A Lift with its own pixels. See the note on `ownPicture`: everything
+    // A Lift with its own pixels. See the note on `addedImage`: everything
     // that makes a lifted piece movable, resizable, layerable and undoable
     // applies unchanged, so there is nothing here but the geometry.
-    Annotation snap;
-    snap.tool        = Tool::Lift;
-    snap.colour      = currentColour_;   // only used by the drag marquee
-    snap.ownPicture  = std::move(owned);
-    snap.source      = RectD{ 0.0, 0.0, static_cast<double>(w), static_cast<double>(h) };
-    snap.start       = PointD{ left, top };
-    snap.end         = PointD{ left + destW, top + destH };
-    snap.blankSource = false;            // there is no source here to blank
+    Annotation added;
+    added.tool        = Tool::Lift;
+    added.colour      = currentColour_;   // only used by the drag marquee
+    added.addedImage  = std::move(shot);  // handed over whole, not copied
+    added.source      = RectD{ 0.0, 0.0, static_cast<double>(w), static_cast<double>(h) };
+    added.start       = PointD{ left, top };
+    added.end         = PointD{ left + destW, top + destH };
+    added.blankSource = false;            // there is no source here to blank
 
     Snapshot();
-    annotations_.push_back(std::move(snap));
+    annotations_.push_back(std::move(added));
 
     // Selected, so its handles are already up: the first thing anyone does
     // with a piece that has just landed in the middle of the picture is move
@@ -1754,20 +1754,20 @@ void EditorWindow::RefreshToolTooltips() {
     }
 }
 
-void EditorWindow::UpdateSnapTooltip() {
-    if (!tooltips_ || !snapButton_) return;
+void EditorWindow::UpdateAddShotTooltip() {
+    if (!tooltips_ || !addShotButton_) return;
 
-    snapTooltip_ = L"Snap another screenshot into this one \u2014 drag a region, "
-                   L"and it lands here as a piece you can move and resize";
-    const hotkeys::Binding binding = hotkeys::Current(hotkeys::Action::SnapIntoEditor);
-    if (binding.IsBound()) snapTooltip_ += L"  (" + hotkeys::Describe(binding) + L")";
+    addShotTooltip_ = L"Add a Screenshot \u2014 drag a region of the screen, and it "
+                      L"lands here as a piece you can move and resize";
+    const hotkeys::Binding binding = hotkeys::Current(hotkeys::Action::AddScreenshot);
+    if (binding.IsBound()) addShotTooltip_ += L"  (" + hotkeys::Describe(binding) + L")";
 
     TOOLINFOW info{};
     info.cbSize   = sizeof(info);
     info.uFlags   = TTF_IDISHWND | TTF_SUBCLASS;
     info.hwnd     = hwnd_;
-    info.uId      = reinterpret_cast<UINT_PTR>(snapButton_);
-    info.lpszText = const_cast<LPWSTR>(snapTooltip_.c_str());
+    info.uId      = reinterpret_cast<UINT_PTR>(addShotButton_);
+    info.lpszText = const_cast<LPWSTR>(addShotTooltip_.c_str());
     ::SendMessageW(tooltips_, TTM_UPDATETIPTEXTW, 0, reinterpret_cast<LPARAM>(&info));
 }
 
@@ -1780,7 +1780,7 @@ void EditorWindow::ShortcutsChanged() {
         if (!editor || !editor->hwnd_) continue;
         editor->RefreshToolTooltips();
         editor->UpdatePinTooltip();
-        editor->UpdateSnapTooltip();
+        editor->UpdateAddShotTooltip();
     }
 }
 
@@ -3769,10 +3769,10 @@ std::unique_ptr<Gdiplus::Bitmap> EditorWindow::PictureForLift() const {
     // handful of marks and nothing else.
     bool needed = false;
     for (const Annotation& annotation : annotations_) {
-        // A SNAP is a Lift that reads from its own bitmap, so it does not
-        // need this view at all. Counting one would build a full-size wrapper
+        // An ADDED screenshot is a Lift that reads from its own bitmap, so it
+        // does not need this view. Counting one would build a full-size wrapper
         // over the capture on every repaint for nothing.
-        if (annotation.tool == Tool::Lift && !annotation.ownPicture) {
+        if (annotation.tool == Tool::Lift && !annotation.addedImage) {
             needed = true;
             break;
         }

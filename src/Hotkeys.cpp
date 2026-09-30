@@ -18,10 +18,10 @@ const Action kAllActions[kActionCount] = {
     Action::SelectTool1, Action::SelectTool2, Action::SelectTool3,
     Action::SelectTool4, Action::SelectTool5, Action::SelectTool6,
     Action::SelectTool7, Action::SelectTool8,
-    // Bar order, not enum order: Snap sits with the tools on the toolbar, so
+    // Bar order, not enum order: Add a Screenshot sits with the tools, so
     // it reads next to them here and Pin stays last, matching both the bar
-    // and the digits (1-8 tools, 9 snap, 0 pin).
-    Action::SnapIntoEditor,
+    // and the digits (1-8 tools, 9 add, 0 pin).
+    Action::AddScreenshot,
     Action::TogglePin,
 };
 
@@ -338,7 +338,7 @@ const wchar_t* ActionTitle(Action action) {
     // Word for word the tray row it mirrors. Two names for one switch is
     // how the user ends up believing there are two switches.
     case Action::TogglePin:            return L"Keep the Editor on Top";
-    case Action::SnapIntoEditor:       return L"Snap Another Screenshot In";
+    case Action::AddScreenshot:       return L"Add a Screenshot";
     }
     return L"";
 }
@@ -409,15 +409,15 @@ Binding Default(Action action) {
         binding.key = static_cast<UINT>('1' + ToolActionIndex(action));
         return binding;
     }
-    // 9 for Snap and 0 for Pin, so the digits run left to right along the
-    // bar with no gap: 1-8 are the tools, 9 is Snap beside them, and 0 — the
+    // 9 for Add a Screenshot and 0 for Pin, so the digits run left to right
+    // along the bar: 1-8 are the tools, 9 is Add beside them, and 0 — the
     // key past 9 on the row — is Pin, the one button that changes nothing
     // about the picture.
     //
     // Pin moved from 9 to 0 in 1.10.0. Only the DEFAULT moved: anyone who
     // had already rebound it keeps what they chose, because a stored value
     // wins over the default.
-    if (action == Action::SnapIntoEditor) {
+    if (action == Action::AddScreenshot) {
         Binding binding;
         binding.key = '9';
         return binding;

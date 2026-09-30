@@ -8,6 +8,72 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.10.1] — 2026-10-01
+
+Fixes the feature 1.10.0 added: it was drawing from freed memory.
+See [the release notes](docs/RELEASE-NOTES-v1.10.1.md).
+
+### Fixed
+
+- **An added screenshot appeared solid black, and cropping over one crashed
+  the app.** One root cause, reported by Mark against 1.10.0.
+
+  The capture was wrapped in a `Gdiplus::Bitmap` and `Clone()`d, on the belief
+  that `Clone` produces an independent copy. **It does not reliably: cloning a
+  bitmap that was constructed over an existing buffer can hand back a bitmap
+  still pointing at that buffer.** The captured DIB was a local, so it died on
+  the way out of the function and every later paint read a dangling pointer.
+
+  It rendered black rather than crashing because the freed DIB section's
+  address range was reused by `scaledImage_`, the next DIB section allocated —
+  and a fresh DIB section is zero-filled, which under `PixelFormat32bppRGB` is
+  opaque black. Cropping is the one operation that reallocates `scaledImage_`
+  at a *different* size, so the range stopped being reclaimed, the read landed
+  on unmapped memory, and it faulted.
+
+  That also explains the shape of the report exactly: an ordinary Lift was
+  fine, because it reads from the editor's own live capture; only an added
+  shot was affected; and cropping *away* from it was fine, because nothing
+  made GDI+ read those pixels.
+
+  The annotation now owns the DIB outright and `Draw` builds its GDI+ view as
+  a local when it paints — which copies nothing and cannot outlive the pixels,
+  exactly as `PictureForLift` already does for the capture. This removes the
+  class of bug rather than the instance, and it is one full-frame copy cheaper
+  than the version that was wrong.
+
+### Changed
+
+- **Renamed to "Add a Screenshot"** everywhere it is visible — the button
+  tooltip and the *Change Keyboard Shortcut* row — and the identifiers behind
+  it, so the code and the interface use one name.
+- **The gaps between redo/copy and save/pin are gone.** The right-hand run is
+  now one tight group of five.
+
+  The bar reads as *changes the picture* / *does not*, which is the
+  distinction that matters when you are hunting for a button. Sub-dividing the
+  second half into history, output and window was more structure than there
+  was meaning — and it cost 20px of window width, so the minimum client area
+  drops from 760 × 424 to **740 × 424**.
+- `docs/editor-toolbar.svg` / `.png` redrawn for three groups.
+
+### Also fixed, found by audit
+
+- The GDI+ view an added shot draws from is a local of `Annotation::Draw`, so
+  it was destroyed before the caller's `Graphics` — which this file asserts
+  in two other places must not happen, because GDI+ batches and a `DrawImage`
+  may still be pending. Declaration order cannot fix it (`Draw` returns long
+  before the `Graphics` does), so it now flushes the batch while the view is
+  still alive, and only for an added shot. Never the 1.10.0 bug even if it
+  had fired — only the wrapper would have died early, not the pixels — but
+  two places asserting an invariant a third contradicts is worth closing.
+- A failed view construction fell back to the editor's capture and would have
+  drawn the top-left corner of the underlying screenshot into the added
+  shot's frame: a plausible-looking picture that is the wrong picture, which
+  for a screenshot tool is a worse failure than drawing nothing. It now
+  branches on whether the mark HAS its own pixels rather than on whether the
+  wrap succeeded.
+
 ## [1.10.0] — 2026-09-30
 
 A new capability and a one-row toolbar. Minor rather than patch because the
@@ -1839,7 +1905,8 @@ The short version: the app model, the confirmation surface, the recording
 indicator, the hotkeys, the container format, the OCR engine and the editor's
 Y axis all changed because the platform is different. Nothing else did.
 
-[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.10.0...HEAD
+[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.10.1...HEAD
+[1.10.1]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.10.1
 [1.10.0]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.10.0
 [1.9.7]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.7
 [1.9.6]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.6

@@ -16,7 +16,7 @@ Everything runs locally. OCR is Windows' own `Windows.Media.Ocr`, capture is GDI
 
 One executable, no installer, no third-party dependencies — nothing but the Windows SDK. The binary is statically linked, so there is no runtime to install.
 
-This is version 1.9.5. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
+This is version 1.9.6. It builds clean under `/W4 /WX` and has been run on Windows 11. Please read [What has and has not been tested](#what-has-and-has-not-been-tested) before you decide how much to trust it.
 
 ### Trying it on sample text
 
@@ -48,7 +48,7 @@ A **tray icon** sits in the notification area whenever the program is running, s
 
 ### Pinning it
 
-1. Build it (below), then run `build\SnipTextProUltra_1.9.5.exe` once.
+1. Build it (below), then run `build\SnipTextProUltra_1.9.6.exe` once.
 2. Right-click its taskbar button → **Pin to taskbar**.
 
 That's it. The pinned icon is now the app.
@@ -68,7 +68,7 @@ That's it. The pinned icon is now the app.
 A `SHA-256` checksum is published beside each release binary. It is not a signature and does not pretend to be one; it only lets you confirm the file you downloaded is the file CI produced:
 
 ```
-Get-FileHash .\SnipTextProUltra_1.9.5.exe -Algorithm SHA256
+Get-FileHash .\SnipTextProUltra_1.9.6.exe -Algorithm SHA256
 ```
 
 ## Requirements
@@ -305,13 +305,13 @@ Opened by the Screenshot commands. Eight tools, left to right: **rectangle, elli
 
 Press **1** to **8** to pick a tool — the digit is its position on the bar, so rectangle is 1 — and **9** to toggle Keep the Editor on Top. All nine are rebindable under *Change Keyboard Shortcut → Only inside the editor*, and hovering a button names its current key. Bare digits are safe here because these shortcuts are editor-local: they are never registered system-wide, and the editor ignores them entirely while you are typing a text label.
 
-Marks are drawn in **blue (#007AFF)** until you pick something else from the swatch.
+A fresh editor opens with **rectangle** selected — the most-used tool, and therefore also the first button and the `1` key. Marks are drawn in **blue (#007AFF)** until you pick something else from the swatch. Both are remembered once you change them.
 
 Everything on the bar is an icon with a tooltip. Along the top: Undo and Redo on the left, the **Keep the Editor on Top** toggle in the centre, Copy and Save on the right. Along the bottom: the colour swatch, the width slider, and the eight tools. Every glyph is drawn in GDI — there is no image resource anywhere in this program.
 
 ![The editor toolbar, drawn to scale](docs/editor-toolbar.png)
 
-> The picture is from 1.8.2 and shows the **old** tool order (arrow first). The order in 1.9.5 is rectangle, ellipse, arrow, then line onwards as shown. Everything else about it is current.
+> The picture is from 1.8.2 and is kept for the *layout* — the two bars, the groupings, the proportions, which are all current. Several details in it are not: the tool order (rectangle, ellipse, arrow since 1.9.5, and rectangle is the one selected by default since 1.9.6), the green swatch (blue `#007AFF` since 1.9.5), and the eighth tool, which was Callout and no longer exists.
 
 ### Keep the Editor on Top
 
@@ -354,7 +354,7 @@ Select **Crop** and drag a rectangle: that region becomes the picture, on screen
 
 Marks survive it. One straddling the new edge is clipped where the picture is and stays selectable and movable; one that falls entirely outside still exists, invisible, and comes back if you undo. **Ctrl+Z undoes a crop** like any other edit, because nothing is destroyed — the capture is never modified, and the crop is stored as a rectangle over it. You can crop repeatedly; each one narrows the view, and undo is what widens it.
 
-The tool reverts to Arrow once the crop lands, since it is an action rather than a mode — leaving it armed would mean the next drag silently crops again.
+Crop disarms itself once the crop lands, falling back to the default tool, since it is an action rather than a mode — leaving it armed would mean the next drag silently crops again.
 
 ### Squares, circles and fills
 
@@ -573,7 +573,7 @@ docs/RELEASING.md     how a version is cut
 
 - **[Architecture](docs/ARCHITECTURE.md)** — how it works, the interesting problems, and the bugs worth knowing about
 - **[Changelog](CHANGELOG.md)** — release history
-- **[Release notes](docs/)** — one file per release, `RELEASE-NOTES-v*.md`. Newest: **[v1.9.5](docs/RELEASE-NOTES-v1.9.5.md)**
+- **[Release notes](docs/)** — one file per release, `RELEASE-NOTES-v*.md`. Newest: **[v1.9.6](docs/RELEASE-NOTES-v1.9.6.md)**
 - **[Disclaimer](DISCLAIMER.md)** — no-warranty and liability terms, including what you are responsible for when you record a screen
 
 ## Troubleshooting

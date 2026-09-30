@@ -353,7 +353,7 @@ private:
     std::vector<EditorState> redoStack_;
 
     int      selectedIndex_ = -1;
-    Tool     currentTool_   = Tool::Arrow;
+    Tool     currentTool_   = kDefaultTool;
     COLORREF currentColour_ = kDefaultAnnotationColour;
 
     // Cached, not read from the registry when the canvas paints.

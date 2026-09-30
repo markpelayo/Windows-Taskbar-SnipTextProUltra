@@ -58,7 +58,10 @@ void SetColour(COLORREF colour) {
 }
 
 Tool CurrentTool() {
-    return ToolFromKeyValue(settings::GetString(settings::key::kEditorTool, L"arrow"));
+    // ToolKeyValue(kDefaultTool) rather than a literal, so the fallback
+    // string cannot drift from the fallback tool.
+    return ToolFromKeyValue(settings::GetString(settings::key::kEditorTool,
+                                                ToolKeyValue(kDefaultTool)));
 }
 
 void SetTool(Tool tool) {
@@ -67,7 +70,7 @@ void SetTool(Tool tool) {
 
 bool IsDefault() {
     return std::fabs(LineWidth() - DefaultLineWidth()) < 0.001
-        && CurrentTool() == Tool::Arrow
+        && CurrentTool() == kDefaultTool
         && Colour() == kDefaultColour;
 }
 

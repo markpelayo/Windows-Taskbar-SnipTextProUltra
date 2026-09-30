@@ -125,6 +125,26 @@ inline constexpr bool ToolHasCanvasHint(Tool tool) {
 // EditorSettings.h includes this one, not the other way round.
 inline constexpr COLORREF kDefaultAnnotationColour = RGB(0, 122, 255);  // #007AFF
 
+// The tool a fresh editor opens with, and the one it falls back to.
+//
+// Rectangle since 1.9.6, Arrow before that. It is the most-used tool and, as
+// of the 1.9.5 reorder, the first button and the `1` key — so the default,
+// the leftmost button and the first digit are all the same tool, which is one
+// fewer arbitrary fact.
+//
+// Named rather than repeated. This decides FIVE things that must agree:
+// `currentTool_`'s initialiser, the string CurrentTool() reads when nothing
+// is stored, what ToolFromKeyValue does with a value it cannot parse,
+// editor_settings::IsDefault's test, and the tool Crop disarms to. They were
+// five separate mentions of `Tool::Arrow`, which is four chances to move the
+// default and miss one.
+//
+// NOT the same fact as Annotation::tool's member initialiser below. That one
+// is "what does a blank Annotation claim to be", which never reaches the
+// screen because every real mark sets it explicitly — so it stays where it
+// is rather than being tangled up with this.
+inline constexpr Tool kDefaultTool = Tool::Rectangle;
+
 const wchar_t* ToolKeyValue(Tool tool);     // the persisted string
 const wchar_t* ToolTitle(Tool tool);
 Tool           ToolFromKeyValue(const std::wstring& value);

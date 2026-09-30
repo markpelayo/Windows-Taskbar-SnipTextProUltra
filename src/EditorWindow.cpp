@@ -2179,8 +2179,9 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
             // changes what the editor is looking at and then gets out of
             // the way.
             // Only disarm if it actually did something. A drag too small
-            // to be a crop is a mis-drag, and switching to Arrow behind
-            // the user's back means their second attempt draws an arrow.
+            // to be a crop is a mis-drag, and disarming behind the user's
+            // back means their second attempt draws a shape instead of
+            // cropping.
             // Clamped and squared HERE, with the drag anchor, rather than
             // left to ApplyCrop. ApplyCrop's own clamp knows nothing about
             // which corner the user was holding, so a Shift-drag that ran
@@ -2191,11 +2192,16 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
             const RectD region = ClampRegion(shape.NormalizedRect(), CropRegion(),
                                              squared, shape.start);
             if (ApplyCrop(region, squared)) {
-                // Back to Arrow. Crop is an action, not a mode — leaving
-                // it armed means the next drag silently crops again,
-                // which is the sort of thing you only discover after
-                // losing work.
-                SetCurrentTool(Tool::Arrow);
+                // Disarmed. Crop is an action, not a mode — leaving it
+                // armed means the next drag silently crops again, which is
+                // the sort of thing you only discover after losing work.
+                //
+                // To the default tool rather than to a named one, so "what
+                // Crop falls back to" and "what the editor opens with" stay
+                // the same answer. Cropping is usually followed by
+                // annotating, so landing on the most-used tool is also the
+                // useful end state.
+                SetCurrentTool(kDefaultTool);
             }
             RefreshToolbarState();
             ::InvalidateRect(canvas_, nullptr, FALSE);

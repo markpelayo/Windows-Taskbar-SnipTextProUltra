@@ -400,6 +400,10 @@ The alternative was a separate display-order array, letting the enum keep a stab
 
 Reordering the enum is therefore safe, but only because nothing stores a tool as a **number**: the remembered tool is persisted through `ToolKeyValue`/`ToolFromKeyValue` as a string, the button ids are `IDC_TOOL_FIRST + index` and are rebuilt every launch, and every `switch` over the enum is by name. If a numeric form of a tool ever reaches the registry or a file, that stops being true — which is why it is written down next to the enum.
 
+**Rectangle is the default too**, since 1.9.6 — so the default tool, the leftmost button and the `1` key are all one tool rather than three arbitrary facts. That lives in `kDefaultTool`, and it is named rather than repeated because it decides five things that must agree: `currentTool_`'s initialiser, the string `CurrentTool()` falls back to when nothing is stored, what `ToolFromKeyValue` returns for a value it cannot parse, `editor_settings::IsDefault`'s test — which is what decides whether *Sanitize* believes there is anything to restore — and the tool Crop disarms to. Five mentions is four chances to move the default and miss one, and the miss is quiet: a Sanitize that thinks the settings are dirty forever, or a fallback tool that disagrees with the opening tool.
+
+`Annotation::tool`'s own member initialiser is deliberately *not* folded into that constant. It answers a different question — what a blank `Annotation` claims to be before anything fills it in — and it never reaches the screen, since every real mark sets its tool explicitly.
+
 `hotkeys::kToolActionCount == kToolCount` is a `static_assert` in `EditorWindow.cpp`, the only translation unit that sees both headers. Without it a ninth tool would fail silently in the worst way: no shortcut, no dispatch, and `SelectTool1 + 8` — which is `TogglePin` — putting Pin's key in the ninth tool's tooltip.
 
 Both the tool keys and `9` dispatch by **sending the `WM_COMMAND` the button click sends** rather than repeating its work. Selecting a tool has to commit an open label and return focus; Pin has to write the setting the way the tray row writes it and notify every other open editor. Two copies of either would drift. The send is safe because `HandleEditorKey` runs from the message loop, not from inside another handler — and `PreTranslateMessage` returns the result directly from inside its `LiveEditors()` loop, so the iteration cannot outlive the send.
@@ -466,7 +470,7 @@ Pin is icon-only, so its state lives entirely in its appearance plus its tooltip
 
 ![The editor toolbar, drawn to scale](editor-toolbar.png)
 
-> The picture is from 1.8.2 and shows the **old** tool order (arrow first). The order in 1.9.5 is rectangle, ellipse, arrow, then line onwards as shown. Everything else about it is current.
+> The picture is from 1.8.2 and is kept for the *layout* — the two bars, the groupings, the proportions, which are all current. Several details in it are not: the tool order (rectangle, ellipse, arrow since 1.9.5, and rectangle is the one selected by default since 1.9.6), the green swatch (blue `#007AFF` since 1.9.5), and the eighth tool, which was Callout and no longer exists.
 
 Glyphs are drawn from lines, arcs and Béziers into a notional 20 × 20 box that is mapped onto the button, so the same code serves the 34px icon and the 3× version in the documentation. `ExtCreatePen` rather than `CreatePen`, for round caps and joins.
 

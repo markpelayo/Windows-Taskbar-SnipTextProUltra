@@ -8,6 +8,27 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.9.6] — 2026-09-30
+
+### Changed
+
+- **The editor now opens with Rectangle selected, not Arrow.** It is the
+  most-used tool, and after the 1.9.5 reorder it is also the first button and
+  the `1` key — so the default, the leftmost button and the first digit are
+  now the same tool rather than three separate arbitrary facts.
+- **Crop disarms to the default tool** rather than specifically to Arrow, so
+  "what Crop falls back to" and "what the editor opens with" stay one answer.
+  Cropping is usually followed by annotating, so this also lands on the
+  useful tool instead of the middle of the bar.
+- The default tool is now a named constant, `kDefaultTool` in
+  `Annotation.h`. It decides five things that have to agree — `currentTool_`'s
+  initialiser, the string `CurrentTool()` falls back to, what
+  `ToolFromKeyValue` returns for a value it cannot parse,
+  `editor_settings::IsDefault`'s test, and the tool Crop disarms to — and
+  they were five separate mentions of `Tool::Arrow`, which is four chances to
+  move the default and miss one. A stored tool is unaffected: persistence is
+  by name, so anyone who had picked a tool keeps it.
+
 ## [1.9.5] — 2026-09-30
 
 Number keys for the tools, a reordered toolbar, a blue default, and the hint
@@ -1697,7 +1718,8 @@ The short version: the app model, the confirmation surface, the recording
 indicator, the hotkeys, the container format, the OCR engine and the editor's
 Y axis all changed because the platform is different. Nothing else did.
 
-[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.9.5...HEAD
+[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.9.6...HEAD
+[1.9.6]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.6
 [1.9.5]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.5
 [1.9.4]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.4
 [1.9.3]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.3

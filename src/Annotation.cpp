@@ -110,9 +110,12 @@ Tool ToolFromKeyValue(const std::wstring& value) {
     if (value == L"text")      return Tool::Text;
     if (value == L"lift")      return Tool::Lift;
     // Deliberately absent: "crop" never round-trips. It is an action, not a
-    // mode, so the editor reverts to Arrow after one and there is nothing
+    // mode, so the editor disarms it after one and there is nothing
     // sensible to restore a session into.
-    return Tool::Arrow;
+    //
+    // Also the fallback for a value that is missing, misspelt or from a
+    // newer version that had a tool this one does not.
+    return kDefaultTool;
 }
 
 // ---------------------------------------------------------------------------

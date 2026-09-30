@@ -179,6 +179,14 @@ std::wstring MediaFolder::SaveBytes(const void* data, size_t size) const {
         DWORD chunk   = static_cast<DWORD>((std::min)(remaining, static_cast<size_t>(1u << 20)));
         DWORD written = 0;
         if (!::WriteFile(file.get(), cursor, chunk, &written, nullptr) || written == 0) {
+            // Close the handle, then remove the partial file. A truncated
+            // PNG is not a picture, but it is still a file: it would count
+            // toward the folder total in the menu and appear in the
+            // Sanitize list, so the user is told they have a screenshot
+            // that will not open. Same reasoning as the recorder's failure
+            // paths, which this now matches.
+            file.reset();
+            ::DeleteFileW(path.c_str());
             return std::wstring();
         }
         cursor    += written;

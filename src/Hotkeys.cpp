@@ -237,6 +237,51 @@ LRESULT CALLBACK CaptureProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
             return 0;
         }
 
+        // The editor's HARD-CODED keys are off limits, and this is the one
+        // rejection in this file that is about something outside it.
+        //
+        // Ctrl+Z/Y/C/S, Ctrl(+Shift)+Up/Down, and bare Delete, Backspace,
+        // F2 and the arrows are all handled directly by the editor's key
+        // handler. They are not hotkeys::Actions at all, so App's
+        // de-confliction pass — which only compares the sixteen rebindable
+        // actions against each other — cannot see them. Bind a tool to
+        // Ctrl+Z and the collision is silent and unrecoverable: undo simply
+        // stops working, nothing is said at bind time, and the only way
+        // back is Reset to Defaults.
+        //
+        // Refused rather than de-conflicted, because the other side of the
+        // collision is not a binding that can be moved out of the way.
+        //
+        // APPLIED TO GLOBAL ACTIONS TOO, which is the opposite of the first
+        // version of this check. The reasoning that globals do not matter
+        // here — "the global fires first, so who cares" — is backwards:
+        // RegisterHotKey claims the combination SYSTEM-WIDE and the
+        // keystroke is then never dispatched to anybody, so a global on
+        // Ctrl+Z kills editor undo by the same mechanism AND takes Ctrl+Z
+        // from every other program on the machine. Strictly the worse case.
+        {
+            const bool ctrl      = (modifiers & MOD_CONTROL) != 0;
+            const bool onlyCtrl  = (modifiers & ~(MOD_CONTROL | MOD_SHIFT)) == 0;
+            const bool editorCtrl = ctrl && onlyCtrl &&
+                (key == 'Z' || key == 'Y' || key == 'C' || key == 'S' ||
+                 key == VK_UP || key == VK_DOWN);
+
+            // Ctrl+Shift+Z is Redo, so testing for Ctrl alone was not
+            // enough; Shift is allowed through above and then ignored.
+            //
+            // The bare keys are a local-only concern: the rule above
+            // already refuses any unmodified non-function key for a global.
+            const bool editorBare = modifiers == 0 && !IsGlobal(state->action) &&
+                (key == VK_DELETE || key == VK_BACK || key == VK_F2 ||
+                 key == VK_LEFT || key == VK_RIGHT ||
+                 key == VK_UP   || key == VK_DOWN);
+
+            if (editorCtrl || editorBare) {
+                ::MessageBeep(MB_ICONWARNING);
+                return 0;
+            }
+        }
+
         state->binding.modifiers = modifiers;
         state->binding.key       = key;
         state->captured          = true;

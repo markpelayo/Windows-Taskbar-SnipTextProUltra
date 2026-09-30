@@ -109,6 +109,20 @@ Tool ToolFromKeyValue(const std::wstring& value) {
     if (value == L"pen")       return Tool::Pen;
     if (value == L"text")      return Tool::Text;
     if (value == L"lift")      return Tool::Lift;
+    // Arrow needs its own branch, and the lack of one was a real bug for
+    // exactly one release.
+    //
+    // ToolKeyValue writes Arrow through its `default:` arm, so "arrow" is a
+    // string this function genuinely has to parse. It had no branch for it
+    // and got away with that only because the fallback below USED to be
+    // Arrow — the missing case and the fallback happened to agree. 1.9.6
+    // moved the default to Rectangle and they stopped agreeing, so
+    // selecting Arrow, closing the editor and opening another silently gave
+    // you Rectangle. Worse, editor_settings::IsDefault then compared
+    // Rectangle against Rectangle and reported "at defaults" while a stale
+    // "arrow" sat in the registry, which greyed out the one menu item that
+    // would have cleared it.
+    if (value == L"arrow")     return Tool::Arrow;
     // Deliberately absent: "crop" never round-trips. It is an action, not a
     // mode, so the editor disarms it after one and there is nothing
     // sensible to restore a session into.

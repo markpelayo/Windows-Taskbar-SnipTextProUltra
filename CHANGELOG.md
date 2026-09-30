@@ -8,6 +8,65 @@ adheres to [Semantic Versioning](https://semver.org).
 
 Nothing yet.
 
+## [1.9.7] — 2026-09-30
+
+A pre-release audit pass. Five bugs, one of them a regression from 1.9.6 and
+two of them capable of losing work. See
+[the release notes](docs/RELEASE-NOTES-v1.9.7.md).
+
+### Fixed
+
+- **Selecting Arrow no longer silently reverts to Rectangle.** A regression
+  introduced by 1.9.6. `ToolKeyValue` writes Arrow through its `default:`
+  arm, so `"arrow"` is a string `ToolFromKeyValue` has to parse — and it had
+  no branch for it, getting away with that only because the fallback *used*
+  to be Arrow. Moving the default to Rectangle made the missing case visible:
+  pick Arrow, close the editor, open another, and you had Rectangle. Worse,
+  `IsDefault()` then compared Rectangle to Rectangle and reported "at
+  defaults" while a stale `"arrow"` sat in the registry — greying out the one
+  menu item that would have cleared it.
+- **Esc during a drag no longer closes the editor and discards everything.**
+  A drag in flight was missing from the Esc cascade, and because mouse-down
+  clears the selection before a Drawing drag starts, the selection rung could
+  not catch it either — so Esc fell through to Close. Pressing Esc to back out
+  of one crop marquee threw away every mark on the picture, with no prompt.
+  Esc now cancels the drag, via `ReleaseCapture` so it takes the identical
+  path an Alt+Tab mid-drag already took.
+- **A tool shortcut can no longer be rebound onto `Ctrl+Z`, `Ctrl+Y`,
+  `Ctrl+C` or `Ctrl+S`.** Those four are hard-coded in the editor and are not
+  `hotkeys::Action`s, so the de-confliction pass could not see them. Binding
+  Rectangle to `Ctrl+Z` meant the editor-local dispatch won — it runs from
+  `PreTranslateMessage`, before the keystroke is dispatched at all — and undo
+  was simply gone, with nothing said at bind time and no way back except
+  Reset to Defaults. Now refused at capture time, because the other side of
+  the collision is not a binding that can be moved. The check covers every
+  key the editor handles directly — `Ctrl`(+`Shift`) with `Z`/`Y`/`C`/`S`/
+  `Up`/`Down`, and bare `Delete`/`Backspace`/`F2`/arrows — and applies to the
+  **global** shortcuts too, which is where it matters most: `RegisterHotKey`
+  claims a combination system-wide and the keystroke is then dispatched to
+  nobody, so a global on `Ctrl+Z` kills editor undo *and* takes the key from
+  every other program on the machine.
+- **A text label can no longer be placed in the grey letterbox**, where it
+  became permanently unreachable: clipped out of both the canvas and the
+  export, and excluded from hit-testing by `IsWithinCrop`, so it could not be
+  selected, moved or deleted — yet it rode along in every snapshot and every
+  save. Refused rather than clamped: a click on the mat around the picture is
+  not a request to annotate the picture.
+- **A failed recording or auto-save no longer leaves a broken file behind.**
+  Only the zero-frame case deleted its output; a write error or a failed
+  `Finalize` reported the error and left a partial, unplayable `.mp4` — which
+  then counted toward the saved total in the menu and appeared in the
+  Sanitize list, telling the user they had a recording they could not watch.
+  Same fix for a truncated `.png` from `MediaFolder::SaveBytes`.
+
+### Changed
+
+- `docs/editor-toolbar.svg` / `.png` redrawn for the first time since 1.8.2:
+  the current tool order, Rectangle shown selected, the `#007AFF` swatch,
+  Crop in place of the long-removed Callout, the hint bar as it actually
+  renders, and each button labelled with its number key. The disclaimer
+  caption the stale figure needed is gone from both README and ARCHITECTURE.
+
 ## [1.9.6] — 2026-09-30
 
 ### Changed
@@ -1718,7 +1777,8 @@ The short version: the app model, the confirmation surface, the recording
 indicator, the hotkeys, the container format, the OCR engine and the editor's
 Y axis all changed because the platform is different. Nothing else did.
 
-[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.9.6...HEAD
+[Unreleased]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/compare/v1.9.7...HEAD
+[1.9.7]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.7
 [1.9.6]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.6
 [1.9.5]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.5
 [1.9.4]: https://github.com/markpelayo/Windows-Taskbar-SnipTextProUltra/releases/tag/v1.9.4

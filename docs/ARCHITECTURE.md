@@ -470,8 +470,6 @@ Pin is icon-only, so its state lives entirely in its appearance plus its tooltip
 
 ![The editor toolbar, drawn to scale](editor-toolbar.png)
 
-> The picture is from 1.8.2 and is kept for the *layout* — the two bars, the groupings, the proportions, which are all current. Several details in it are not: the tool order (rectangle, ellipse, arrow since 1.9.5, and rectangle is the one selected by default since 1.9.6), the green swatch (blue `#007AFF` since 1.9.5), and the eighth tool, which was Callout and no longer exists.
-
 Glyphs are drawn from lines, arcs and Béziers into a notional 20 × 20 box that is mapped onto the button, so the same code serves the 34px icon and the 3× version in the documentation. `ExtCreatePen` rather than `CreatePen`, for round caps and joins.
 
 Making the tool buttons owner-drawn removed a duplicate copy of state: `BS_AUTOCHECKBOX | BS_PUSHLIKE` kept "which tool is selected" inside the control as well as in `currentTool_`.

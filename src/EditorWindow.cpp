@@ -1404,6 +1404,28 @@ bool EditorWindow::HandleEditorKey(UINT key, UINT modifiers) {
     // whether or not the close binding is still on Esc — dropping a
     // selection is what the key means in a drawing surface, not a feature
     // of the shortcut.
+    // A DRAG IN FLIGHT is the smallest outstanding thing of all, and it was
+    // missing from this cascade until 1.9.7.
+    //
+    // The consequence was the worst in the program. WM_LBUTTONDOWN clears
+    // selectedIndex_ before starting a Drawing drag, so the selection rung
+    // below could not catch it either — which left Esc during a crop
+    // marquee, or halfway through drawing a box, falling all the way
+    // through to CloseEditor. It closed the editor and threw away every
+    // mark on the picture, with no prompt, for a key the user pressed to
+    // back out of one rectangle.
+    //
+    // ReleaseCapture rather than resetting the fields here: it SENDS
+    // WM_CAPTURECHANGED, whose handler already does exactly this job and is
+    // the path an Alt+Tab mid-drag takes. One implementation, and Esc now
+    // behaves like the interruption it is. Safe to call from here because
+    // this runs from the message loop rather than from inside a handler,
+    // and nothing below reads our state afterwards.
+    if (key == VK_ESCAPE && modifiers == 0 && dragMode_ != DragMode::None) {
+        ::ReleaseCapture();
+        return true;
+    }
+
     if (key == VK_ESCAPE && modifiers == 0 && selectedIndex_ >= 0) {
         ClearSelection();
         return true;
@@ -1867,7 +1889,24 @@ LRESULT EditorWindow::OnCanvasMessage(UINT message, WPARAM wParam, LPARAM lParam
         if (currentTool_ == Tool::Text) {
             ::InvalidateRect(canvas_, nullptr, FALSE);
             ::ReleaseCapture();
-            BeginTextEntry(point);
+            // Not in the grey letterbox. Lift and Crop both clamp their
+            // region to the crop; Text did not, and a label placed outside
+            // it became permanently unreachable: clipped out of the canvas
+            // AND out of the export, excluded from hit-testing by
+            // IsWithinCrop, so it could not be selected, moved or deleted —
+            // yet it rode along in every undo snapshot and every save.
+            // Ctrl+Z was the only way to get rid of it.
+            //
+            // Refused rather than clamped. Clamping would drop the label
+            // somewhere the user did not click, and a click on the mat
+            // around the picture is not a request to annotate the picture.
+            if (util::PointInRectD(static_cast<double>(crop_.left),
+                                   static_cast<double>(crop_.top),
+                                   static_cast<double>(crop_.right),
+                                   static_cast<double>(crop_.bottom),
+                                   point.x, point.y)) {
+                BeginTextEntry(point);
+            }
             return 0;
         }
 

@@ -1006,13 +1006,20 @@ DWORD WINAPI ScreenRecorder::WorkerEntry(void* parameter) {
         HRESULT finalized = writer->Finalize();
         writer.Reset();
 
+        // Every failure removes the file, not just the zero-frame one.
+        //
+        // A half-written MP4 is unplayable, and leaving it behind is worse
+        // than it sounds: it counts toward the saved-video total in the
+        // menu and turns up in the Sanitize list, so the user is told they
+        // have a recording they cannot watch. The zero-frame branch already
+        // deleted; the other two reported the error and left the wreckage.
         if (!failure.empty()) {
+            ::DeleteFileW(config->outputPath.c_str());
             report(std::wstring(), failure);
         } else if (FAILED(finalized)) {
+            ::DeleteFileW(config->outputPath.c_str());
             report(std::wstring(), L"The movie file couldn't be finished.");
         } else if (frameIndex == 0) {
-            // A zero-frame file is unplayable and would inflate the saved
-            // count; remove it rather than leaving it behind.
             ::DeleteFileW(config->outputPath.c_str());
             report(std::wstring(), L"No frames were captured.");
         } else {

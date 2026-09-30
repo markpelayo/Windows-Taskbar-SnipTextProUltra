@@ -181,8 +181,19 @@ jobs:
 
           # Straight into the run summary, so it is on the run's front page
           # rather than four steps deep in a collapsed log.
-          "### Binary`n`n- kind: **$kind**`n- size: **$mb MB**`n- path: ``$exe``" |
-            Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          #
+          # Written as an array of plain lines rather than one string with
+          # `n escapes and `` for markdown backticks. That version was
+          # correct PowerShell, but "correct escaping inside a double-quoted
+          # string inside YAML" is a sentence with three chances to be wrong
+          # and no way to find out except a failed release run.
+          @(
+            "### Binary",
+            "",
+            "- kind: **$kind**",
+            "- size: **$mb MB**",
+            "- path: $exe"
+          ) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
           "path=$exe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "kind=$kind" | Out-File -FilePath $env:GITHUB_OUTPUT -Append

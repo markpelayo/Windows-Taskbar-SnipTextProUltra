@@ -317,7 +317,7 @@ The setting has two switches, the menu row and the pin button in the centre of t
 
 ### Straight lines
 
-Hold **Shift** while drawing a **Line** or an **Arrow** and it snaps to the nearest 45° — horizontal, vertical, or either diagonal, in any direction. It follows the pointer live, so the line straightens the instant you press Shift and springs back when you let go, without releasing the mouse. It works when re-aiming an existing line by its end handle too.
+Hold **Shift** while drawing a **Line** or an **Arrow** and it snaps to the nearest 45° — horizontal, vertical, or either diagonal, in any direction. It follows the pointer live, so the line straightens the instant you press Shift and springs back when you let go, without releasing the mouse. It works when re-aiming an existing line by either of its end handles too.
 
 ### Arranging and nudging
 
@@ -367,7 +367,7 @@ It is for the times when pointing at something is weaker than showing it. Instea
 
 Either way the piece lands exactly on top of where it came from, so nothing appears to happen until you drag it — which is the point. What you do next says whether it was a copy or a move.
 
-You do not have to remember the Shift part: while Lift is the selected tool, the canvas shows *Drag to copy a piece · Shift-drag to cut it out* along the bottom. It appears only for the tools that have a modifier — Lift, Rectangle and Ellipse — and it disappears while you are dragging — by then the choice is already made.
+You do not have to remember the Shift part: while Lift is the selected tool, the canvas shows *Drag to copy a piece · Shift-drag to cut it out* along the bottom. It appears only for the tools that have a modifier — Lift, Rectangle, Ellipse, Line and Arrow — and it disappears while you are dragging — by then the choice is already made.
 
 A lifted piece is an ordinary mark: select it, drag it, resize it from its handles, undo it. **The capture underneath is never modified**, so nothing is destroyed and every lift is reversible, including the Shift one — the blanked patch is part of the mark, not a change to the pixels.
 

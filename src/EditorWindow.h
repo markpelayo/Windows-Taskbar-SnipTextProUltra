@@ -301,6 +301,12 @@ private:
     Annotation draft_;
 
     ULONGLONG lastStyleChangeAt_ = 0;
+    // Nudging coalesces its undo steps too, but on its own clock. Sharing
+    // lastStyleChangeAt_ meant a restyle and a nudge within half a second
+    // of each other folded into one undo step — and so did nudging one
+    // mark, selecting another, and nudging that.
+    ULONGLONG lastNudgeAt_    = 0;
+    int       lastNudgeIndex_ = -1;
     // Set between mouse-down and mouse-up on the slider. Without it, moving
     // the pointer across the slider on the way somewhere else would drag it.
     bool      draggingSlider_ = false;

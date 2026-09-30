@@ -10,14 +10,21 @@ Nothing yet.
 
 ## [1.8.6] — 2026-09-30
 
+### Fixed
+
+- **The build.** A local `kPi` inside the new snapping helper shadowed the
+  file-scope one added for the undo glyph, which is C4459 — and `/WX` makes
+  that a build failure. Caught by CI rather than by review, because the
+  review step was skipped for this release.
+
 ### Added
 
 - **Shift snaps Line and Arrow to 45°.** Hold Shift while drawing and the
   line locks to the nearest of the eight rays — horizontal, vertical and
   both diagonals, in every direction. Read live, so it straightens the
   moment Shift goes down and springs back when it comes up, without
-  releasing the button. It applies when re-aiming an existing line by its
-  end handle too, since that is the same gesture.
+  releasing the button. It applies when re-aiming an existing line by either
+  of its end handles too, since that is the same gesture.
 
   By projection rather than rotation: the snapped end is where the cursor
   falls perpendicular onto the ray, so it stays beside the pointer instead

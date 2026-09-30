@@ -9,8 +9,11 @@ Hold Shift while drawing and the line locks to the nearest of the eight rays
 
 It is read **live**, on every mouse-move, so the line straightens the moment
 Shift goes down and springs back the moment it comes up, without releasing
-the button. It also applies when re-aiming an existing line by its end
-handle, because that is the same gesture with a different starting point.
+the button. It also applies when re-aiming an existing line by either of its end
+handles, because that is the same gesture with a different starting point.
+The anchor is whichever end is not being dragged — and that end is never
+written during a resize, so repeated mouse-moves are idempotent rather than
+compounding.
 
 **By projection, not rotation.** The snapped end is where the cursor falls
 perpendicular onto the chosen ray:
@@ -69,7 +72,10 @@ the layering cannot drift out of sync with what is on screen.
 Nudging is in **image** pixels, not view pixels: a nudge on a capture shown
 at half size should move the mark one pixel in the file, not two. It also
 coalesces its undo steps the way the slider does, so holding an arrow key
-down does not bury the undo stack under auto-repeat.
+down does not bury the undo stack under auto-repeat — on its own clock,
+not the one the colour and width controls use. Sharing that timer folded a
+colour change and a nudge half a second apart into a single undo step, and
+did the same when you nudged one mark and then another.
 
 ## Verification
 
@@ -77,7 +83,8 @@ down does not bury the undo stack under auto-repeat.
    releasing the button, and un-straighten when you let Shift go.
 2. Check all eight directions, and check the arrowhead still points the
    right way on a snapped arrow.
-3. Select a line, grab its end handle, hold Shift, and swing it around.
+3. Select a line, grab each of its end handles in turn, hold Shift, and
+   swing it around.
 4. Draw an arrow over a filled rectangle, select the rectangle, Ctrl+Up
    twice — it should pass in front of the arrow.
 5. Ctrl+Shift+Down on it should send it behind everything.

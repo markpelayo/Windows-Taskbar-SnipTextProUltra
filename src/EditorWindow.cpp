@@ -328,15 +328,6 @@ void DrawCommandGlyph(HDC dc, Command command, const RECT& box, COLORREF ink) {
     }
 }
 
-// One face for every icon button on either bar. The top row and the bottom
-// row are the same kind of control at the same size, so they are drawn by
-// the same function rather than by three near-copies that drift apart the
-// first time one of them is adjusted.
-//
-// `active` is "this is switched on" — the selected tool, or Pin when it is
-// enabled. It is the only state that survives letting go of the mouse, so
-// it gets a doubled ring: at 34px one pixel of blue is easy to miss across
-// a desk, and two is not.
 // Constrains `to` to the nearest 45-degree ray out of `from`.
 //
 // PROJECTION rather than rotation: the snapped point is where the cursor
@@ -351,7 +342,8 @@ PointD SnapToAxis(PointD from, PointD to) {
     // nearly-zero is noise that would make the line flick between axes.
     if (std::hypot(dx, dy) < 1.0) return to;
 
-    constexpr double kPi = 3.14159265358979323846;
+    // kPi is the file-scope one above; redeclaring it here shadowed it,
+    // which /W4 reports as C4459 and /WX turns into a build failure.
     constexpr double kStep = kPi / 4.0;   // 45 degrees, so all eight rays
     const double snapped = std::round(std::atan2(dy, dx) / kStep) * kStep;
 
@@ -363,7 +355,7 @@ PointD SnapToAxis(PointD from, PointD to) {
     return PointD{ from.x + length * ux, from.y + length * uy };
 }
 
-// Which tools that snap. Pen is freehand by definition; the closed shapes
+// Which tools snap. Pen is freehand by definition; the closed shapes
 // use Shift for filling and a square-constraint would collide with it.
 bool ToolSnapsToAxis(Tool tool) {
     return tool == Tool::Line || tool == Tool::Arrow;
@@ -441,6 +433,15 @@ Gdiplus::GraphicsPath* MakeRoundedPath(Gdiplus::GraphicsPath* path,
     return path;
 }
 
+// One face for every icon button on either bar. The top row and the bottom
+// row are the same kind of control at the same size, so they are drawn by
+// the same function rather than by three near-copies that drift apart the
+// first time one of them is adjusted.
+//
+// `active` is "this is switched on" — the selected tool, or Pin when it is
+// enabled. It is the only state that survives letting go of the mouse, so
+// it gets a heavier accent outline: at 34px a hairline of blue is easy to
+// miss across a desk.
 void DrawIconButtonFace(HDC dc, const RECT& box, bool active, bool pressed) {
     // The corners this leaves uncovered have to be SOMETHING, and owner-draw
     // hands over a DC with no promise about what is already in it. The frame
@@ -2279,7 +2280,7 @@ void EditorWindow::MoveSelection(int delta, bool toEnd) {
     const int count = static_cast<int>(annotations_.size());
     if (count < 2) return;   // nothing to move past
 
-    // The array IS the z-order: marks are drawn front to back in order, and
+    // The array IS the z-order: marks are drawn back to front in order, and
     // hit-testing walks it backwards so the topmost is found first. Moving a
     // mark in the array is the whole operation — there is no separate depth
     // to keep in step, which is why this cannot drift out of sync with what
@@ -2305,7 +2306,18 @@ void EditorWindow::NudgeSelection(double dx, double dy) {
     if (selectedIndex_ < 0 || selectedIndex_ >= static_cast<int>(annotations_.size())) return;
     // Coalesced like a slider drag: holding an arrow key auto-repeats, and
     // one undo step per repeat tick would bury the stack.
-    SnapshotStyleChangeIfNeeded();
+    //
+    // On its own clock rather than the restyle one. A shared timer folded a
+    // colour change and a nudge half a second apart into a single undo
+    // step, which is two separate decisions the user made and would expect
+    // to take back separately. Changing which mark is being nudged also
+    // starts a new step, for the same reason.
+    const ULONGLONG now = ::GetTickCount64();
+    if (now - lastNudgeAt_ > kStyleCoalesceMs || lastNudgeIndex_ != selectedIndex_) {
+        Snapshot();
+    }
+    lastNudgeAt_    = now;
+    lastNudgeIndex_ = selectedIndex_;
     annotations_[selectedIndex_].MoveBy(dx, dy);
     ::InvalidateRect(canvas_, nullptr, FALSE);
 }
